@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FrameAI – Box Generator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #1a1a2e; color: #e0e0e0;
+    display: flex; height: 100vh; overflow: hidden;
+  }
+
+  /* --- sidebar --- */
+  .sidebar {
+    width: 300px; padding: 28px 24px;
+    background: #16213e; display: flex; flex-direction: column; gap: 24px;
+    border-right: 1px solid #0f3460;
+  }
+  .sidebar h1 { font-size: 20px; color: #e94560; letter-spacing: 1px; }
+  .sidebar h2 { font-size: 13px; text-transform: uppercase; color: #888; letter-spacing: 1px; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12px; color: #aaa; }
+  .field input[type=range] {
+    -webkit-appearance: none; width: 100%; height: 6px;
+    background: #0f3460; border-radius: 3px; outline: none;
+  }
+  .field input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px;
+    background: #e94560; border-radius: 50%; cursor: pointer;
+  }
+  .field .row { display: flex; align-items: center; gap: 8px; }
+  .field input[type=number] {
+    width: 80px; padding: 6px 8px; background: #0f3460; border: 1px solid #1a3a6e;
+    color: #fff; border-radius: 4px; font-size: 14px; text-align: right;
+  }
+  .field .unit { font-size: 12px; color: #666; }
+
+  .btn {
+    padding: 14px; border: none; border-radius: 6px;
+    font-size: 15px; font-weight: 600; cursor: pointer; transition: background .15s;
+  }
+  .btn-primary { background: #e94560; color: #fff; }
+  .btn-primary:hover { background: #c73550; }
+  .btn-primary:disabled { background: #555; cursor: wait; }
+
+  .dims {
+    font-size: 12px; color: #666; margin-top: auto; line-height: 1.6;
+  }
+
+  /* --- viewport --- */
+  .viewport { flex: 1; position: relative; }
+  canvas { display: block; width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+  <h1>FrameAI</h1>
+  <h2>Box dimensions</h2>
+
+  <div class="field">
+    <label>Width (X)</label>
+    <input type="range" id="rW" min="10" max="20000" value="1000">
+    <div class="row">
+      <input type="number" id="nW" min="1" max="100000" value="1000">
+      <span class="unit">mm</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Depth (Y)</label>
+    <input type="range" id="rD" min="10" max="20000" value="1000">
+    <div class="row">
+      <input type="number" id="nD" min="1" max="100000" value="1000">
+      <span class="unit">mm</span>
+    </div>
+  </div>
+
+  <div class="field">
+    <label>Height (Z)</label>
+    <input type="range" id="rH" min="10" max="20000" value="2000">
+    <div class="row">
+      <input type="number" id="nH" min="1" max="100000" value="2000">
+      <span class="unit">mm</span>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" id="dlBtn">Download .3dm</button>
+
+  <div class="dims" id="info"></div>
+</div>
+
+<div class="viewport" id="viewport"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+// ── Scene setup ──
+const vp = document.getElementById("viewport");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setClearColor(0x1a1a2e);
+vp.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 1, 500000);
+camera.position.set(4000, 3000, 5000);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+dir.position.set(5000, 8000, 6000);
+scene.add(dir);
+
+// Grid
+const grid = new THREE.GridHelper(20000, 40, 0x0f3460, 0x0f3460);
+grid.rotation.x = Math.PI / 2; // XY plane
+scene.add(grid);
+
+// Axes
+scene.add(new THREE.AxesHelper(2000));
+
+// ── Box mesh ──
+let boxMesh, boxEdges;
+function updateBox(w, d, h) {
+  if (boxMesh) { scene.remove(boxMesh); scene.remove(boxEdges); }
+
+  const geo = new THREE.BoxGeometry(w, d, h);
+  const mat = new THREE.MeshPhongMaterial({ color: 0xe94560, opacity: 0.35, transparent: true, side: THREE.DoubleSide });
+  boxMesh = new THREE.Mesh(geo, mat);
+  boxMesh.position.set(w / 2, d / 2, h / 2);
+  scene.add(boxMesh);
+
+  const edgeGeo = new THREE.EdgesGeometry(geo);
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0xe94560 });
+  boxEdges = new THREE.LineSegments(edgeGeo, edgeMat);
+  boxEdges.position.copy(boxMesh.position);
+  scene.add(boxEdges);
+
+  document.getElementById("info").textContent =
+    `${w} × ${d} × ${h} mm\nVolume: ${((w * d * h) / 1e9).toFixed(3)} m³`;
+}
+
+// ── Controls wiring ──
+const rW = document.getElementById("rW"), nW = document.getElementById("nW");
+const rD = document.getElementById("rD"), nD = document.getElementById("nD");
+const rH = document.getElementById("rH"), nH = document.getElementById("nH");
+
+function sync() {
+  updateBox(+nW.value, +nD.value, +nH.value);
+}
+
+for (const [slider, num] of [[rW, nW], [rD, nD], [rH, nH]]) {
+  slider.addEventListener("input", () => { num.value = slider.value; sync(); });
+  num.addEventListener("input", () => { slider.value = num.value; sync(); });
+}
+
+// ── Download ──
+document.getElementById("dlBtn").addEventListener("click", async () => {
+  const btn = document.getElementById("dlBtn");
+  btn.disabled = true; btn.textContent = "Generating…";
+  try {
+    const res = await fetch("/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ width: +nW.value, depth: +nD.value, height: +nH.value }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "box.3dm";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    alert("Error: " + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "Download .3dm";
+  }
+});
+
+// ── Resize + render loop ──
+function onResize() {
+  const { clientWidth: w, clientHeight: h } = vp;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", onResize);
+onResize();
+
+(function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+
+// initial box
+sync();
+</script>
+</body>
+</html>
