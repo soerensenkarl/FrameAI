@@ -1,4 +1,5 @@
-"""Integration tests for the Flask /generate endpoint."""
+"""Integration tests for Flask endpoints."""
+import json
 import sys
 import os
 
@@ -35,3 +36,43 @@ def test_generate_different_sizes():
         resp = client.post("/generate", json={"width": w, "depth": d, "height": h})
         assert resp.status_code == 200, f"Failed for {w}x{d}x{h}: {resp.data.decode()}"
         assert len(resp.data) > 100
+
+
+# ── /frame endpoint ──
+
+def test_frame_returns_mesh_json():
+    resp = _client().post("/frame", json={
+        "start_x": 0, "start_y": 0,
+        "end_x": 3000, "end_y": 0,
+        "height": 2400,
+    })
+    assert resp.status_code == 200, resp.data.decode()
+    data = resp.get_json()
+    assert "vertices" in data
+    assert "faces" in data
+    assert data["member_count"] >= 4
+    assert len(data["vertices"]) > 0
+    assert len(data["faces"]) > 0
+
+
+def test_frame_saves_3dm_file():
+    resp = _client().post("/frame", json={
+        "start_x": 0, "start_y": 0,
+        "end_x": 2000, "end_y": 0,
+        "height": 2400,
+    })
+    data = resp.get_json()
+    assert os.path.exists(data["file_saved"])
+    assert data["file_saved"].endswith("wall_frame.3dm")
+
+
+def test_frame_angled_wall():
+    resp = _client().post("/frame", json={
+        "start_x": 0, "start_y": 0,
+        "end_x": 2000, "end_y": 2000,
+        "height": 2400,
+        "stud_spacing": 600,
+    })
+    assert resp.status_code == 200, resp.data.decode()
+    data = resp.get_json()
+    assert data["member_count"] >= 4

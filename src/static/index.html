@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FrameAI – Box Generator</title>
+<title>FrameAI – Wall Framer</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -12,46 +12,52 @@
     display: flex; height: 100vh; overflow: hidden;
   }
 
-  /* --- sidebar --- */
+  /* ── sidebar ── */
   .sidebar {
-    width: 300px; padding: 28px 24px;
-    background: #16213e; display: flex; flex-direction: column; gap: 24px;
-    border-right: 1px solid #0f3460;
+    width: 300px; padding: 24px 20px;
+    background: #16213e; display: flex; flex-direction: column; gap: 16px;
+    border-right: 1px solid #0f3460; overflow-y: auto;
   }
   .sidebar h1 { font-size: 20px; color: #e94560; letter-spacing: 1px; }
-  .sidebar h2 { font-size: 13px; text-transform: uppercase; color: #888; letter-spacing: 1px; }
+  .section-title {
+    font-size: 11px; text-transform: uppercase; color: #666;
+    letter-spacing: 1px; margin-top: 4px;
+  }
 
-  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
   .field label { font-size: 12px; color: #aaa; }
-  .field input[type=range] {
-    -webkit-appearance: none; width: 100%; height: 6px;
-    background: #0f3460; border-radius: 3px; outline: none;
-  }
-  .field input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 16px; height: 16px;
-    background: #e94560; border-radius: 50%; cursor: pointer;
-  }
-  .field .row { display: flex; align-items: center; gap: 8px; }
+  .field .row { display: flex; align-items: center; gap: 6px; }
   .field input[type=number] {
-    width: 80px; padding: 6px 8px; background: #0f3460; border: 1px solid #1a3a6e;
-    color: #fff; border-radius: 4px; font-size: 14px; text-align: right;
+    width: 72px; padding: 5px 7px; background: #0f3460; border: 1px solid #1a3a6e;
+    color: #fff; border-radius: 4px; font-size: 13px; text-align: right;
   }
-  .field .unit { font-size: 12px; color: #666; }
+  .field .unit { font-size: 11px; color: #555; min-width: 24px; }
 
   .btn {
-    padding: 14px; border: none; border-radius: 6px;
-    font-size: 15px; font-weight: 600; cursor: pointer; transition: background .15s;
+    padding: 12px; border: none; border-radius: 6px;
+    font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s;
+    text-align: center;
   }
+  .btn-draw    { background: #0f3460; color: #4da6ff; border: 1px solid #1a5aaa; }
+  .btn-draw:hover { background: #153d6e; }
+  .btn-draw.active { background: #1a5aaa; color: #fff; }
   .btn-primary { background: #e94560; color: #fff; }
   .btn-primary:hover { background: #c73550; }
-  .btn-primary:disabled { background: #555; cursor: wait; }
+  .btn-primary:disabled { background: #444; color: #777; cursor: default; }
+  .btn-secondary { background: #0f3460; color: #aaa; }
+  .btn-secondary:hover { background: #153d6e; }
+  .btn-secondary:disabled { background: #333; color: #555; cursor: default; }
 
-  .dims {
-    font-size: 12px; color: #666; margin-top: auto; line-height: 1.6;
+  #status {
+    font-size: 12px; color: #4da6ff; min-height: 18px; line-height: 1.5;
+  }
+  #info {
+    font-size: 11px; color: #555; line-height: 1.6; margin-top: auto;
   }
 
-  /* --- viewport --- */
-  .viewport { flex: 1; position: relative; }
+  /* ── viewport ── */
+  .viewport { flex: 1; position: relative; cursor: crosshair; }
+  .viewport.orbit { cursor: grab; }
   canvas { display: block; width: 100%; height: 100%; }
 </style>
 </head>
@@ -59,41 +65,37 @@
 
 <div class="sidebar">
   <h1>FrameAI</h1>
-  <h2>Box dimensions</h2>
 
+  <button class="btn btn-draw" id="drawBtn">Draw Wall</button>
+  <div id="status">Click "Draw Wall", then click two points on the ground.</div>
+
+  <div class="section-title">Wall</div>
   <div class="field">
-    <label>Width (X)</label>
-    <input type="range" id="rW" min="10" max="20000" value="1000">
-    <div class="row">
-      <input type="number" id="nW" min="1" max="100000" value="1000">
-      <span class="unit">mm</span>
-    </div>
+    <label>Height</label>
+    <div class="row"><input type="number" id="wallHeight" value="2400" min="100" max="20000"><span class="unit">mm</span></div>
   </div>
 
+  <div class="section-title">Studs</div>
   <div class="field">
-    <label>Depth (Y)</label>
-    <input type="range" id="rD" min="10" max="20000" value="1000">
-    <div class="row">
-      <input type="number" id="nD" min="1" max="100000" value="1000">
-      <span class="unit">mm</span>
-    </div>
+    <label>Spacing (on center)</label>
+    <div class="row"><input type="number" id="studSpacing" value="600" min="100" max="2400"><span class="unit">mm</span></div>
+  </div>
+  <div class="field">
+    <label>Width (along wall)</label>
+    <div class="row"><input type="number" id="studWidth" value="45" min="10" max="200"><span class="unit">mm</span></div>
+  </div>
+  <div class="field">
+    <label>Depth (wall thickness)</label>
+    <div class="row"><input type="number" id="studDepth" value="90" min="10" max="300"><span class="unit">mm</span></div>
   </div>
 
-  <div class="field">
-    <label>Height (Z)</label>
-    <input type="range" id="rH" min="10" max="20000" value="2000">
-    <div class="row">
-      <input type="number" id="nH" min="1" max="100000" value="2000">
-      <span class="unit">mm</span>
-    </div>
-  </div>
+  <button class="btn btn-primary" id="frameBtn" disabled>Generate Frame</button>
+  <button class="btn btn-secondary" id="clearBtn" disabled>Clear</button>
 
-  <button class="btn btn-primary" id="dlBtn">Download .3dm</button>
-
-  <div class="dims" id="info"></div>
+  <div id="info"></div>
 </div>
 
-<div class="viewport" id="viewport"></div>
+<div class="viewport orbit" id="viewport"></div>
 
 <script type="importmap">
 {
@@ -107,7 +109,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-// ── Scene setup ──
+// ── Scene ──
 const vp = document.getElementById("viewport");
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(devicePixelRatio);
@@ -116,83 +118,281 @@ vp.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, 1, 1, 500000);
-camera.position.set(4000, 3000, 5000);
+camera.position.set(6000, -4000, 5000);
+camera.up.set(0, 0, 1);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
+controls.target.set(2000, 0, 1200);
 
-// Lights
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-dir.position.set(5000, 8000, 6000);
+dir.position.set(5000, -3000, 8000);
 scene.add(dir);
 
-// Grid
-const grid = new THREE.GridHelper(20000, 40, 0x0f3460, 0x0f3460);
-grid.rotation.x = Math.PI / 2; // XY plane
-scene.add(grid);
+// Grid on XY plane (Z=0)
+const gridHelper = new THREE.GridHelper(20000, 40, 0x0f3460, 0x0f3460);
+gridHelper.rotation.x = Math.PI / 2;
+scene.add(gridHelper);
+scene.add(new THREE.AxesHelper(1500));
 
-// Axes
-scene.add(new THREE.AxesHelper(2000));
+// ── State ──
+const S = { IDLE: 0, DRAW_START: 1, DRAW_END: 2, WALL_SET: 3, GENERATING: 4, FRAMED: 5 };
+let state = S.IDLE;
+let wallStart = null, wallEnd = null;
 
-// ── Box mesh ──
-let boxMesh, boxEdges;
-function updateBox(w, d, h) {
-  if (boxMesh) { scene.remove(boxMesh); scene.remove(boxEdges); }
+// Visual helpers
+let startMarker = null, endMarker = null, wallLine = null, wallOutline = null;
+let frameMesh = null, frameEdges = null;
 
-  const geo = new THREE.BoxGeometry(w, d, h);
-  const mat = new THREE.MeshPhongMaterial({ color: 0xe94560, opacity: 0.35, transparent: true, side: THREE.DoubleSide });
-  boxMesh = new THREE.Mesh(geo, mat);
-  boxMesh.position.set(w / 2, d / 2, h / 2);
-  scene.add(boxMesh);
+const markerGeo  = new THREE.SphereGeometry(60, 16, 16);
+const markerMat   = new THREE.MeshBasicMaterial({ color: 0x4da6ff });
+const previewMat  = new THREE.LineBasicMaterial({ color: 0x4da6ff });
+const outlineMat  = new THREE.LineBasicMaterial({ color: 0xe94560 });
 
-  const edgeGeo = new THREE.EdgesGeometry(geo);
-  const edgeMat = new THREE.LineBasicMaterial({ color: 0xe94560 });
-  boxEdges = new THREE.LineSegments(edgeGeo, edgeMat);
-  boxEdges.position.copy(boxMesh.position);
-  scene.add(boxEdges);
+// ── Raycast to ground plane (Z = 0) ──
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
-  document.getElementById("info").textContent =
-    `${w} × ${d} × ${h} mm\nVolume: ${((w * d * h) / 1e9).toFixed(3)} m³`;
+function groundHit(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x =  ((event.clientX - rect.left) / rect.width)  * 2 - 1;
+  mouse.y = -((event.clientY - rect.top)  / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hit = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(groundPlane, hit)) return hit;
+  return null;
 }
 
-// ── Controls wiring ──
-const rW = document.getElementById("rW"), nW = document.getElementById("nW");
-const rD = document.getElementById("rD"), nD = document.getElementById("nD");
-const rH = document.getElementById("rH"), nH = document.getElementById("nH");
-
-function sync() {
-  updateBox(+nW.value, +nD.value, +nH.value);
+// ── Drawing helpers ──
+function addMarker(pt) {
+  const m = new THREE.Mesh(markerGeo, markerMat);
+  m.position.copy(pt);
+  scene.add(m);
+  return m;
 }
 
-for (const [slider, num] of [[rW, nW], [rD, nD], [rH, nH]]) {
-  slider.addEventListener("input", () => { num.value = slider.value; sync(); });
-  num.addEventListener("input", () => { slider.value = num.value; sync(); });
+function drawWallOutline() {
+  if (wallOutline) { scene.remove(wallOutline); wallOutline = null; }
+  if (!wallStart || !wallEnd) return;
+
+  const h  = +document.getElementById("wallHeight").value;
+  const sd = +document.getElementById("studDepth").value;
+
+  const dx = wallEnd.x - wallStart.x;
+  const dy = wallEnd.y - wallStart.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) return;
+  const nx = -dy / len * sd, ny = dx / len * sd;
+
+  const pts = [
+    new THREE.Vector3(wallStart.x,      wallStart.y,      0),
+    new THREE.Vector3(wallEnd.x,        wallEnd.y,        0),
+    new THREE.Vector3(wallEnd.x,        wallEnd.y,        h),
+    new THREE.Vector3(wallStart.x,      wallStart.y,      h),
+    new THREE.Vector3(wallStart.x,      wallStart.y,      0),
+    // thickness
+    new THREE.Vector3(wallStart.x + nx, wallStart.y + ny, 0),
+    new THREE.Vector3(wallEnd.x + nx,   wallEnd.y + ny,   0),
+    new THREE.Vector3(wallEnd.x + nx,   wallEnd.y + ny,   h),
+    new THREE.Vector3(wallStart.x + nx, wallStart.y + ny, h),
+    new THREE.Vector3(wallStart.x + nx, wallStart.y + ny, 0),
+  ];
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  wallOutline = new THREE.Line(geo, outlineMat);
+  scene.add(wallOutline);
+
+  // connecting lines top
+  const con = [
+    new THREE.Vector3(wallStart.x, wallStart.y, h),
+    new THREE.Vector3(wallStart.x + nx, wallStart.y + ny, h),
+    new THREE.Vector3(wallEnd.x + nx, wallEnd.y + ny, h),
+    new THREE.Vector3(wallEnd.x, wallEnd.y, h),
+  ];
+  const cGeo = new THREE.BufferGeometry().setFromPoints(con);
+  const cLine = new THREE.Line(cGeo, outlineMat);
+  wallOutline.add(cLine);
+
+  // connecting lines bottom
+  const con2 = [
+    new THREE.Vector3(wallEnd.x, wallEnd.y, 0),
+    new THREE.Vector3(wallEnd.x + nx, wallEnd.y + ny, 0),
+  ];
+  const c2Geo = new THREE.BufferGeometry().setFromPoints(con2);
+  const c2Line = new THREE.Line(c2Geo, outlineMat);
+  wallOutline.add(c2Line);
 }
 
-// ── Download ──
-document.getElementById("dlBtn").addEventListener("click", async () => {
-  const btn = document.getElementById("dlBtn");
-  btn.disabled = true; btn.textContent = "Generating…";
-  try {
-    const res = await fetch("/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ width: +nW.value, depth: +nD.value, height: +nH.value }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const blob = await res.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "box.3dm";
-    a.click();
-    URL.revokeObjectURL(a.href);
-  } catch (e) {
-    alert("Error: " + e.message);
-  } finally {
-    btn.disabled = false; btn.textContent = "Download .3dm";
+function updateInfo() {
+  const el = document.getElementById("info");
+  if (!wallStart || !wallEnd) { el.textContent = ""; return; }
+  const len = Math.hypot(wallEnd.x - wallStart.x, wallEnd.y - wallStart.y);
+  const h = +document.getElementById("wallHeight").value;
+  el.textContent = `Wall: ${Math.round(len)} mm long, ${h} mm high`;
+}
+
+// ── Mouse interaction ──
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0) return;
+  if (state === S.DRAW_START) {
+    const pt = groundHit(e);
+    if (!pt) return;
+    wallStart = pt.clone();
+    startMarker = addMarker(wallStart);
+    state = S.DRAW_END;
+    setStatus("Click to place wall end point.");
+  } else if (state === S.DRAW_END) {
+    const pt = groundHit(e);
+    if (!pt) return;
+    wallEnd = pt.clone();
+    endMarker = addMarker(wallEnd);
+    if (wallLine) { scene.remove(wallLine); wallLine = null; }
+    drawWallOutline();
+    updateInfo();
+    state = S.WALL_SET;
+    setStatus("Wall defined. Adjust params, then click Generate Frame.");
+    document.getElementById("frameBtn").disabled = false;
+    document.getElementById("clearBtn").disabled = false;
+    document.getElementById("drawBtn").classList.remove("active");
+    vp.classList.add("orbit");
+    controls.enabled = true;
   }
 });
+
+renderer.domElement.addEventListener("pointermove", (e) => {
+  if (state === S.DRAW_END && wallStart) {
+    const pt = groundHit(e);
+    if (!pt) return;
+    if (wallLine) scene.remove(wallLine);
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(wallStart.x, wallStart.y, 0), pt
+    ]);
+    wallLine = new THREE.Line(geo, previewMat);
+    scene.add(wallLine);
+  }
+});
+
+// ── Buttons ──
+document.getElementById("drawBtn").addEventListener("click", () => {
+  clearScene();
+  state = S.DRAW_START;
+  setStatus("Click on the ground to place wall start point.");
+  document.getElementById("drawBtn").classList.add("active");
+  vp.classList.remove("orbit");
+  controls.enabled = false;
+});
+
+document.getElementById("clearBtn").addEventListener("click", () => {
+  clearScene();
+  state = S.IDLE;
+  setStatus('Click "Draw Wall", then click two points on the ground.');
+});
+
+document.getElementById("frameBtn").addEventListener("click", async () => {
+  if (state !== S.WALL_SET) return;
+  state = S.GENERATING;
+  const btn = document.getElementById("frameBtn");
+  btn.disabled = true;
+  btn.textContent = "Generating...";
+  setStatus("Sending wall to server...");
+
+  try {
+    const res = await fetch("/frame", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        start_x: wallStart.x,
+        start_y: wallStart.y,
+        end_x:   wallEnd.x,
+        end_y:   wallEnd.y,
+        height:       +document.getElementById("wallHeight").value,
+        stud_spacing: +document.getElementById("studSpacing").value,
+        stud_width:   +document.getElementById("studWidth").value,
+        stud_depth:   +document.getElementById("studDepth").value,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || res.statusText);
+    }
+    const data = await res.json();
+    renderFrame(data);
+    state = S.FRAMED;
+    setStatus(`Frame generated: ${data.member_count} members. Saved to wall_frame.3dm`);
+  } catch (e) {
+    setStatus("Error: " + e.message);
+    state = S.WALL_SET;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Generate Frame";
+  }
+});
+
+// Re-draw outline when params change
+for (const id of ["wallHeight", "studDepth"]) {
+  document.getElementById(id).addEventListener("input", () => {
+    if (state === S.WALL_SET || state === S.FRAMED) {
+      drawWallOutline();
+      updateInfo();
+    }
+  });
+}
+
+// ── Render frame mesh from server ──
+function renderFrame(data) {
+  if (frameMesh)  { scene.remove(frameMesh);  frameMesh = null;  }
+  if (frameEdges) { scene.remove(frameEdges); frameEdges = null; }
+  if (wallOutline) { scene.remove(wallOutline); wallOutline = null; }
+
+  const { vertices, faces } = data;
+  const positions = new Float32Array(vertices.length * 3);
+  for (let i = 0; i < vertices.length; i++) {
+    positions[i * 3]     = vertices[i][0];
+    positions[i * 3 + 1] = vertices[i][1];
+    positions[i * 3 + 2] = vertices[i][2];
+  }
+  const indices = [];
+  for (const f of faces) { indices.push(f[0], f[1], f[2]); }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+
+  const mat = new THREE.MeshPhongMaterial({
+    color: 0xdeb887,      // burlywood – timber color
+    side: THREE.DoubleSide,
+  });
+  frameMesh = new THREE.Mesh(geo, mat);
+  scene.add(frameMesh);
+
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x8b6914 });
+  const edgeGeo = new THREE.EdgesGeometry(geo, 15);
+  frameEdges = new THREE.LineSegments(edgeGeo, edgeMat);
+  scene.add(frameEdges);
+}
+
+// ── Clear ──
+function clearScene() {
+  if (startMarker) { scene.remove(startMarker); startMarker = null; }
+  if (endMarker)   { scene.remove(endMarker);   endMarker = null;   }
+  if (wallLine)    { scene.remove(wallLine);     wallLine = null;    }
+  if (wallOutline) { scene.remove(wallOutline);  wallOutline = null; }
+  if (frameMesh)   { scene.remove(frameMesh);    frameMesh = null;   }
+  if (frameEdges)  { scene.remove(frameEdges);   frameEdges = null;  }
+  wallStart = null; wallEnd = null;
+  document.getElementById("frameBtn").disabled = true;
+  document.getElementById("clearBtn").disabled = true;
+  document.getElementById("drawBtn").classList.remove("active");
+  vp.classList.add("orbit");
+  controls.enabled = true;
+  document.getElementById("info").textContent = "";
+}
+
+function setStatus(msg) {
+  document.getElementById("status").textContent = msg;
+}
 
 // ── Resize + render loop ──
 function onResize() {
@@ -209,9 +409,6 @@ onResize();
   controls.update();
   renderer.render(scene, camera);
 })();
-
-// initial box
-sync();
 </script>
 </body>
 </html>
