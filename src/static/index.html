@@ -531,6 +531,30 @@
     letter-spacing: 0.02em;
   }
   .btn-buy:hover { background: #e5ab00; }
+
+  .cut-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 0;
+  }
+  .cut-qty {
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 600;
+    min-width: 32px;
+  }
+  .cut-len {
+    color: rgba(255, 255, 255, 0.6);
+    flex: 1;
+    text-align: center;
+  }
+  .cut-sec {
+    color: rgba(255, 255, 255, 0.45);
+    min-width: 60px;
+    text-align: right;
+  }
 </style>
 </head>
 <body>
@@ -609,11 +633,16 @@
   <span class="panel-title">Your Order</span>
 
   <div class="info-section">
-    <div class="info-row"><span class="info-label">Timber members</span><span class="info-value" id="infoMembers">—</span></div>
-    <div class="info-row"><span class="info-label">Total length</span><span class="info-value" id="infoLength">—</span></div>
-    <div class="info-row"><span class="info-label">Volume</span><span class="info-value" id="infoVolume">—</span></div>
+    <div class="info-row"><span class="info-label">Elements</span><span class="info-value" id="infoMembers">—</span></div>
+    <div class="info-row"><span class="info-label">Waste</span><span class="info-value" id="infoWaste">—</span></div>
     <div class="info-row"><span class="info-label">Weight</span><span class="info-value" id="infoWeight">—</span></div>
+    <div class="info-row"><span class="info-label">Est. Build Time</span><span class="info-value" id="infoBuildTime">—</span></div>
   </div>
+
+  <div class="info-divider"></div>
+
+  <span class="panel-title">Cut List</span>
+  <div class="info-section" id="infoCutList"></div>
 
   <div class="info-divider"></div>
 
@@ -1239,7 +1268,7 @@ function rebuildScene() {
   roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
   scene.add(roomGroup);
   if (roofGroup || currentStep >= 2) buildRoof();
-  positionArrows();
+  if (currentStep === 0) positionArrows();
   positionRoofArrows();
   updateDims();
   rebuildOpenings();
@@ -1916,13 +1945,25 @@ async function generateFrame() {
       const fmt = (n) => n.toLocaleString("en", { maximumFractionDigits: 1 });
       const eur = (n) => "€" + n.toLocaleString("en", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
-      $("infoMembers").textContent = s.member_count;
-      $("infoLength").textContent = fmt(s.total_length_m) + " m";
-      $("infoVolume").textContent = fmt(s.total_volume_m3 * 1000) + " L";
+      $("infoMembers").textContent = s.member_count + " pcs.";
+      $("infoWaste").textContent = s.waste_pct + " %";
       $("infoWeight").textContent = fmt(s.weight_kg) + " kg";
+      $("infoBuildTime").textContent = s.build_time;
       $("infoCostTimber").textContent = eur(s.timber_cost);
       $("infoCostFab").textContent = eur(s.price - s.timber_cost);
       $("infoPriceTotal").textContent = eur(s.price);
+
+      // Build cut list rows
+      const cl = $("infoCutList");
+      cl.innerHTML = "";
+      for (const item of s.cut_list) {
+        const row = document.createElement("div");
+        row.className = "cut-row";
+        row.innerHTML = `<span class="cut-qty">${item.count}</span>`
+          + `<span class="cut-len">${item.length}</span>`
+          + `<span class="cut-sec">${item.section}</span>`;
+        cl.appendChild(row);
+      }
     }
     infoPanel.classList.add("open");
     btnNext.textContent = NEXT_LABELS[3];

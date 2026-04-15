@@ -481,30 +481,62 @@ def generate_frame():
 
         verts, normals, tris = _mesh_to_triangles(joined)
 
-        # Compute frame statistics from Breps
+        # Compute frame statistics: cut list grouped by cross-section × length
+        STOCK_LENGTHS = [2400, 3000, 3600, 4200, 4800, 5400, 6000, 6600, 7200]
+        from collections import Counter
+        cut_counter = Counter()   # (section_w, section_d, length_mm) → count
         total_volume_mm3 = 0.0
-        total_length_mm = 0.0
-        member_count = len(breps_out)
+        total_stock_mm3 = 0.0
+
         for b in breps_out:
-            vol = rg.VolumeMassProperties.Compute(b)
-            if vol:
-                total_volume_mm3 += abs(vol.Volume)
             bb = b.GetBoundingBox(True)
             dims = sorted([
-                bb.Max.X - bb.Min.X,
-                bb.Max.Y - bb.Min.Y,
-                bb.Max.Z - bb.Min.Z,
+                round(bb.Max.X - bb.Min.X),
+                round(bb.Max.Y - bb.Min.Y),
+                round(bb.Max.Z - bb.Min.Z),
             ])
-            total_length_mm += dims[2]  # longest axis = member length
+            sec_w, sec_d, length = dims[0], dims[1], dims[2]
+            # Round section to nearest 5mm, length to nearest 100mm
+            sec_w = round(sec_w / 5) * 5
+            sec_d = round(sec_d / 5) * 5
+            length = round(length / 100) * 100
 
+            cut_counter[(sec_d, sec_w, length)] += 1
+            total_volume_mm3 += sec_w * sec_d * length
+
+            # Find smallest stock length that fits
+            stock_len = length
+            for sl in STOCK_LENGTHS:
+                if sl >= length:
+                    stock_len = sl
+                    break
+            else:
+                stock_len = length  # longer than any stock
+            total_stock_mm3 += sec_w * sec_d * stock_len
+
+        member_count = sum(cut_counter.values())
+        waste_pct = ((total_stock_mm3 - total_volume_mm3) / total_stock_mm3 * 100
+                     if total_stock_mm3 > 0 else 0)
         total_volume_m3 = total_volume_mm3 / 1e9
-        total_length_m = total_length_mm / 1000
-        weight_kg = total_volume_m3 * 500  # ~500 kg/m³ for structural timber
+        weight_kg = total_volume_m3 * 500
 
-        # Pricing: structural C24 timber ~€450/m³ + markup
+        # Estimated build time: ~5 min per member
+        build_minutes = member_count * 5
+        build_h = build_minutes // 60
+        build_m = build_minutes % 60
+
+        # Build sorted cut list: group by (section, length), sorted by section then length
+        cut_list = []
+        for (sec_d, sec_w, length), count in sorted(cut_counter.items()):
+            cut_list.append({
+                "count": count,
+                "length": length,
+                "section": f"{sec_d}x{sec_w}",
+            })
+
+        # Pricing: structural C24 timber ~€450/m³ + 35% fabrication
         timber_cost = total_volume_m3 * 450
-        markup = timber_cost * 0.35  # fabrication + handling
-        price = timber_cost + markup
+        price = timber_cost * 1.35
 
         return jsonify({
             "vertices": verts,
@@ -516,11 +548,12 @@ def generate_frame():
             "frame_mesh_saved": frame_mesh_saved,
             "stats": {
                 "member_count": member_count,
-                "total_volume_m3": round(total_volume_m3, 3),
-                "total_length_m": round(total_length_m, 1),
+                "waste_pct": round(waste_pct, 1),
+                "build_time": f"{build_h}h {build_m:02d}m",
                 "weight_kg": round(weight_kg, 1),
                 "timber_cost": round(timber_cost, 2),
                 "price": round(price, 2),
+                "cut_list": cut_list,
             },
         })
     except Exception as e:
