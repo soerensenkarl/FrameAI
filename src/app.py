@@ -425,10 +425,12 @@ def generate_frame():
                                        ridge_h=ridge_h if roof_type == "gable" else None,
                                        flat_slope=flat_slope)
 
-        # Send only wall breps for testing
         gh_file = "test_simple.gh" if data.get("devSimple") else "generator_3.0.gh"
         outputs = solve_definition(gh_file, {
             "WallBreps": wall_breps,
+            "DoorBreps": door_breps,
+            "WindowBreps": window_breps,
+            "RoofBreps": roof_breps,
         })
 
         # "MeshOut" → display in browser, "BrepOut" → save to .3dm
@@ -461,8 +463,9 @@ def generate_frame():
                 elif tn == "Extrusion":
                     breps_out.append(geom.ToBrep())
 
-        # Save input wall breps to design.3dm
-        input_saved = _save_breps_3dm(wall_breps, "design.3dm")
+        # Save all input breps (walls + openings + roof) to design.3dm
+        all_input_breps = wall_breps + door_breps + window_breps + roof_breps
+        input_saved = _save_breps_3dm(all_input_breps, "design.3dm")
 
         # Save frame Breps to frame.3dm
         frame_brep_saved = None
