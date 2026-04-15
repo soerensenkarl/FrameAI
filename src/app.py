@@ -35,29 +35,49 @@ app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), "sta
 # ── helpers ──
 
 def _mesh_to_triangles(mesh):
-    """Extract vertices and triangle indices from a Rhino Mesh."""
+    """Extract vertices, normals and triangle indices from a Rhino Mesh."""
     verts = []
+    normals = []
     for i in range(mesh.Vertices.Count):
         v = mesh.Vertices[i]
         verts.append([float(v.X), float(v.Y), float(v.Z)])
+        n = mesh.Normals[i]
+        normals.append([float(n.X), float(n.Y), float(n.Z)])
     tris = []
     for i in range(mesh.Faces.Count):
         f = mesh.Faces[i]
         tris.append([f.A, f.B, f.C])
         if f.IsQuad:
             tris.append([f.A, f.C, f.D])
-    return verts, tris
+    return verts, normals, tris
 
 
 def _breps_to_mesh(breps):
-    """Convert a list of Breps into a single joined Mesh for the UI."""
-    mp = rg.MeshingParameters.FastRenderMesh
+    """Convert Breps into a single clean Mesh for Three.js rendering.
+
+    Each member is meshed and cleaned individually (normals unified per
+    connected component) before joining, so winding is always consistent.
+    SimplePlanes keeps flat box faces as minimal quads.
+    Normals are computed once on the final joined mesh.
+    """
+    mp = rg.MeshingParameters.Default
+    mp.SimplePlanes = True
+
     joined = rg.Mesh()
     for brep in breps:
         face_meshes = rg.Mesh.CreateFromBrep(brep, mp)
-        if face_meshes:
-            for fm in face_meshes:
-                joined.Append(fm)
+        if not face_meshes:
+            continue
+        part = rg.Mesh()
+        for fm in face_meshes:
+            part.Append(fm)
+        part.Vertices.CombineIdentical(True, True)
+        part.UnifyNormals()
+        part.Compact()
+        joined.Append(part)
+
+    joined.FaceNormals.ComputeFaceNormals()
+    joined.Normals.ComputeNormals()
     return joined
 
 
@@ -113,48 +133,87 @@ def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type):
     return box.ToBrep()
 
 
-def _build_roof_breps(x0, y0, x1, y1, h, roof_type):
+def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None):
     """Create roof Brep(s) matching the frontend roof visualization."""
     w = x1 - x0
     d = y1 - y0
     overhang = 200
+    if flat_slope is None:
+        flat_slope = [0, 0]
 
     if roof_type == "gable":
-        ridge_h = min(w, d) * 0.35
+        if ridge_h is None:
+            ridge_h = min(w, d) * 0.35
+        faces = []
         if w >= d:
-            # Ridge along X, gable ends on east/west
+            # Ridge along X; two faces: south slope, north slope
             mid_y = (y0 + y1) / 2
-            pts = [
+            faces.append([
                 rg.Point3d(x0 - overhang, y0 - overhang, h),
-                rg.Point3d(x0 - overhang, mid_y, h + ridge_h),
-                rg.Point3d(x0 - overhang, y1 + overhang, h),
-                rg.Point3d(x0 - overhang, y0 - overhang, h),
-            ]
-            direction = rg.Vector3d(w + 2 * overhang, 0, 0)
-        else:
-            # Ridge along Y, gable ends on north/south
-            mid_x = (x0 + x1) / 2
-            pts = [
-                rg.Point3d(x0 - overhang, y0 - overhang, h),
-                rg.Point3d(mid_x, y0 - overhang, h + ridge_h),
                 rg.Point3d(x1 + overhang, y0 - overhang, h),
+                rg.Point3d(x1 + overhang, mid_y, h + ridge_h),
+                rg.Point3d(x0 - overhang, mid_y, h + ridge_h),
+            ])
+            faces.append([
+                rg.Point3d(x0 - overhang, mid_y, h + ridge_h),
+                rg.Point3d(x1 + overhang, mid_y, h + ridge_h),
+                rg.Point3d(x1 + overhang, y1 + overhang, h),
+                rg.Point3d(x0 - overhang, y1 + overhang, h),
+            ])
+        else:
+            # Ridge along Y; two faces: west slope, east slope
+            mid_x = (x0 + x1) / 2
+            faces.append([
                 rg.Point3d(x0 - overhang, y0 - overhang, h),
-            ]
-            direction = rg.Vector3d(0, d + 2 * overhang, 0)
+                rg.Point3d(x0 - overhang, y1 + overhang, h),
+                rg.Point3d(mid_x, y1 + overhang, h + ridge_h),
+                rg.Point3d(mid_x, y0 - overhang, h + ridge_h),
+            ])
+            faces.append([
+                rg.Point3d(mid_x, y0 - overhang, h + ridge_h),
+                rg.Point3d(mid_x, y1 + overhang, h + ridge_h),
+                rg.Point3d(x1 + overhang, y1 + overhang, h),
+                rg.Point3d(x1 + overhang, y0 - overhang, h),
+            ])
+        breps = []
+        for pts in faces:
+            pts_closed = pts + [pts[0]]
+            curve = rg.PolylineCurve(System.Array[rg.Point3d](pts_closed))
+            brep = rg.Brep.CreatePlanarBreps(curve, 1.0)
+            if brep and len(brep) > 0:
+                breps.append(brep[0])
+        return breps
 
-        curve = rg.PolylineCurve(System.Array[rg.Point3d](pts))
-        srf = rg.Surface.CreateExtrusion(curve, direction)
-        brep = srf.ToBrep()
-        capped = brep.CapPlanarHoles(1.0)
-        return [capped if capped else brep]
-
-    # Default: flat roof slab
+    # Default: flat roof (possibly sloped)
     slab = 120
-    box = rg.Box(rg.Plane.WorldXY,
-                 rg.Interval(x0 - overhang, x1 + overhang),
-                 rg.Interval(y0 - overhang, y1 + overhang),
-                 rg.Interval(h, h + slab))
-    return [box.ToBrep()]
+    f, b = flat_slope[0], flat_slope[1]
+    if f == 0 and b == 0:
+        box = rg.Box(rg.Plane.WorldXY,
+                     rg.Interval(x0 - overhang, x1 + overhang),
+                     rg.Interval(y0 - overhang, y1 + overhang),
+                     rg.Interval(h, h + slab))
+        return [box.ToBrep()]
+    # Sloped single surface
+    if w >= d:
+        pts = [
+            rg.Point3d(x0 - overhang, y0 - overhang, h + slab + f),
+            rg.Point3d(x1 + overhang, y0 - overhang, h + slab + f),
+            rg.Point3d(x1 + overhang, y1 + overhang, h + slab + b),
+            rg.Point3d(x0 - overhang, y1 + overhang, h + slab + b),
+        ]
+    else:
+        pts = [
+            rg.Point3d(x0 - overhang, y0 - overhang, h + slab + f),
+            rg.Point3d(x0 - overhang, y1 + overhang, h + slab + f),
+            rg.Point3d(x1 + overhang, y1 + overhang, h + slab + b),
+            rg.Point3d(x1 + overhang, y0 - overhang, h + slab + b),
+        ]
+    pts_closed = pts + [pts[0]]
+    curve = rg.PolylineCurve(System.Array[rg.Point3d](pts_closed))
+    brep = rg.Brep.CreatePlanarBreps(curve, 1.0)
+    if brep and len(brep) > 0:
+        return [brep[0]]
+    return []
 
 
 # ── routes ──
@@ -206,10 +265,11 @@ def frame():
 
         # Convert Breps → single Mesh → triangles for three.js
         mesh = _breps_to_mesh(members)
-        all_verts, all_tris = _mesh_to_triangles(mesh)
+        all_verts, all_normals, all_tris = _mesh_to_triangles(mesh)
 
         return jsonify({
             "vertices": all_verts,
+            "normals": all_normals,
             "faces": all_tris,
             "member_count": len(members),
             "file_saved": saved_path,
@@ -243,17 +303,110 @@ def generate_frame():
             (x1 - t, y0 + t, t,       d - 2 * t),  # east
         ]
 
+        roof_type = data.get("roofType", "flat")
+        default_ridge = min(w, d) * 0.35
+        ridge_h = float(data.get("ridgeH", default_ridge)) if roof_type == "gable" else 0
+        ridge_along_x = w >= d
+
+        flat_slope = data.get("flatSlopeH", [0, 0])
+        is_flat_sloped = roof_type == "flat" and (flat_slope[0] != 0 or flat_slope[1] != 0)
+
         wall_breps = []
-        for ox, oy, sx, sy in wall_specs:
+        for i, (ox, oy, sx, sy) in enumerate(wall_specs):
             if sx <= 0 or sy <= 0:
                 continue
-            box = rg.Box(
-                rg.Plane.WorldXY,
-                rg.Interval(ox, ox + sx),
-                rg.Interval(oy, oy + sy),
-                rg.Interval(0, h),
+            # Check if this is a gable-end wall
+            is_gable_wall = roof_type == "gable" and (
+                (ridge_along_x and i in (2, 3)) or
+                (not ridge_along_x and i in (0, 1))
             )
-            wall_breps.append(box.ToBrep())
+            if is_gable_wall:
+                # Pentagonal wall: rectangle + triangle up to ridge
+                # Build pentagon profile as closed polyline, then extrude
+                if ridge_along_x:
+                    # Gable ends are west/east: profile in YZ, extruded along X
+                    mid = sy / 2
+                    pts = [
+                        rg.Point3d(ox, oy, 0),
+                        rg.Point3d(ox, oy + sy, 0),
+                        rg.Point3d(ox, oy + sy, h),
+                        rg.Point3d(ox, oy + mid, h + ridge_h),
+                        rg.Point3d(ox, oy, h),
+                        rg.Point3d(ox, oy, 0),
+                    ]
+                    direction = rg.Vector3d(sx, 0, 0)
+                else:
+                    # Gable ends are south/north: profile in XZ, extruded along Y
+                    mid = sx / 2
+                    pts = [
+                        rg.Point3d(ox, oy, 0),
+                        rg.Point3d(ox + sx, oy, 0),
+                        rg.Point3d(ox + sx, oy, h),
+                        rg.Point3d(ox + mid, oy, h + ridge_h),
+                        rg.Point3d(ox, oy, h),
+                        rg.Point3d(ox, oy, 0),
+                    ]
+                    direction = rg.Vector3d(0, sy, 0)
+                curve = rg.PolylineCurve(System.Array[rg.Point3d](pts))
+                srf = rg.Surface.CreateExtrusion(curve, direction)
+                brep = srf.ToBrep()
+                capped = brep.CapPlanarHoles(1.0)
+                wall_breps.append(capped if capped else brep)
+            elif is_flat_sloped:
+                # Flat roof with slope — trapezoidal or taller box walls
+                is_trap = (ridge_along_x and i in (2, 3)) or (not ridge_along_x and i in (0, 1))
+                if is_trap:
+                    # Trapezoidal wall: different heights at each end
+                    if ridge_along_x:
+                        # West/east walls run along Y: south end at flat_slope[0], north end at flat_slope[1]
+                        h_start = h + flat_slope[0]  # at oy (south end)
+                        h_end = h + flat_slope[1]    # at oy+sy (north end)
+                        pts = [
+                            rg.Point3d(ox, oy, 0),
+                            rg.Point3d(ox, oy + sy, 0),
+                            rg.Point3d(ox, oy + sy, h_end),
+                            rg.Point3d(ox, oy, h_start),
+                            rg.Point3d(ox, oy, 0),
+                        ]
+                        direction = rg.Vector3d(sx, 0, 0)
+                    else:
+                        # South/north walls run along X: west end at flat_slope[0], east end at flat_slope[1]
+                        h_start = h + flat_slope[0]  # at ox (west end)
+                        h_end = h + flat_slope[1]    # at ox+sx (east end)
+                        pts = [
+                            rg.Point3d(ox, oy, 0),
+                            rg.Point3d(ox + sx, oy, 0),
+                            rg.Point3d(ox + sx, oy, h_end),
+                            rg.Point3d(ox, oy, h_start),
+                            rg.Point3d(ox, oy, 0),
+                        ]
+                        direction = rg.Vector3d(0, sy, 0)
+                    curve = rg.PolylineCurve(System.Array[rg.Point3d](pts))
+                    srf = rg.Surface.CreateExtrusion(curve, direction)
+                    brep = srf.ToBrep()
+                    capped = brep.CapPlanarHoles(1.0)
+                    wall_breps.append(capped if capped else brep)
+                else:
+                    # Constant-height wall at the roof edge height
+                    if ridge_along_x:
+                        wall_h = h + flat_slope[0] if i == 0 else h + flat_slope[1]
+                    else:
+                        wall_h = h + flat_slope[0] if i == 2 else h + flat_slope[1]
+                    box = rg.Box(
+                        rg.Plane.WorldXY,
+                        rg.Interval(ox, ox + sx),
+                        rg.Interval(oy, oy + sy),
+                        rg.Interval(0, wall_h),
+                    )
+                    wall_breps.append(box.ToBrep())
+            else:
+                box = rg.Box(
+                    rg.Plane.WorldXY,
+                    rg.Interval(ox, ox + sx),
+                    rg.Interval(oy, oy + sy),
+                    rg.Interval(0, h),
+                )
+                wall_breps.append(box.ToBrep())
 
         # Build opening Breps from frontend placement data
         door_breps = []
@@ -268,63 +421,71 @@ def generate_frame():
 
         # Build roof Breps
         roof_breps = _build_roof_breps(x0, y0, x1, y1, h,
-                                       data.get("roofType", "flat"))
+                                       roof_type,
+                                       ridge_h=ridge_h if roof_type == "gable" else None,
+                                       flat_slope=flat_slope)
 
-        results = solve_definition("generator_3.0.gh", {
+        # Send only wall breps for testing
+        gh_file = "test_simple.gh" if data.get("devSimple") else "generator_3.0.gh"
+        outputs = solve_definition(gh_file, {
             "WallBreps": wall_breps,
-            "DoorBreps": door_breps,
-            "WindowBreps": window_breps,
-            "RoofBreps": roof_breps,
         })
 
-        # Convert output geometry to mesh triangles for three.js
-        mp = rg.MeshingParameters.FastRenderMesh
+        # "MeshOut" → display in browser, "BrepOut" → save to .3dm
+        mesh_geoms = outputs.get("MeshOut", [])
+        brep_geoms = outputs.get("BrepOut", [])
+
+        # Build display mesh from MeshOut
         joined = rg.Mesh()
-        breps_out = []
-        for geom in results:
-            brep = None
+        for geom in mesh_geoms:
             if isinstance(geom, rg.Mesh):
                 joined.Append(geom)
-                continue
-            elif isinstance(geom, rg.Brep):
-                brep = geom
-            elif isinstance(geom, rg.Extrusion):
-                brep = geom.ToBrep()
             else:
                 tn = geom.GetType().Name
                 if tn == "Mesh":
                     joined.Append(geom)
-                    continue
-                elif tn in ("Extrusion", "Brep"):
-                    brep = geom.ToBrep() if tn == "Extrusion" else geom
-                elif hasattr(geom, "ToBrep"):
-                    brep = geom.ToBrep()
-            if brep:
-                breps_out.append(brep)
-                for fm in (rg.Mesh.CreateFromBrep(brep, mp) or []):
-                    joined.Append(fm)
+        joined.FaceNormals.ComputeFaceNormals()
+        joined.Normals.ComputeNormals()
 
-        # Save input boxes (walls + openings + roof) to .3dm
-        all_input_breps = wall_breps + door_breps + window_breps + roof_breps
-        input_saved = _save_breps_3dm(all_input_breps, "design.3dm")
+        # Collect Breps from BrepOut for .3dm saving
+        breps_out = []
+        for geom in brep_geoms:
+            if isinstance(geom, rg.Brep):
+                breps_out.append(geom)
+            elif isinstance(geom, rg.Extrusion):
+                breps_out.append(geom.ToBrep())
+            else:
+                tn = geom.GetType().Name
+                if tn == "Brep":
+                    breps_out.append(geom)
+                elif tn == "Extrusion":
+                    breps_out.append(geom.ToBrep())
 
-        # Save frame to .3dm (Rhino 7)
-        frame_saved = None
+        # Save input wall breps to design.3dm
+        input_saved = _save_breps_3dm(wall_breps, "design.3dm")
+
+        # Save frame Breps to frame.3dm
+        frame_brep_saved = None
         if breps_out:
-            frame_saved = _save_breps_3dm(breps_out, "frame.3dm")
-        elif joined.Vertices.Count > 0:
+            frame_brep_saved = _save_breps_3dm(breps_out, "frame.3dm")
+
+        # Save frame mesh to frame_mesh.3dm
+        frame_mesh_saved = None
+        if joined.Vertices.Count > 0:
             model = rio.File3dm()
             model.Objects.AddMesh(joined)
-            frame_saved = _write_3dm(model, "frame.3dm")
+            frame_mesh_saved = _write_3dm(model, "frame_mesh.3dm")
 
-        verts, tris = _mesh_to_triangles(joined)
+        verts, normals, tris = _mesh_to_triangles(joined)
 
         return jsonify({
             "vertices": verts,
+            "normals": normals,
             "faces": tris,
-            "result_count": len(results),
+            "result_count": len(mesh_geoms),
             "design_saved": input_saved,
-            "frame_saved": frame_saved,
+            "frame_brep_saved": frame_brep_saved,
+            "frame_mesh_saved": frame_mesh_saved,
         })
     except Exception as e:
         import traceback
@@ -361,45 +522,24 @@ def solve_gh():
         wall_brep = box.ToBrep()
 
         # Solve the GH definition with the wall box
-        results = solve_definition("generator_3.0.gh", {"WallBreps": [wall_brep]})
+        outputs = solve_definition("generator_3.0.gh", {"WallBreps": [wall_brep]})
 
-        # Convert output geometry to mesh triangles for three.js
-        mp = rg.MeshingParameters.FastRenderMesh
+        # Use MeshOut for display
         joined = rg.Mesh()
-        for geom in results:
-            # Try converting to Brep first (works for Brep, Extrusion, Surface)
-            brep = None
+        for geom in outputs.get("MeshOut", []):
             if isinstance(geom, rg.Mesh):
                 joined.Append(geom)
-                continue
-            elif isinstance(geom, rg.Brep):
-                brep = geom
-            elif isinstance(geom, rg.Extrusion):
-                brep = geom.ToBrep()
-            else:
-                # Fallback: use .NET type name for pythonnet casting issues
-                tn = geom.GetType().Name
-                if tn == "Mesh":
-                    joined.Append(geom)
-                    continue
-                elif tn == "Extrusion":
-                    brep = geom.ToBrep()
-                elif tn == "Brep":
-                    brep = geom
-                else:
-                    # Last resort: try ToBrep if available
-                    if hasattr(geom, "ToBrep"):
-                        brep = geom.ToBrep()
-            if brep:
-                for fm in (rg.Mesh.CreateFromBrep(brep, mp) or []):
-                    joined.Append(fm)
-
-        verts, tris = _mesh_to_triangles(joined)
+            elif getattr(geom, "GetType", lambda: None)() and geom.GetType().Name == "Mesh":
+                joined.Append(geom)
+        joined.FaceNormals.ComputeFaceNormals()
+        joined.Normals.ComputeNormals()
+        verts, normals, tris = _mesh_to_triangles(joined)
 
         return jsonify({
             "vertices": verts,
+            "normals": normals,
             "faces": tris,
-            "result_count": len(results),
+            "result_count": len(outputs.get("MeshOut", [])),
         })
     except Exception as e:
         import traceback

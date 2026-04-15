@@ -4,6 +4,7 @@ A timber frame generator. Webplatform UI for simple user friendly house drawing 
 # Very important instructions from the user:
 - Always use the most efficient elegant analytical approach. Avoid slow geometric operations.
 - Always check that the full platform (Design - Generated Frame) works after adding features or changing code. 
+- When something is not working correct with the rhinoinside. Run a test on the test_simple.gh definition. Give at a wall brep and see it if outputs multiple studs. The input is called WallBreps and there are two C-Bake outputs MeshOut and BrepOut. So always use this to see if data is flowing. If that does not work. Nothing will. 
 
 #UI Look. 
 - Things that are highlighted such as important buttons etc. should use the color #F9BC06

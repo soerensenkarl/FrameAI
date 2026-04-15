@@ -41,8 +41,9 @@ def solve_definition(gh_filename, inputs):
 
     Returns
     -------
-    list[Rhino.Geometry.GeometryBase]
-        Geometry from the Context Bake output.
+    dict[str, list[GeometryBase]]
+        Geometry keyed by Context Bake NickName.
+        e.g. {"MeshOut": [Mesh, ...], "BrepOut": [Brep, ...]}
     """
     path = os.path.join(DEFINITIONS_DIR, gh_filename)
     if not os.path.isfile(path):
@@ -55,17 +56,17 @@ def solve_definition(gh_filename, inputs):
     doc = io.Document
     doc.Enabled = True
 
-    # -- Find Get Geometry inputs and Context Bake output --
+    # -- Find Get Geometry inputs and Context Bake outputs --
     input_params = {}  # NickName -> list of components
-    bake_component = None
+    bake_components = []
     for obj in doc.Objects:
         tn = obj.GetType().Name
         if tn == "GetGeometryParameter":
             input_params.setdefault(obj.NickName, []).append(obj)
         elif tn == "ContextBakeComponent":
-            bake_component = obj
+            bake_components.append(obj)
 
-    if bake_component is None:
+    if not bake_components:
         raise RuntimeError("No Context Bake component found in the GH definition")
 
     # -- Set each named input via contextual API --
@@ -84,17 +85,34 @@ def solve_definition(gh_filename, inputs):
     # -- Solve --
     doc.NewSolution(True)
 
-    # -- Read output from Context Bake --
-    bt = bake_component.GetType()
-    geom_iter = bt.GetMethod("GetContextualGeometry").Invoke(bake_component, None)
+    # -- Read output from each Context Bake --
+    # Key by the input parameter NickName (e.g. "MeshOut", "BrepOut")
+    # rather than the component NickName (which defaults to "C-Bake").
+    outputs = {}
+    for bake in bake_components:
+        bt = bake.GetType()
 
-    results = []
-    if geom_iter:
+        # Determine the output key from the first input param's NickName
+        key = bake.NickName
+        try:
+            params = bt.GetProperty("Params").GetValue(bake)
+            inp = params.GetType().GetProperty("Input").GetValue(params)
+            if inp.GetType().GetProperty("Count").GetValue(inp) > 0:
+                key = inp[0].NickName or key
+        except Exception:
+            pass
+
+        geom_iter = bt.GetMethod("GetContextualGeometry").Invoke(bake, None)
+        if not geom_iter:
+            continue
+        geom_list = []
         for item in geom_iter:
             # Items come back as IGH_Goo; extract .Value via reflection
             val_prop = item.GetType().GetProperty("Value")
             val = val_prop.GetValue(item) if val_prop else item
             if val is not None:
-                results.append(val)
+                geom_list.append(val)
+        if geom_list:
+            outputs.setdefault(key, []).extend(geom_list)
 
-    return results
+    return outputs

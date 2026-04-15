@@ -101,6 +101,49 @@
   }
   .btn-icon:hover { color: rgba(255, 255, 255, 0.85); }
   .btn-icon svg { width: 16px; height: 16px; }
+  .btn-icon.active { color: #F9BC06; border: 1.5px solid rgba(249,188,6,0.35); }
+  .btn-icon.active:hover { color: #F9BC06; }
+
+  /* Top-view toggle — fixed top-left */
+  #btnTopView {
+    position: fixed;
+    left: 20px;
+    top: 20px;
+    display: none;
+    z-index: 10;
+  }
+
+  /* ── Dev mode ── */
+  .dev-btn {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    z-index: 100;
+  }
+  .dev-btn.active { color: #F9BC06; }
+  .dev-panel {
+    position: fixed;
+    bottom: 62px;
+    left: 16px;
+    width: 180px;
+    padding: 14px 16px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 100;
+  }
+  .dev-panel.open { display: flex; }
+  .dev-opt {
+    font-size: 12px;
+    color: rgba(255,255,255,0.7);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .dev-opt input[type="checkbox"] {
+    accent-color: #F9BC06;
+  }
 
   .btn-next {
     padding: 7px 22px;
@@ -132,6 +175,14 @@
   }
 
   .panel.open { display: flex; }
+
+  /* Opening inspector floats next to the selected opening */
+  #openingInspector {
+    right: auto;
+    top: auto;
+    transform: none;
+    pointer-events: auto;
+  }
 
   .panel-title {
     font-size: 11px;
@@ -202,6 +253,55 @@
     border-color: rgba(255, 255, 255, 0.08);
   }
 
+  /* ── Example link ── */
+  .example-link {
+    position: fixed;
+    top: calc(50% + 40px);
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.35);
+    z-index: 10;
+  }
+  .example-link a {
+    color: #F9BC06;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .example-link a:hover { text-decoration: underline; }
+
+  /* ── Loading overlay ── */
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 18px;
+    background: rgba(10, 10, 10, 0.5);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .loading-overlay.active { display: flex; }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: #F9BC06;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-overlay .loading-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
   /* ── Inline dim editor ── */
   .dim-edit {
     position: fixed;
@@ -245,7 +345,6 @@
     left: 20px;
     top: 50%;
     transform: translateY(-50%);
-    width: 170px;
     padding: 18px;
     display: none;
     flex-direction: column;
@@ -256,16 +355,17 @@
 
   .tool-item {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
+    gap: 8px;
+    padding: 14px 16px;
     background: rgba(255,255,255,0.04);
     border: 1.5px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
+    border-radius: 12px;
     color: rgba(255,255,255,0.55);
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
-    cursor: pointer;
+    cursor: grab;
     transition: all 0.15s;
     user-select: none;
   }
@@ -273,23 +373,59 @@
     border-color: rgba(255,255,255,0.18);
     color: rgba(255,255,255,0.85);
   }
+  .tool-item:active {
+    cursor: grabbing;
+  }
   .tool-item.active {
     border-color: #F9BC06;
     color: #F9BC06;
     background: rgba(249,188,6,0.08);
   }
-  .tool-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .tool-item svg { width: 40px; height: 40px; flex-shrink: 0; }
+
+  /* ── Delete button ── */
+  .btn-delete {
+    padding: 7px 12px;
+    background: rgba(255, 60, 60, 0.1);
+    border: 1px solid rgba(255, 60, 60, 0.2);
+    border-radius: 8px;
+    color: rgba(255, 110, 110, 0.75);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: 100%;
+    margin-top: 2px;
+  }
+  .btn-delete:hover {
+    background: rgba(255, 60, 60, 0.22);
+    border-color: rgba(255, 80, 80, 0.45);
+    color: #ff7070;
+  }
+
+  /* Cursor ghost while dragging from panel */
+  .drag-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.7;
+    transform: translate(-50%, -50%);
+    display: none;
+  }
+  .drag-ghost svg { width: 48px; height: 48px; }
 
   /* ── Roof panel ── */
   .roof-panel {
     position: fixed;
-    left: 50%;
-    bottom: 80px;
-    transform: translateX(-50%);
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
     display: none;
-    align-items: center;
-    gap: 14px;
-    padding: 16px 22px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 18px;
     z-index: 10;
   }
   .roof-panel.open { display: flex; }
@@ -324,6 +460,17 @@
 </head>
 <body>
 
+<!-- Top-view toggle -->
+<button class="btn-icon glass" id="btnTopView" title="Top view">
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <circle cx="8" cy="8" r="5"/>
+    <line x1="8" y1="1" x2="8" y2="4.5"/>
+    <line x1="8" y1="11.5" x2="8" y2="15"/>
+    <line x1="1" y1="8" x2="4.5" y2="8"/>
+    <line x1="11.5" y1="8" x2="15" y2="8"/>
+  </svg>
+</button>
+
 <!-- Top bar row -->
 <div class="toprow" id="toprow">
   <button class="btn-icon glass" id="btnClear" style="display:none" title="Start over">
@@ -352,15 +499,18 @@
   <div class="f"><label>Thickness</label> <div class="fr"><input type="number" id="inT" value="150"  min="50"  step="10"><span class="u">mm</span></div></div>
 </div>
 
+<!-- Drag ghost that follows cursor -->
+<div class="drag-ghost" id="dragGhost"></div>
+
 <!-- Left panel (Openings) -->
 <div class="left-panel glass" id="leftPanel">
-  <span class="panel-title">Place on walls</span>
+  <span class="panel-title">Drag onto walls</span>
   <div class="tool-item" data-tool="window">
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="2" y="3" width="14" height="12" rx="1"/><line x1="9" y1="3" x2="9" y2="15"/><line x1="2" y1="9" x2="16" y2="9"/></svg>
+    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="8" width="30" height="24" rx="2"/><line x1="20" y1="8" x2="20" y2="32"/><line x1="5" y1="20" x2="35" y2="20"/></svg>
     Window
   </div>
   <div class="tool-item" data-tool="door">
-    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="4" y="2" width="10" height="14" rx="1"/><circle cx="12" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
+    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="8" y="4" width="24" height="32" rx="2"/><circle cx="27" cy="22" r="2" fill="currentColor" stroke="none"/></svg>
     Door
   </div>
 </div>
@@ -377,8 +527,32 @@
   </div>
 </div>
 
+<!-- Opening inspector (shown when an opening is selected in step 1) -->
+<div class="panel glass" id="openingInspector">
+  <span class="panel-title" id="inspectorTitle">Window</span>
+  <div class="f"><label>Width</label><div class="fr"><input type="number" id="oInspW" min="200" max="6000" step="10"><span class="u">mm</span></div></div>
+  <div class="f"><label>Height</label><div class="fr"><input type="number" id="oInspH" min="200" max="4000" step="10"><span class="u">mm</span></div></div>
+  <div class="f" id="oInspSillRow"><label>Sill height</label><div class="fr"><input type="number" id="oInspSill" min="0" max="3000" step="10"><span class="u">mm</span></div></div>
+  <button class="btn-delete" id="btnDeleteOpening">Delete</button>
+</div>
+
 <!-- Hint bar -->
 <div class="hint" id="hint">Click to place your house</div>
+<div class="example-link" id="exampleLink">or <a href="#" id="loadExample">load example</a></div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text">Generating frame…</div>
+</div>
+
+<!-- Dev mode -->
+<button class="btn-icon glass dev-btn" id="btnDev" title="Dev mode">
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.3l-.5 2.1A5.5 5.5 0 0 0 3.7 4.6l-2-.7L.5 6l1.6 1.4a5.6 5.6 0 0 0 0 1.2L.5 10l1.2 2 2-.7a5.5 5.5 0 0 0 1.8 1l.5 2.1h2.4l.5-2a5.5 5.5 0 0 0 1.8-1.1l2 .7L14 10l-1.6-1.4a5.6 5.6 0 0 0 0-1.2L14 6l-1.2-2-2 .7a5.5 5.5 0 0 0-1.8-1L8.4 1.4z"/><circle cx="7.2" cy="8" r="2"/></svg>
+</button>
+<div class="dev-panel glass" id="devPanel">
+  <span class="panel-title">Dev Mode</span>
+  <label class="dev-opt"><input type="checkbox" id="devSimpleCb"> Use test_simple.gh</label>
+</div>
 
 <!-- Cursor tooltip -->
 <div class="tip" id="tip"></div>
@@ -480,13 +654,15 @@ const ghostEdge = new THREE.LineBasicMaterial({ color: 0x666666, transparent: tr
 const floorMat = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.95, metalness: 0 });
 const ghostFloor = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.35 });
 
-const frameMat = new THREE.MeshStandardMaterial({ color: 0xd4a76a, roughness: 0.65, metalness: 0.05 });
+const frameMat = new THREE.MeshStandardMaterial({ color: 0xd4a76a, roughness: 0.65, metalness: 0.05, side: THREE.DoubleSide });
 
 const windowMat = new THREE.MeshStandardMaterial({ color: 0x7ebadb, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.3, side: THREE.DoubleSide });
 const windowFrameMat = new THREE.LineBasicMaterial({ color: 0x4499bb });
 const doorMat = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
 const doorFrameMat = new THREE.LineBasicMaterial({ color: 0x6b5335 });
-const roofMat = new THREE.MeshStandardMaterial({ color: 0xc8bfb0, roughness: 0.7, metalness: 0 });
+const ghostOpeningMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.35, roughness: 0.5, side: THREE.DoubleSide, depthTest: false });
+const ghostOpeningEdgeMat = new THREE.LineBasicMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.5 });
+const roofMat = new THREE.MeshStandardMaterial({ color: 0xc8bfb0, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
 const roofEdgeMat = new THREE.LineBasicMaterial({ color: 0x999999 });
 
 /* ────────────────── drag arrows ────────────────── */
@@ -565,10 +741,81 @@ function positionArrows() {
 
 function hideArrows() {
   for (const a of arrows) a.visible = false;
+  ridgeArrow.visible = false;
+  roofArrows[0].visible = false;
+  roofArrows[1].visible = false;
   setArrowHover(null);
 }
 
+// Shared upward-pointing arrow geometry (rotated to point +Z)
+function makeUpArrow() {
+  const a = makeArrowMesh();
+  a.visible = false;
+  a.geometry = a.geometry.clone();
+  a.geometry.rotateX(Math.PI / 2);
+  scene.add(a);
+  return a;
+}
+
+// Ridge height arrow (gable)
+const ridgeArrow = makeUpArrow();
+ridgeArrow.userData.isRidge = true;
+
+// Two roof slope arrows (flat): front (south) and back (north)
+const roofArrows = [makeUpArrow(), makeUpArrow()];
+roofArrows[0].userData.roofEdge = 0;  // south/west edge
+roofArrows[1].userData.roofEdge = 1;  // north/east edge
+
+let customRidgeH = null;
+let flatSlopeH = [0, 0];  // [front offset, back offset] from wall height
+
+function defaultRidgeH() {
+  if (!c1 || !c2) return 500;
+  const w = Math.abs(c2.x - c1.x), d = Math.abs(c2.y - c1.y);
+  return Math.min(w, d) * 0.35;
+}
+
+function getRidgeH() {
+  return customRidgeH !== null ? customRidgeH : defaultRidgeH();
+}
+
+function positionRoofArrows() {
+  if (!c1 || !c2) {
+    ridgeArrow.visible = false;
+    roofArrows[0].visible = false;
+    roofArrows[1].visible = false;
+    return;
+  }
+  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const h = +inH.value;
+  const w = x1 - x0, d = y1 - y0;
+  const slab = 120;
+
+  if (roofType === "gable") {
+    ridgeArrow.position.set((x0 + x1) / 2, (y0 + y1) / 2, h + getRidgeH());
+    ridgeArrow.visible = true;
+    roofArrows[0].visible = false;
+    roofArrows[1].visible = false;
+  } else {
+    ridgeArrow.visible = false;
+    // Place arrows at front/back edges of roof
+    // "Front" = south edge, "Back" = north edge (when wider); or west/east when deeper
+    if (w >= d) {
+      roofArrows[0].position.set((x0 + x1) / 2, y0, h + slab + flatSlopeH[0]);
+      roofArrows[1].position.set((x0 + x1) / 2, y1, h + slab + flatSlopeH[1]);
+    } else {
+      roofArrows[0].position.set(x0, (y0 + y1) / 2, h + slab + flatSlopeH[0]);
+      roofArrows[1].position.set(x1, (y0 + y1) / 2, h + slab + flatSlopeH[1]);
+    }
+    roofArrows[0].visible = true;
+    roofArrows[1].visible = true;
+  }
+}
+
 let dragging = null;  // { idx, axis, sign }
+let draggingRidge = false;
+let draggingRoofEdge = -1;  // 0 or 1 when dragging a flat roof arrow
 
 /* ────────────────── dimension lines ────────────────── */
 let dimGroup = null;
@@ -655,6 +902,29 @@ function updateDims(a, b) {
   dimGroup.add(dLabel);
   dimLabels.push(dLabel);
 
+  // ── Height dim (vertical, at south-west corner) ──
+  const h = +inH.value;
+  const hx = x0 - gap;
+  const hy = y0;
+  const hPts = [
+    // bottom tick
+    new THREE.Vector3(hx - tick, hy, 0), new THREE.Vector3(hx + tick, hy, 0),
+    // main line
+    new THREE.Vector3(hx, hy, 0), new THREE.Vector3(hx, hy, h),
+    // top tick
+    new THREE.Vector3(hx - tick, hy, h), new THREE.Vector3(hx + tick, hy, h),
+  ];
+  const hGeo = new THREE.BufferGeometry().setFromPoints(hPts);
+  const hLine = new THREE.LineSegments(hGeo, dimLineMat);
+  hLine.renderOrder = 999;
+  dimGroup.add(hLine);
+
+  const hLabel = makeTextSprite((h / 1000).toFixed(2) + " m");
+  hLabel.position.set(hx - 300, hy, h / 2);
+  hLabel.userData.dimAxis = "h";
+  dimGroup.add(hLabel);
+  dimLabels.push(hLabel);
+
   scene.add(dimGroup);
 }
 
@@ -683,17 +953,26 @@ const btnNext  = $("btnNext");
 const leftPanel = $("leftPanel");
 const roofPanel = $("roofPanel");
 const inW = $("inW"), inD = $("inD"), inH = $("inH"), inT = $("inT");
+// Dev mode
+const btnDev = $("btnDev"), devPanel = $("devPanel");
+btnDev.addEventListener("click", () => {
+  const open = devPanel.classList.toggle("open");
+  btnDev.classList.toggle("active", open);
+});
+$("devSimpleCb").addEventListener("change", e => { window._devSimple = e.target.checked; });
 const stepEls = [$("step0"), $("step1"), $("step2"), $("step3")];
 const NEXT_LABELS = ["Openings \u2192", "Roof \u2192", "Generate \u2192"];
 
 let currentStep = 0;
 let activeTool = null;       // "window" | "door" | null
+let isTopView = false;
+let savedCamState = null;    // { pos, target } to restore on toggle off
 const stepVisited = [false, false, false, false];  // track first visit per tab
 
 // Intro hints shown centered on first visit to each tab
 const stepIntroHints = [
   "Click to place your house",
-  "Add windows and doors to your walls",
+  "Drag windows and doors onto walls \u2022 click to edit",
   "Pick a roof style for your house",
   "Generate the timber frame"
 ];
@@ -729,6 +1008,74 @@ const SNAP = 500;  // matches grid lines (30000 / 60)
 function snap(v) { return Math.round(v / SNAP) * SNAP; }
 
 /* ────────────────── build 4 walls + floor ────────────────── */
+
+// Helper: create an extruded pentagonal gable wall mesh
+function makeGableWallGeo(wallW, t, h, ridgeH) {
+  // Pentagon profile in XZ: base wallW wide, height h, then triangle to ridge
+  // Extruded along Y by thickness t
+  const hw = wallW / 2;
+  // 10 vertices: front face (5) + back face (5)
+  const verts = new Float32Array([
+    // front (y=0)
+    -hw, 0, 0,    hw, 0, 0,    hw, 0, h,    0, 0, h + ridgeH,    -hw, 0, h,
+    // back (y=t)
+    -hw, t, 0,    hw, t, 0,    hw, t, h,    0, t, h + ridgeH,    -hw, t, h,
+  ]);
+  // Triangulate all 7 faces
+  const idx = [
+    // front
+    0,1,2, 0,2,4, 4,2,3,
+    // back (reversed winding)
+    5,7,6, 5,9,7, 9,8,7,
+    // bottom
+    0,6,1, 0,5,6,
+    // right
+    1,6,7, 1,7,2,
+    // top-right slope
+    2,7,8, 2,8,3,
+    // top-left slope
+    3,8,9, 3,9,4,
+    // left
+    4,9,5, 4,5,0,
+  ];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// Helper: create an extruded trapezoidal wall mesh (two different heights at each end)
+function makeTrapWallGeo(wallW, t, hLeft, hRight) {
+  const hw = wallW / 2;
+  // 8 vertices: front face (4) + back face (4)
+  const verts = new Float32Array([
+    // front (y=0)
+    -hw, 0, 0,    hw, 0, 0,    hw, 0, hRight,    -hw, 0, hLeft,
+    // back (y=t)
+    -hw, t, 0,    hw, t, 0,    hw, t, hRight,     -hw, t, hLeft,
+  ]);
+  const idx = [
+    // front
+    0,1,2, 0,2,3,
+    // back (reversed winding)
+    4,6,5, 4,7,6,
+    // bottom
+    0,5,1, 0,4,5,
+    // right
+    1,5,6, 1,6,2,
+    // top (slope)
+    2,6,7, 2,7,3,
+    // left
+    3,7,4, 3,4,0,
+  ];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
 function buildRoom(a, b, h, t, wMat, eMat, fMat) {
   const g = new THREE.Group();
 
@@ -736,7 +1083,16 @@ function buildRoom(a, b, h, t, wMat, eMat, fMat) {
   const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
   const w = x1 - x0, d = y1 - y0;
 
-  // Walls: south/north full width, east/west fill between
+  const isGable = roofType === "gable";
+  const ridgeH = isGable ? getRidgeH() : 0;
+  const ridgeAlongX = w >= d;
+  const isFlatSloped = roofType === "flat" && (flatSlopeH[0] !== 0 || flatSlopeH[1] !== 0);
+
+  // Gable walls are the two walls perpendicular to the ridge
+  // ridgeAlongX → gable ends are west/east (idx 2,3) — pentagonal
+  // ridgeAlongY → gable ends are south/north (idx 0,1) — pentagonal
+
+  // south/north as boxes
   const specs = [
     { cx: x0 + w / 2,     cy: y0 + t / 2,               sx: w,         sy: t         },  // south
     { cx: x0 + w / 2,     cy: y1 - t / 2,               sx: w,         sy: t         },  // north
@@ -747,17 +1103,71 @@ function buildRoom(a, b, h, t, wMat, eMat, fMat) {
   let wallIdx = 0;
   for (const s of specs) {
     if (s.sx <= 0 || s.sy <= 0) { wallIdx++; continue; }
-    const geo = new THREE.BoxGeometry(s.sx, s.sy, h);
-    const mesh = new THREE.Mesh(geo, wMat);
-    mesh.position.set(s.cx, s.cy, h / 2);
+
+    const isGableWall = isGable && (
+      (ridgeAlongX && (wallIdx === 2 || wallIdx === 3)) ||
+      (!ridgeAlongX && (wallIdx === 0 || wallIdx === 1))
+    );
+
+    let mesh, geo;
+    if (isGableWall) {
+      // Pentagonal gable wall
+      if (ridgeAlongX) {
+        // Gable ends are west/east: wall runs along Y, thickness along X
+        geo = makeGableWallGeo(s.sy, s.sx, h, ridgeH);
+        mesh = new THREE.Mesh(geo, wMat);
+        mesh.rotation.z = -Math.PI / 2;
+        mesh.position.set(s.cx + s.sx / 2, s.cy, 0);
+      } else {
+        // Gable ends are south/north: wall runs along X, thickness along Y
+        geo = makeGableWallGeo(s.sx, s.sy, h, ridgeH);
+        mesh = new THREE.Mesh(geo, wMat);
+        mesh.position.set(s.cx, s.cy - s.sy / 2, 0);
+      }
+    } else if (isFlatSloped) {
+      // Flat roof with slope — some walls are trapezoidal, others just taller boxes
+      const isTrapWall = ridgeAlongX ? (wallIdx === 2 || wallIdx === 3) : (wallIdx === 0 || wallIdx === 1);
+      if (isTrapWall) {
+        if (ridgeAlongX) {
+          // West/east walls: trapezoidal, rotated to run along Y
+          // After rotation -PI/2: local -hw → world +Y (north), local +hw → world -Y (south)
+          geo = makeTrapWallGeo(s.sy, s.sx, h + flatSlopeH[1], h + flatSlopeH[0]);
+          mesh = new THREE.Mesh(geo, wMat);
+          mesh.rotation.z = -Math.PI / 2;
+          mesh.position.set(s.cx + s.sx / 2, s.cy, 0);
+        } else {
+          // South/north walls: trapezoidal, along X
+          // -hw → west (flatSlopeH[0]), +hw → east (flatSlopeH[1])
+          geo = makeTrapWallGeo(s.sx, s.sy, h + flatSlopeH[0], h + flatSlopeH[1]);
+          mesh = new THREE.Mesh(geo, wMat);
+          mesh.position.set(s.cx, s.cy - s.sy / 2, 0);
+        }
+      } else {
+        // Constant-height walls at the roof edge height
+        let wallH;
+        if (ridgeAlongX) {
+          wallH = wallIdx === 0 ? h + flatSlopeH[0] : h + flatSlopeH[1];
+        } else {
+          wallH = wallIdx === 2 ? h + flatSlopeH[0] : h + flatSlopeH[1];
+        }
+        geo = new THREE.BoxGeometry(s.sx, s.sy, wallH);
+        mesh = new THREE.Mesh(geo, wMat);
+        mesh.position.set(s.cx, s.cy, wallH / 2);
+      }
+    } else {
+      geo = new THREE.BoxGeometry(s.sx, s.sy, h);
+      mesh = new THREE.Mesh(geo, wMat);
+      mesh.position.set(s.cx, s.cy, h / 2);
+    }
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.userData.isWall = true;
     mesh.userData.wallIdx = wallIdx++;
     g.add(mesh);
 
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), eMat);
     edges.position.copy(mesh.position);
+    edges.rotation.copy(mesh.rotation);
     g.add(edges);
   }
 
@@ -794,21 +1204,36 @@ function placeRoom() {
   inD.value = Math.round(Math.abs(c2.y - c1.y));
 }
 
-function rebuildRoom() {
-  if (mode !== M.SET || !c1) return;
-  c2 = new THREE.Vector3(c1.x + (+inW.value) * signX, c1.y + (+inD.value) * signY, 0);
+/* ── Central rebuild: single source of truth for all geometry updates ── */
+function rebuildScene() {
+  if (!c1 || !c2) return;
   if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
   roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
   scene.add(roomGroup);
+  if (roofGroup) buildRoof();
   positionArrows();
+  positionRoofArrows();
   updateDims();
   rebuildOpenings();
-  if (roofGroup) buildRoof();
+}
+
+function rebuildRoom() {
+  if (mode !== M.SET || !c1) return;
+  c2 = new THREE.Vector3(c1.x + (+inW.value) * signX, c1.y + (+inD.value) * signY, 0);
+  rebuildScene();
 }
 
 /* ────────────────── openings ────────────────── */
 const WINDOW_W = 1000, WINDOW_H = 1000, WINDOW_SILL = 900;
 const DOOR_W = 900, DOOR_H = 2100;
+
+function defaultDims(type) {
+  return type === "window"
+    ? { width: WINDOW_W, height: WINDOW_H, sill: WINDOW_SILL }
+    : { width: DOOR_W, height: DOOR_H, sill: 0 };
+}
+
+let selectedOpening = -1;
 
 function getWallMeshes() {
   if (!roomGroup) return [];
@@ -829,46 +1254,47 @@ function wallInfo(wallIdx) {
   }
 }
 
-function placeOpening(wallIdx, posAlong, type) {
+function makeOpeningGroup(wallIdx, posAlong, type, dims) {
   const info = wallInfo(wallIdx);
-  if (!info) return;
+  if (!info) return null;
   const t = +inT.value;
-  const ow = type === "window" ? WINDOW_W : DOOR_W;
-  const oh = type === "window" ? WINDOW_H : DOOR_H;
-  const oz = type === "window" ? WINDOW_SILL + WINDOW_H / 2 : DOOR_H / 2;
+  const ow = dims.width;
+  const oh = dims.height;
+  const oz = (type === "window" ? dims.sill : 0) + oh / 2;
 
-  // Clamp within wall
   const half = ow / 2;
   posAlong = Math.max(half + t, Math.min(info.length - half - t, posAlong));
 
-  const g = new THREE.Group();
-
-  // Position: centered on wall (origin + along * posAlong, inward by t/2)
   const cx = info.origin.x + info.along.x * posAlong - info.outward.x * (t / 2);
   const cy = info.origin.y + info.along.y * posAlong - info.outward.y * (t / 2);
 
-  // Opening panel — slightly wider than wall so it pokes through both faces
-  const mat = type === "window" ? windowMat : doorMat;
-  const eMat = type === "window" ? windowFrameMat : doorFrameMat;
-  const depth = t + 40;  // 20mm overshoot each side
+  const oMat = type === "window" ? windowMat : doorMat;
+  const oEdgeMat = type === "window" ? windowFrameMat : doorFrameMat;
+  const depth = t + 40;
   const geo = new THREE.BoxGeometry(
-    wallIdx <= 1 ? ow : depth,   // width in X
-    wallIdx <= 1 ? depth : ow,   // depth in Y
+    wallIdx <= 1 ? ow : depth,
+    wallIdx <= 1 ? depth : ow,
     oh
   );
-  const mesh = new THREE.Mesh(geo, mat);
+  const g = new THREE.Group();
+  const mesh = new THREE.Mesh(geo, oMat);
   mesh.position.set(cx, cy, oz);
   mesh.userData.isOpening = true;
   g.add(mesh);
 
-  // Edge outline
-  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), oEdgeMat);
   edges.position.copy(mesh.position);
   g.add(edges);
 
+  return g;
+}
 
+function placeOpening(wallIdx, posAlong, type, dims) {
+  if (!dims) dims = defaultDims(type);
+  const g = makeOpeningGroup(wallIdx, posAlong, type, dims);
+  if (!g) return;
   openingsGroup.add(g);
-  openings.push({ type, wallIdx, posAlong, mesh: g });
+  openings.push({ type, wallIdx, posAlong, mesh: g, width: dims.width, height: dims.height, sill: dims.sill });
 }
 
 function removeOpening(groupMesh) {
@@ -894,10 +1320,183 @@ function clearOpenings() {
 }
 
 function rebuildOpenings() {
-  // Re-place all openings after room resize
-  const saved = openings.map(o => ({ type: o.type, wallIdx: o.wallIdx, posAlong: o.posAlong }));
+  const prevSelected = selectedOpening;
+  if (selectedOpening >= 0) removeSelectionHighlight(selectedOpening);
+  selectedOpening = -1;
+  const saved = openings.map(o => ({ type: o.type, wallIdx: o.wallIdx, posAlong: o.posAlong, width: o.width, height: o.height, sill: o.sill }));
   clearOpenings();
-  for (const s of saved) placeOpening(s.wallIdx, s.posAlong, s.type);
+  for (const s of saved) placeOpening(s.wallIdx, s.posAlong, s.type, { width: s.width, height: s.height, sill: s.sill });
+  if (prevSelected >= 0 && prevSelected < openings.length) selectOpening(prevSelected);
+}
+
+/* ────────────────── opening selection & inspector ────────────────── */
+function applySelectionHighlight(idx) {
+  const o = openings[idx];
+  if (!o) return;
+  o.mesh.traverse(child => {
+    if (child.isMesh) {
+      child.userData._origMat = child.material;
+      const sel = child.material.clone();
+      sel.emissive = new THREE.Color(0xF9BC06);
+      sel.emissiveIntensity = 0.22;
+      child.material = sel;
+    } else if (child.isLine) {
+      child.userData._origMat = child.material;
+      child.material = new THREE.LineBasicMaterial({ color: 0xF9BC06 });
+    }
+  });
+}
+
+function removeSelectionHighlight(idx) {
+  const o = openings[idx];
+  if (!o) return;
+  o.mesh.traverse(child => {
+    if ((child.isMesh || child.isLine) && child.userData._origMat) {
+      child.material = child.userData._origMat;
+      delete child.userData._origMat;
+    }
+  });
+}
+
+function selectOpening(idx) {
+  if (selectedOpening >= 0 && selectedOpening !== idx) removeSelectionHighlight(selectedOpening);
+  selectedOpening = idx;
+  applySelectionHighlight(idx);
+  showOpeningInspector(idx);
+}
+
+function deselectOpening() {
+  if (selectedOpening < 0) return;
+  removeSelectionHighlight(selectedOpening);
+  selectedOpening = -1;
+  $("openingInspector").classList.remove("open");
+}
+
+function showOpeningInspector(idx) {
+  const o = openings[idx];
+  $("inspectorTitle").textContent = o.type === "window" ? "Window" : "Door";
+  $("oInspW").value = o.width;
+  $("oInspH").value = o.height;
+  $("oInspSill").value = o.sill;
+  $("oInspSillRow").style.display = o.type === "window" ? "" : "none";
+  $("openingInspector").classList.add("open");
+  updateInspectorPosition();
+}
+
+function updateInspectorPosition() {
+  if (selectedOpening < 0) return;
+  const o = openings[selectedOpening];
+  if (!o || !o.mesh.children[0]) return;
+  const worldPos = new THREE.Vector3();
+  o.mesh.children[0].getWorldPosition(worldPos);
+  worldPos.project(cam);
+  const r = renderer.domElement.getBoundingClientRect();
+  const sx = (worldPos.x * 0.5 + 0.5) * r.width + r.left;
+  const sy = (-worldPos.y * 0.5 + 0.5) * r.height + r.top;
+  const panel = $("openingInspector");
+  const pw = panel.offsetWidth || 232;
+  const ph = panel.offsetHeight || 200;
+  let px = sx + 28;
+  let py = sy - ph / 2;
+  if (px + pw > window.innerWidth - 10) px = sx - pw - 28;
+  px = Math.max(10, px);
+  py = Math.max(10, Math.min(py, window.innerHeight - ph - 10));
+  panel.style.left = px + "px";
+  panel.style.top = py + "px";
+}
+
+function rebuildSingleOpening(idx) {
+  const o = openings[idx];
+  openingsGroup.remove(o.mesh);
+  const g = makeOpeningGroup(o.wallIdx, o.posAlong, o.type, { width: o.width, height: o.height, sill: o.sill });
+  if (!g) return;
+  openingsGroup.add(g);
+  o.mesh = g;
+  if (selectedOpening === idx) applySelectionHighlight(idx);
+}
+
+/* ────────────────── opening drag & drop ────────────────── */
+let draggingOpening = null;  // { type: "window"|"door" }
+let ghostOpening = null;     // THREE.Group shown during drag
+
+function buildGhostOpening(wallIdx, posAlong, type) {
+  const info = wallInfo(wallIdx);
+  if (!info) return null;
+  const t = +inT.value;
+  const ow = type === "window" ? WINDOW_W : DOOR_W;
+  const oh = type === "window" ? WINDOW_H : DOOR_H;
+  const oz = type === "window" ? WINDOW_SILL + WINDOW_H / 2 : DOOR_H / 2;
+  const half = ow / 2;
+  posAlong = Math.max(half + t, Math.min(info.length - half - t, posAlong));
+  const cx = info.origin.x + info.along.x * posAlong - info.outward.x * (t / 2);
+  const cy = info.origin.y + info.along.y * posAlong - info.outward.y * (t / 2);
+  const depth = t + 40;
+  const geo = new THREE.BoxGeometry(
+    wallIdx <= 1 ? ow : depth,
+    wallIdx <= 1 ? depth : ow,
+    oh
+  );
+  const g = new THREE.Group();
+  const mesh = new THREE.Mesh(geo, ghostOpeningMat);
+  mesh.position.set(cx, cy, oz);
+  mesh.renderOrder = 998;
+  g.add(mesh);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), ghostOpeningEdgeMat);
+  edges.position.copy(mesh.position);
+  edges.renderOrder = 998;
+  g.add(edges);
+  return g;
+}
+
+function updateGhostOpening(e) {
+  if (!draggingOpening) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  rc.setFromCamera(ndc, cam);
+  const walls = getWallMeshes();
+  const wHits = rc.intersectObjects(walls);
+
+  if (ghostOpening) { scene.remove(ghostOpening); ghostOpening = null; }
+
+  if (wHits.length) {
+    const wallMesh = wHits[0].object;
+    const wi = wallMesh.userData.wallIdx;
+    const hp = wHits[0].point;
+    const info = wallInfo(wi);
+    if (info) {
+      const rel = new THREE.Vector3().subVectors(hp, info.origin);
+      const posAlong = rel.dot(info.along);
+      ghostOpening = buildGhostOpening(wi, posAlong, draggingOpening.type);
+      if (ghostOpening) scene.add(ghostOpening);
+    }
+  }
+}
+
+function finishOpeningDrag(e) {
+  if (!draggingOpening) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  rc.setFromCamera(ndc, cam);
+  const walls = getWallMeshes();
+  const wHits = rc.intersectObjects(walls);
+
+  if (wHits.length) {
+    const wallMesh = wHits[0].object;
+    const wi = wallMesh.userData.wallIdx;
+    const hp = wHits[0].point;
+    const info = wallInfo(wi);
+    if (info) {
+      const rel = new THREE.Vector3().subVectors(hp, info.origin);
+      const posAlong = rel.dot(info.along);
+      placeOpening(wi, posAlong, draggingOpening.type);
+    }
+  }
+
+  if (ghostOpening) { scene.remove(ghostOpening); ghostOpening = null; }
+  draggingOpening = null;
+  renderer.domElement.style.cursor = "";
 }
 
 /* ────────────────── roof ────────────────── */
@@ -915,53 +1514,95 @@ function buildRoof() {
 
   if (roofType === "flat") {
     const slab = 120;
-    const geo = new THREE.BoxGeometry(w + overhang * 2, d + overhang * 2, slab);
-    const mesh = new THREE.Mesh(geo, roofMat);
-    mesh.position.set(x0 + w/2, y0 + d/2, h + slab/2);
-    mesh.castShadow = true;
-    roofGroup.add(mesh);
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
-    edges.position.copy(mesh.position);
-    roofGroup.add(edges);
-  } else {
-    // Gable: ridge along longer axis
-    const ridgeH = Math.min(w, d) * 0.35;
-    const ridgeAlongX = w >= d;
-
-    if (ridgeAlongX) {
-      // Ridge runs along X, gable ends on east/west
-      const halfD = d / 2 + overhang;
-      const shape = new THREE.Shape();
-      shape.moveTo(-halfD, 0);
-      shape.lineTo(0, ridgeH);
-      shape.lineTo(halfD, 0);
-      shape.closePath();
-      const geo = new THREE.ExtrudeGeometry(shape, { depth: w + overhang * 2, bevelEnabled: false });
-      geo.rotateX(Math.PI / 2);
-      geo.rotateZ(-Math.PI / 2);
+    const f = flatSlopeH[0], b = flatSlopeH[1];
+    if (f === 0 && b === 0) {
+      // Perfectly flat — simple box
+      const geo = new THREE.BoxGeometry(w + overhang * 2, d + overhang * 2, slab);
       const mesh = new THREE.Mesh(geo, roofMat);
-      mesh.position.set(x0 - overhang, y0 + d/2, h);
+      mesh.position.set(x0 + w/2, y0 + d/2, h + slab/2);
       mesh.castShadow = true;
       roofGroup.add(mesh);
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
       edges.position.copy(mesh.position);
       roofGroup.add(edges);
     } else {
-      // Ridge runs along Y, gable ends on north/south
-      const halfW = w / 2 + overhang;
-      const shape = new THREE.Shape();
-      shape.moveTo(-halfW, 0);
-      shape.lineTo(0, ridgeH);
-      shape.lineTo(halfW, 0);
-      shape.closePath();
-      const geo = new THREE.ExtrudeGeometry(shape, { depth: d + overhang * 2, bevelEnabled: false });
-      geo.rotateX(Math.PI / 2);
+      // Sloped single surface (quad with different Z at each edge)
+      const oh = overhang;
+      const ridgeAlongX = w >= d;
+      let verts;
+      if (ridgeAlongX) {
+        // Front=south, back=north
+        verts = [
+          x0 - oh, y0 - oh, h + slab + f,
+          x1 + oh, y0 - oh, h + slab + f,
+          x1 + oh, y1 + oh, h + slab + b,
+          x0 - oh, y1 + oh, h + slab + b,
+        ];
+      } else {
+        // Front=west, back=east
+        verts = [
+          x0 - oh, y0 - oh, h + slab + f,
+          x0 - oh, y1 + oh, h + slab + f,
+          x1 + oh, y1 + oh, h + slab + b,
+          x1 + oh, y0 - oh, h + slab + b,
+        ];
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(verts), 3));
+      geo.setIndex([0,1,2, 0,2,3]);
+      geo.computeVertexNormals();
       const mesh = new THREE.Mesh(geo, roofMat);
-      mesh.position.set(x0 + w/2, y0 + d + overhang, h);
       mesh.castShadow = true;
       roofGroup.add(mesh);
       const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
-      edges.position.copy(mesh.position);
+      roofGroup.add(edges);
+    }
+  } else {
+    // Gable: two separate roof face quads
+    const ridgeH = getRidgeH();
+    const ridgeAlongX = w >= d;
+    const oh = overhang;
+
+    // Each face is a quad: eave edge → ridge edge
+    let faces;
+    if (ridgeAlongX) {
+      // Ridge along X; eaves on south/north sides
+      const midY = y0 + d / 2;
+      faces = [
+        [ // south face
+          [x0 - oh, y0 - oh, h], [x1 + oh, y0 - oh, h],
+          [x1 + oh, midY, h + ridgeH], [x0 - oh, midY, h + ridgeH],
+        ],
+        [ // north face
+          [x0 - oh, midY, h + ridgeH], [x1 + oh, midY, h + ridgeH],
+          [x1 + oh, y1 + oh, h], [x0 - oh, y1 + oh, h],
+        ],
+      ];
+    } else {
+      // Ridge along Y; eaves on west/east sides
+      const midX = x0 + w / 2;
+      faces = [
+        [ // west face
+          [x0 - oh, y0 - oh, h], [x0 - oh, y1 + oh, h],
+          [midX, y1 + oh, h + ridgeH], [midX, y0 - oh, h + ridgeH],
+        ],
+        [ // east face
+          [midX, y0 - oh, h + ridgeH], [midX, y1 + oh, h + ridgeH],
+          [x1 + oh, y1 + oh, h], [x1 + oh, y0 - oh, h],
+        ],
+      ];
+    }
+
+    for (const quad of faces) {
+      const verts = new Float32Array(quad.flat());
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+      geo.setIndex([0,1,2, 0,2,3]);
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, roofMat);
+      mesh.castShadow = true;
+      roofGroup.add(mesh);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
       roofGroup.add(edges);
     }
   }
@@ -979,11 +1620,16 @@ function goToStep(n) {
   panel.classList.remove("open");
   leftPanel.classList.remove("open");
   roofPanel.classList.remove("open");
+  deselectOpening();
   hideArrows();
   hideDims();
   activeTool = null;
   document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
   dimEdit.style.display = "none"; editingAxis = null;
+
+  // Top-view button only in step 0; exit top view when leaving
+  if (n !== 0 && isTopView) disableTopView();
+  $("btnTopView").style.display = n === 0 ? "flex" : "none";
 
   // Common: show walls and openings in steps 0-2
   if (roomGroup) roomGroup.visible = (n <= 2);
@@ -997,7 +1643,7 @@ function goToStep(n) {
   // Small hints shown after intro dismisses (or on revisit)
   const stepSmallHints = [
     "Drag arrows or edit dimensions",
-    "Select a tool, then click a wall to place",
+    "Drag to add \u2022 Click to inspect",
     "Choose a roof type",
     ""
   ];
@@ -1057,7 +1703,7 @@ function goToStep(n) {
         showIntroThenSmall();
       } else {
         hint.classList.add("small");
-        hint.innerHTML = "Select a tool, then click a wall to place";
+        hint.innerHTML = "Drag a window or door onto a wall";
       }
       break;
 
@@ -1065,7 +1711,7 @@ function goToStep(n) {
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
       roofPanel.classList.add("open");
-      buildRoof();
+      rebuildScene();
       document.querySelectorAll(".roof-option").forEach(o => {
         o.classList.toggle("active", o.dataset.roof === roofType);
       });
@@ -1075,7 +1721,7 @@ function goToStep(n) {
         showIntroThenSmall();
       } else {
         hint.classList.add("small");
-        hint.innerHTML = "Choose a roof type";
+        hint.innerHTML = "Drag arrow to adjust slope";
       }
       break;
 
@@ -1095,6 +1741,38 @@ function goToStep(n) {
 // Start in drawing mode immediately
 orbit.enabled = false;
 renderer.domElement.style.cursor = "crosshair";
+$("btnTopView").style.display = "flex";
+
+/* ────────────────── top view toggle ────────────────── */
+function enableTopView() {
+  isTopView = true;
+  $("btnTopView").classList.add("active");
+  savedCamState = { pos: cam.position.clone(), target: orbit.target.clone() };
+
+  const cx = c1 && c2 ? (c1.x + c2.x) / 2 : 0;
+  const cy = c1 && c2 ? (c1.y + c2.y) / 2 : 0;
+  orbit.target.set(cx, cy, 0);
+  cam.position.set(cx, cy, 18000);
+  orbit.enableRotate = false;
+  orbit.update();
+}
+
+function disableTopView() {
+  isTopView = false;
+  $("btnTopView").classList.remove("active");
+  if (savedCamState) {
+    cam.position.copy(savedCamState.pos);
+    orbit.target.copy(savedCamState.target);
+    savedCamState = null;
+  }
+  orbit.enableRotate = true;
+  orbit.maxPolarAngle = Math.PI / 2.05;
+  orbit.update();
+}
+
+$("btnTopView").addEventListener("click", () => {
+  if (isTopView) disableTopView(); else enableTopView();
+});
 
 btnClear.addEventListener("click", startDrawing);
 btnNext.addEventListener("click", () => goToStep(currentStep + 1));
@@ -1112,8 +1790,16 @@ async function generateFrame() {
   panel.classList.remove("open");
   leftPanel.classList.remove("open");
   roofPanel.classList.remove("open");
-  hint.classList.add("small");
-  hint.innerHTML = "Generating\u2026";
+  hint.style.display = "none";
+
+  // Hide design geometry immediately while generating
+  if (roomGroup) roomGroup.visible = false;
+  if (roofGroup) roofGroup.visible = false;
+  openingsGroup.visible = false;
+
+  // Show loading overlay
+  const overlay = $("loadingOverlay");
+  overlay.classList.add("active");
 
   try {
     const res = await fetch("/generate-frame", {
@@ -1129,6 +1815,9 @@ async function generateFrame() {
           posAlong: o.posAlong,
         })),
         roofType: roofType,
+        ridgeH: getRidgeH(),
+        flatSlopeH: flatSlopeH,
+        devSimple: !!window._devSimple,
       }),
     });
     const json = await res.json();
@@ -1141,20 +1830,25 @@ async function generateFrame() {
     if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
     panel.classList.remove("open");
 
-    // Build Three.js mesh from server triangles
+    // Build Three.js mesh from server triangles + normals
     const geo = new THREE.BufferGeometry();
-    const pos = new Float32Array(json.vertices.length * 3);
-    for (let i = 0; i < json.vertices.length; i++) {
+    const nVerts = json.vertices.length;
+    const pos = new Float32Array(nVerts * 3);
+    const nrm = new Float32Array(nVerts * 3);
+    for (let i = 0; i < nVerts; i++) {
       pos[i * 3]     = json.vertices[i][0];
       pos[i * 3 + 1] = json.vertices[i][1];
       pos[i * 3 + 2] = json.vertices[i][2];
+      nrm[i * 3]     = json.normals[i][0];
+      nrm[i * 3 + 1] = json.normals[i][1];
+      nrm[i * 3 + 2] = json.normals[i][2];
     }
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute("normal",   new THREE.BufferAttribute(nrm, 3));
 
     const idx = [];
     for (const f of json.faces) idx.push(f[0], f[1], f[2]);
     geo.setIndex(idx);
-    geo.computeVertexNormals();
 
     const mesh = new THREE.Mesh(geo, frameMat);
     mesh.castShadow = true;
@@ -1167,7 +1861,11 @@ async function generateFrame() {
     hint.innerHTML = `Frame generated \u2014 ${json.result_count} members`;
   } catch (err) {
     alert("Request failed: " + err.message);
-  } finally {}
+  } finally {
+    overlay.classList.remove("active");
+    hint.style.display = "";
+    hint.classList.add("small");
+  }
 }
 
 // ── Arrow hit-testing ──
@@ -1183,42 +1881,56 @@ function hitArrow(e) {
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
 
-  // ── Openings step: place or remove openings ──
+  // ── Openings step: click to select opening ──
   if (currentStep === 1) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     rc.setFromCamera(ndc, cam);
 
-    // Check if clicking an existing opening to remove it
     const openingMeshes = [];
     openingsGroup.traverse(c => { if (c.isMesh) openingMeshes.push(c); });
     const oHits = rc.intersectObjects(openingMeshes);
     if (oHits.length) {
       const hitGroup = oHits[0].object.parent;
       const idx = openings.findIndex(o => o.mesh === hitGroup);
-      if (idx >= 0) { removeOpeningByIdx(idx); return; }
-    }
-
-    // Place new opening on wall
-    if (activeTool) {
-      const walls = getWallMeshes();
-      const wHits = rc.intersectObjects(walls);
-      if (wHits.length) {
-        const wallMesh = wHits[0].object;
-        const wi = wallMesh.userData.wallIdx;
-        const hp = wHits[0].point;
-        const info = wallInfo(wi);
-        if (info) {
-          // Project hit point onto wall's along-axis to get posAlong
-          const rel = new THREE.Vector3().subVectors(hp, info.origin);
-          const posAlong = rel.dot(info.along);
-          placeOpening(wi, posAlong, activeTool);
-        }
+      if (idx >= 0) {
+        if (selectedOpening === idx) deselectOpening();
+        else selectOpening(idx);
         return;
       }
     }
+    deselectOpening();
     return;
+  }
+
+  // Roof arrow drag start (roof step)
+  if (currentStep === 2) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    // Check gable ridge arrow
+    if (ridgeArrow.visible) {
+      const hits = rc.intersectObjects([ridgeArrow]);
+      if (hits.length) {
+        draggingRidge = true;
+        orbit.enabled = false;
+        renderer.domElement.style.cursor = "grabbing";
+        return;
+      }
+    }
+    // Check flat roof edge arrows
+    const visibleRoofArrows = roofArrows.filter(a => a.visible);
+    if (visibleRoofArrows.length) {
+      const hits = rc.intersectObjects(visibleRoofArrows);
+      if (hits.length) {
+        draggingRoofEdge = hits[0].object.userData.roofEdge;
+        orbit.enabled = false;
+        renderer.domElement.style.cursor = "grabbing";
+        return;
+      }
+    }
   }
 
   // Arrow drag start (footprint step)
@@ -1242,6 +1954,7 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   if (mode === M.P1) {
     c1 = s;
     mode = M.P2;
+    $("exampleLink").style.display = "none";
     hint.classList.add("small");
     hint.innerHTML = "Move to size, click to place";
   } else if (mode === M.P2) {
@@ -1256,7 +1969,112 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   }
 });
 
+// Also listen on document for opening drag (mouse may leave canvas while dragging from panel)
+document.addEventListener("pointermove", (e) => {
+  if (!draggingOpening) return;
+  // Move cursor ghost
+  dragGhost.style.left = e.clientX + "px";
+  dragGhost.style.top = e.clientY + "px";
+  // Update 3D ghost on walls
+  updateGhostOpening(e);
+  // Hide cursor ghost when 3D ghost is showing, show it otherwise
+  dragGhost.style.opacity = ghostOpening ? "0" : "0.7";
+});
+document.addEventListener("pointerup", (e) => {
+  if (!draggingOpening) return;
+  finishOpeningDrag(e);
+  document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
+  dragGhost.style.display = "none";
+});
+
 renderer.domElement.addEventListener("pointermove", (e) => {
+  // Flat roof edge arrow dragging
+  if (draggingRoofEdge >= 0) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const arrowPos = roofArrows[draggingRoofEdge].position.clone();
+    const camDir = cam.getWorldDirection(new THREE.Vector3());
+    const vertPlane = new THREE.Plane(new THREE.Vector3(-camDir.x, -camDir.y, 0).normalize(), 0);
+    vertPlane.constant = -vertPlane.normal.dot(arrowPos);
+    const hitPt = new THREE.Vector3();
+    if (rc.ray.intersectPlane(vertPlane, hitPt)) {
+      const h = +inH.value;
+      const slab = 120;
+      const offset = Math.max(0, snap(hitPt.z - h - slab));
+      flatSlopeH[draggingRoofEdge] = offset;
+      rebuildScene();
+    }
+    return;
+  }
+
+  // Ridge arrow dragging — project mouse to vertical plane through ridge
+  if (draggingRidge) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    // Intersect with a vertical plane facing the camera at the ridge position
+    const ridgePos = ridgeArrow.position.clone();
+    const camDir = cam.getWorldDirection(new THREE.Vector3());
+    // Use a plane perpendicular to camera but only take Z component
+    const vertPlane = new THREE.Plane(new THREE.Vector3(-camDir.x, -camDir.y, 0).normalize(), 0);
+    vertPlane.constant = -vertPlane.normal.dot(ridgePos);
+    const hitPt = new THREE.Vector3();
+    if (rc.ray.intersectPlane(vertPlane, hitPt)) {
+      const h = +inH.value;
+      const baseZ = roofType === "flat" ? h + 120 : h;
+      const newRidgeH = Math.max(0, snap(hitPt.z - baseZ));
+      // Switch between flat and gable based on drag height
+      if (newRidgeH > 0 && roofType === "flat") {
+        roofType = "gable";
+        document.querySelectorAll(".roof-option").forEach(o =>
+          o.classList.toggle("active", o.dataset.roof === roofType));
+      } else if (newRidgeH <= 0 && roofType === "gable") {
+        roofType = "flat";
+        customRidgeH = null;
+        document.querySelectorAll(".roof-option").forEach(o =>
+          o.classList.toggle("active", o.dataset.roof === roofType));
+        rebuildScene();
+        return;
+      }
+      customRidgeH = Math.max(200, newRidgeH);
+      rebuildScene();
+    }
+    return;
+  }
+
+  // Roof arrow hover (roof step)
+  if (currentStep === 2 && !dragging && draggingRoofEdge < 0) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    // Check all visible roof arrows (ridge + flat edges)
+    const allRoofArrows = [ridgeArrow, ...roofArrows].filter(a => a.visible);
+    const hits = rc.intersectObjects(allRoofArrows);
+    setArrowHover(hits.length ? hits[0].object : null);
+    if (hits.length) {
+      renderer.domElement.style.cursor = "grab";
+      return;
+    } else {
+      renderer.domElement.style.cursor = "";
+    }
+  }
+
+  // Opening hover cursor (step 1)
+  if (currentStep === 1 && !draggingOpening) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const openingMeshes = [];
+    openingsGroup.traverse(c => { if (c.isMesh) openingMeshes.push(c); });
+    const oHits = rc.intersectObjects(openingMeshes);
+    renderer.domElement.style.cursor = oHits.length ? "pointer" : "";
+  }
+
   // Arrow dragging
   if (dragging) {
     const pt = groundHit(e);
@@ -1275,12 +2093,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     c2 = new THREE.Vector3(nx1, ny1, 0);
     signX = 1; signY = 1;
 
-    if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
-    roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
-    scene.add(roomGroup);
-    positionArrows();
-    updateDims();
-    rebuildOpenings();
+    rebuildScene();
 
     inW.value = Math.round(nx1 - nx0);
     inD.value = Math.round(ny1 - ny0);
@@ -1319,6 +2132,16 @@ renderer.domElement.addEventListener("pointerup", () => {
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
   }
+  if (draggingRidge) {
+    draggingRidge = false;
+    orbit.enabled = true;
+    renderer.domElement.style.cursor = "";
+  }
+  if (draggingRoofEdge >= 0) {
+    draggingRoofEdge = -1;
+    orbit.enabled = true;
+    renderer.domElement.style.cursor = "";
+  }
 });
 
 /* ── Double-click dimension label to edit ── */
@@ -1345,7 +2168,9 @@ renderer.domElement.addEventListener("dblclick", (e) => {
 
   const curMM = editingAxis === "w"
     ? Math.abs((c2 || c1).x - c1.x)
-    : Math.abs((c2 || c1).y - c1.y);
+    : editingAxis === "d"
+    ? Math.abs((c2 || c1).y - c1.y)
+    : +inH.value;
 
   dimEdit.value = (curMM / 1000).toFixed(2);
   dimEdit.style.display = "block";
@@ -1367,21 +2192,16 @@ function applyDimEdit() {
     c1 = new THREE.Vector3(x0, c1.y, 0);
     signX = 1;
     inW.value = Math.round(val);
-  } else {
+  } else if (editingAxis === "d") {
     c2 = new THREE.Vector3(c2.x, y0 + val, 0);
     c1 = new THREE.Vector3(c1.x, y0, 0);
     signY = 1;
     inD.value = Math.round(val);
+  } else if (editingAxis === "h") {
+    inH.value = Math.round(val);
   }
   editingAxis = null;
-
-  if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
-  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
-  scene.add(roomGroup);
-  positionArrows();
-  updateDims();
-  rebuildOpenings();
-  if (roofGroup) buildRoof();
+  rebuildScene();
 }
 
 dimEdit.addEventListener("keydown", (e) => {
@@ -1391,10 +2211,47 @@ dimEdit.addEventListener("keydown", (e) => {
 dimEdit.addEventListener("blur", applyDimEdit);
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") startDrawing();
+  if (e.key === "Escape") {
+    if (selectedOpening >= 0) { deselectOpening(); return; }
+    startDrawing();
+  }
+  if (e.key === "Delete" && currentStep === 1 && selectedOpening >= 0) {
+    const idx = selectedOpening;
+    deselectOpening();
+    removeOpeningByIdx(idx);
+  }
 });
 
 for (const inp of [inW, inD, inH, inT]) inp.addEventListener("input", rebuildRoom);
+
+// Opening inspector inputs
+$("oInspW").addEventListener("input", () => {
+  if (selectedOpening < 0) return;
+  const v = parseInt($("oInspW").value);
+  if (!v || v < 200) return;
+  openings[selectedOpening].width = v;
+  rebuildSingleOpening(selectedOpening);
+});
+$("oInspH").addEventListener("input", () => {
+  if (selectedOpening < 0) return;
+  const v = parseInt($("oInspH").value);
+  if (!v || v < 200) return;
+  openings[selectedOpening].height = v;
+  rebuildSingleOpening(selectedOpening);
+});
+$("oInspSill").addEventListener("input", () => {
+  if (selectedOpening < 0) return;
+  const v = parseInt($("oInspSill").value);
+  if (isNaN(v) || v < 0) return;
+  openings[selectedOpening].sill = v;
+  rebuildSingleOpening(selectedOpening);
+});
+$("btnDeleteOpening").addEventListener("click", () => {
+  if (selectedOpening < 0) return;
+  const idx = selectedOpening;
+  deselectOpening();
+  removeOpeningByIdx(idx);
+});
 
 // Step tab clicks
 for (let i = 0; i < 4; i++) {
@@ -1414,20 +2271,26 @@ for (let i = 0; i < 4; i++) {
   });
 }
 
-// Openings tool selection
+// Openings drag-and-drop from tool panel
+const dragGhost = $("dragGhost");
+const GHOST_SVGS = {
+  window: '<svg viewBox="0 0 40 40" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="8" width="30" height="24" rx="2"/><line x1="20" y1="8" x2="20" y2="32"/><line x1="5" y1="20" x2="35" y2="20"/></svg>',
+  door: '<svg viewBox="0 0 40 40" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round"><rect x="8" y="4" width="24" height="32" rx="2"/><circle cx="27" cy="22" r="2" fill="white" stroke="none"/></svg>',
+};
+
 document.querySelectorAll(".tool-item").forEach(el => {
-  el.addEventListener("click", () => {
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
     const tool = el.dataset.tool;
-    if (activeTool === tool) {
-      activeTool = null;
-      el.classList.remove("active");
-      renderer.domElement.style.cursor = "";
-    } else {
-      activeTool = tool;
-      document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
-      el.classList.add("active");
-      renderer.domElement.style.cursor = "crosshair";
-    }
+    draggingOpening = { type: tool };
+    activeTool = null;
+    document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
+    el.classList.add("active");
+    // Show cursor ghost
+    dragGhost.innerHTML = GHOST_SVGS[tool];
+    dragGhost.style.display = "block";
+    dragGhost.style.left = e.clientX + "px";
+    dragGhost.style.top = e.clientY + "px";
   });
 });
 
@@ -1436,7 +2299,7 @@ document.querySelectorAll(".roof-option").forEach(el => {
   el.addEventListener("click", () => {
     roofType = el.dataset.roof;
     document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
-    buildRoof();
+    rebuildScene();
   });
 });
 
@@ -1461,7 +2324,31 @@ function enterSet() {
   orbit.target.set(cx, cy, (+inH.value) / 3);
 }
 
+function loadExample() {
+  // Pre-built example: 7m x 5m house with a door and two windows
+  c1 = new THREE.Vector3(0, 0, 0);
+  c2 = new THREE.Vector3(7000, 5000, 0);
+  signX = 1; signY = 1;
+  inW.value = 7000; inD.value = 5000; inH.value = 2400; inT.value = 150;
+  roofType = "flat";
+  placeRoom();
+  placeOpening(0, 3500, "door");
+  placeOpening(2, 1200, "window");
+  placeOpening(3, 1200, "window");
+  // Mark step 0 as visited so it won't show the intro hint
+  stepVisited[0] = true;
+  enterSet();
+  $("exampleLink").style.display = "none";
+}
+
+$("loadExample").addEventListener("click", (e) => {
+  e.preventDefault();
+  loadExample();
+});
+
 function startDrawing() {
+  if (isTopView) disableTopView();
+  deselectOpening();
   if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; }
   if (roomGroup)  { scene.remove(roomGroup);  roomGroup = null; }
   if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
@@ -1477,6 +2364,8 @@ function startDrawing() {
   stepVisited.fill(false);
   stepVisited[0] = true;  // footprint intro is the default view
   roofType = "flat";
+  customRidgeH = null;
+  flatSlopeH = [0, 0];
   activeTool = null;
   tip.style.display = "none";
   panel.classList.remove("open");
@@ -1484,10 +2373,12 @@ function startDrawing() {
   roofPanel.classList.remove("open");
   btnClear.style.display = "none";
   btnNext.style.display = "none";
+  $("btnTopView").style.display = "flex";
   orbit.enabled = false;
   renderer.domElement.style.cursor = "crosshair";
   hint.classList.remove("small");
   hint.innerHTML = "Click to place your house";
+  $("exampleLink").style.display = "";
 }
 
 /* ────────────────── resize / loop ────────────────── */
@@ -1503,6 +2394,7 @@ onResize();
 (function loop() {
   requestAnimationFrame(loop);
   orbit.update();
+  updateInspectorPosition();
   renderer.render(scene, cam);
 })();
 </script>
