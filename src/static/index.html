@@ -536,23 +536,16 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    font-size: 12px;
+    font-size: 13px;
     font-variant-numeric: tabular-nums;
     padding: 2px 0;
   }
-  .cut-qty {
+  .cut-sec {
     color: rgba(255, 255, 255, 0.9);
-    font-weight: 600;
-    min-width: 32px;
+    font-weight: 500;
   }
   .cut-len {
-    color: rgba(255, 255, 255, 0.6);
-    flex: 1;
-    text-align: center;
-  }
-  .cut-sec {
     color: rgba(255, 255, 255, 0.45);
-    min-width: 60px;
     text-align: right;
   }
 </style>
@@ -641,7 +634,7 @@
 
   <div class="info-divider"></div>
 
-  <span class="panel-title">Cut List</span>
+  <span class="panel-title">Part List</span>
   <div class="info-section" id="infoCutList"></div>
 
   <div class="info-divider"></div>
@@ -870,6 +863,8 @@ function positionArrows() {
 function hideArrows() {
   for (const a of arrows) a.visible = false;
   ridgeArrow.visible = false;
+  slopeArrows[0].visible = false;
+  slopeArrows[1].visible = false;
   setArrowHover(null);
 }
 
@@ -887,7 +882,13 @@ function makeUpArrow() {
 const ridgeArrow = makeUpArrow();
 ridgeArrow.userData.isRidge = true;
 
+// Flat roof slope arrows: one at each end perpendicular to ridge axis
+const slopeArrows = [makeUpArrow(), makeUpArrow()];
+slopeArrows[0].userData.slopeEdge = 0;
+slopeArrows[1].userData.slopeEdge = 1;
+
 let customRidgeH = null;
+let flatSlopeH = [0, 0];  // [edge0, edge1] height offsets for flat roof slope
 
 function defaultRidgeH() {
   if (!c1 || !c2) return 500;
@@ -902,21 +903,40 @@ function getRidgeH() {
 function positionRoofArrows() {
   if (!c1 || !c2) {
     ridgeArrow.visible = false;
+    slopeArrows[0].visible = false;
+    slopeArrows[1].visible = false;
     return;
   }
+  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const h = +inH.value;
+  const w = x1 - x0, d = y1 - y0;
+  const roofT = 120;
+  const ridgeAlongX = w >= d;
+
   if (roofType === "gable") {
-    const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
-    const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
-    const h = +inH.value;
     ridgeArrow.position.set((x0 + x1) / 2, (y0 + y1) / 2, h + getRidgeH());
     ridgeArrow.visible = true;
+    slopeArrows[0].visible = false;
+    slopeArrows[1].visible = false;
   } else {
     ridgeArrow.visible = false;
+    // Place arrows at each end perpendicular to ridge axis, on top of roof slab
+    if (ridgeAlongX) {
+      slopeArrows[0].position.set((x0 + x1) / 2, y0, h + roofT + flatSlopeH[0]);
+      slopeArrows[1].position.set((x0 + x1) / 2, y1, h + roofT + flatSlopeH[1]);
+    } else {
+      slopeArrows[0].position.set(x0, (y0 + y1) / 2, h + roofT + flatSlopeH[0]);
+      slopeArrows[1].position.set(x1, (y0 + y1) / 2, h + roofT + flatSlopeH[1]);
+    }
+    slopeArrows[0].visible = true;
+    slopeArrows[1].visible = true;
   }
 }
 
 let dragging = null;  // { idx, axis, sign }
 let draggingRidge = false;
+let draggingSlopeEdge = -1;  // 0 or 1 when dragging a flat roof slope arrow
 
 /* ────────────────── dimension lines ────────────────── */
 let dimGroup = null;
@@ -1125,6 +1145,67 @@ function snap(v) { return Math.round(v / SNAP) * SNAP; }
  * Gable walls are perpendicular to the ridge.
  */
 
+// Helper: extruded trapezoidal wall (different heights at each end)
+// Profile in XZ, extruded along Y by thickness t.
+// wallW = width along wall face, hLeft/hRight = heights at -hw / +hw ends
+function makeTrapWallGeo(wallW, t, hLeft, hRight) {
+  const hw = wallW / 2;
+  const verts = new Float32Array([
+    // front (y=0)
+    -hw, 0, 0,    hw, 0, 0,    hw, 0, hRight,    -hw, 0, hLeft,
+    // back (y=t)
+    -hw, t, 0,    hw, t, 0,    hw, t, hRight,     -hw, t, hLeft,
+  ]);
+  const idx = [
+    0,1,2, 0,2,3,       // front
+    4,6,5, 4,7,6,       // back
+    0,5,1, 0,4,5,       // bottom
+    1,5,6, 1,6,2,       // right
+    2,6,7, 2,7,3,       // top (slope)
+    3,7,4, 3,4,0,       // left
+  ];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/* ── wall segmentation for opening cutouts ── */
+function computeWallSegments(faceWidth, wallHeight, holes) {
+  // holes: [{localX, width, zBottom, height}] sorted by localX
+  // Returns: [{u, v, w, h}] rectangles filling the wall around the holes
+  const segs = [];
+  const sorted = [...holes].sort((a, b) => a.localX - b.localX);
+  let prevRight = 0;
+
+  for (const op of sorted) {
+    const left = Math.max(0, op.localX - op.width / 2);
+    const right = Math.min(faceWidth, op.localX + op.width / 2);
+    const top = Math.min(wallHeight, op.zBottom + op.height);
+
+    // Full-height strip before opening
+    if (left - prevRight > 1)
+      segs.push({ u: prevRight, v: 0, w: left - prevRight, h: wallHeight });
+
+    // Header above opening
+    if (wallHeight - top > 1)
+      segs.push({ u: left, v: top, w: right - left, h: wallHeight - top });
+
+    // Sill below opening (windows)
+    if (op.zBottom > 1)
+      segs.push({ u: left, v: 0, w: right - left, h: op.zBottom });
+
+    prevRight = Math.max(prevRight, right);
+  }
+
+  // Final strip after last opening
+  if (faceWidth - prevRight > 1)
+    segs.push({ u: prevRight, v: 0, w: faceWidth - prevRight, h: wallHeight });
+
+  return segs;
+}
+
 // Helper: extruded pentagonal gable-end wall
 // Profile in XZ, extruded along Y by thickness t.
 // wallW = width along the wall face, t = thickness (depth), h = eave height, ridgeH = extra height at peak
@@ -1152,7 +1233,7 @@ function makeGableWallGeo(wallW, t, h, ridgeH) {
   return geo;
 }
 
-function buildRoom(a, b, h, t, wMat, eMat, fMat) {
+function buildRoom(a, b, h, t, wMat, eMat, fMat, wallCutouts) {
   const g = new THREE.Group();
 
   const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
@@ -1162,70 +1243,120 @@ function buildRoom(a, b, h, t, wMat, eMat, fMat) {
   const isGable = roofType === "gable";
   const ridgeH = isGable ? getRidgeH() : 0;
   const ridgeAlongX = w >= d;
-  const roofT = 120; // roof slab thickness
+  const isFlatSloped = roofType === "flat" && (flatSlopeH[0] !== 0 || flatSlopeH[1] !== 0);
 
-  // Wall height: for flat roof, walls go up to underside of roof slab
-  // For gable, eave walls go to eave height h, gable walls are pentagonal
-  const wallH = isGable ? h : h;
+  // Thickening order: gable/slope-perp walls first (full span), then long walls (shortened by t).
+  // ridgeAlongX: perp = west/east (idx 2,3), long = south/north (idx 0,1)
+  // ridgeAlongY: perp = south/north (idx 0,1), long = west/east (idx 2,3)
 
-  // Thickening order: gable ends first (perpendicular to ridge), then long walls.
-  // Gable walls span the full footprint width on their axis.
-  // Long walls are shortened by t on each end (gable walls already occupy that space).
-  //
-  // ridgeAlongX: gable = west/east (idx 2,3), long = south/north (idx 0,1)
-  // ridgeAlongY: gable = south/north (idx 0,1), long = west/east (idx 2,3)
+  // For sloped flat roof, edge heights for the two long walls:
+  // edge0 → first long wall (south or west), edge1 → second long wall (north or east)
+  const e0h = h + flatSlopeH[0], e1h = h + flatSlopeH[1];
 
   const specs = ridgeAlongX ? [
     // Long walls (south/north) — shortened by t on each end
-    { cx: x0 + w / 2,             cy: y0 + t / 2,                     sx: w - 2 * t, sy: t, wh: wallH, idx: 0, gable: false },
-    { cx: x0 + w / 2,             cy: y1 - t / 2,                     sx: w - 2 * t, sy: t, wh: wallH, idx: 1, gable: false },
-    // Gable walls (west/east) — full depth
-    { cx: x0 + t / 2,             cy: y0 + d / 2,                     sx: t,         sy: d, wh: wallH, idx: 2, gable: isGable },
-    { cx: x1 - t / 2,             cy: y0 + d / 2,                     sx: t,         sy: d, wh: wallH, idx: 3, gable: isGable },
+    { cx: x0 + w / 2, cy: y0 + t / 2,          sx: w - 2 * t, sy: t, idx: 0, type: "long", edgeH: e0h },
+    { cx: x0 + w / 2, cy: y1 - t / 2,          sx: w - 2 * t, sy: t, idx: 1, type: "long", edgeH: e1h },
+    // Perp walls (west/east) — full depth
+    { cx: x0 + t / 2, cy: y0 + d / 2,          sx: t,         sy: d, idx: 2, type: "perp" },
+    { cx: x1 - t / 2, cy: y0 + d / 2,          sx: t,         sy: d, idx: 3, type: "perp" },
   ] : [
-    // Gable walls (south/north) — full width
-    { cx: x0 + w / 2,             cy: y0 + t / 2,                     sx: w,         sy: t, wh: wallH, idx: 0, gable: isGable },
-    { cx: x0 + w / 2,             cy: y1 - t / 2,                     sx: w,         sy: t, wh: wallH, idx: 1, gable: isGable },
+    // Perp walls (south/north) — full width
+    { cx: x0 + w / 2, cy: y0 + t / 2,          sx: w,         sy: t, idx: 0, type: "perp" },
+    { cx: x0 + w / 2, cy: y1 - t / 2,          sx: w,         sy: t, idx: 1, type: "perp" },
     // Long walls (west/east) — shortened by t on each end
-    { cx: x0 + t / 2,             cy: y0 + t + (d - 2 * t) / 2,      sx: t,         sy: d - 2 * t, wh: wallH, idx: 2, gable: false },
-    { cx: x1 - t / 2,             cy: y0 + t + (d - 2 * t) / 2,      sx: t,         sy: d - 2 * t, wh: wallH, idx: 3, gable: false },
+    { cx: x0 + t / 2, cy: y0 + t + (d - 2*t)/2, sx: t, sy: d - 2 * t, idx: 2, type: "long", edgeH: e0h },
+    { cx: x1 - t / 2, cy: y0 + t + (d - 2*t)/2, sx: t, sy: d - 2 * t, idx: 3, type: "long", edgeH: e1h },
   ];
 
   for (const s of specs) {
     if (s.sx <= 0 || s.sy <= 0) continue;
 
-    let mesh, geo;
-    if (s.gable) {
-      // Pentagonal gable wall — profile along the wall face, extruded by thickness
-      const faceLen = ridgeAlongX ? s.sy : s.sx;  // wall face dimension
-      const thick   = ridgeAlongX ? s.sx : s.sy;  // wall thickness
-      geo = makeGableWallGeo(faceLen, thick, s.wh, ridgeH);
-      mesh = new THREE.Mesh(geo, wMat);
-      if (ridgeAlongX) {
-        // Wall face runs along Y, thickness along X → rotate from local X to world Y
-        mesh.rotation.z = -Math.PI / 2;
-        mesh.position.set(s.cx + thick / 2, s.cy, 0);
-      } else {
-        // Wall face runs along X, thickness along Y
-        mesh.position.set(s.cx, s.cy - thick / 2, 0);
+    const faceLen = ridgeAlongX && s.type === "perp" ? s.sy : s.sx;
+    const thick   = ridgeAlongX && s.type === "perp" ? s.sx : s.sy;
+    const isHoriz = s.idx <= 1;
+    const isSpecial = (isGable && s.type === "perp") || (isFlatSloped && s.type === "perp");
+    const wallOps = (!isSpecial && wallCutouts) ? wallCutouts.filter(o => o.wallIdx === s.idx) : [];
+    const wallH = (isFlatSloped && s.type === "long") ? s.edgeH : h;
+
+    if (wallOps.length > 0) {
+      // Wall with openings — break into box segments around holes
+      const faceWidth = isHoriz ? s.sx : s.sy;
+      const faceStart = isHoriz ? (s.cx - s.sx / 2) : (s.cy - s.sy / 2);
+      const infoOrigin = isHoriz ? x0 : (y0 + t);
+      const faceOffset = faceStart - infoOrigin;
+      const localHoles = wallOps.map(o => ({
+        localX: o.posAlong - faceOffset,
+        width: o.width, height: o.height,
+        zBottom: o.type === "window" ? o.sill : 0,
+      }));
+      const segs = computeWallSegments(faceWidth, wallH, localHoles);
+
+      for (const seg of segs) {
+        const geo = isHoriz
+          ? new THREE.BoxGeometry(seg.w, s.sy, seg.h)
+          : new THREE.BoxGeometry(s.sx, seg.w, seg.h);
+        const mesh = new THREE.Mesh(geo, wMat);
+        if (isHoriz)
+          mesh.position.set(faceStart + seg.u + seg.w / 2, s.cy, seg.v + seg.h / 2);
+        else
+          mesh.position.set(s.cx, faceStart + seg.u + seg.w / 2, seg.v + seg.h / 2);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.userData.isWall = true;
+        mesh.userData.wallIdx = s.idx;
+        g.add(mesh);
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
+        edges.position.copy(mesh.position);
+        g.add(edges);
       }
     } else {
-      // Rectangular wall — simple box
-      geo = new THREE.BoxGeometry(s.sx, s.sy, s.wh);
-      mesh = new THREE.Mesh(geo, wMat);
-      mesh.position.set(s.cx, s.cy, s.wh / 2);
+      // Single-piece wall (no openings, or special shape)
+      let mesh, geo;
+
+      if (isGable && s.type === "perp") {
+        geo = makeGableWallGeo(faceLen, thick, h, ridgeH);
+        mesh = new THREE.Mesh(geo, wMat);
+        if (ridgeAlongX) {
+          mesh.rotation.z = -Math.PI / 2;
+          mesh.position.set(s.cx + thick / 2, s.cy, 0);
+        } else {
+          mesh.position.set(s.cx, s.cy - thick / 2, 0);
+        }
+      } else if (isFlatSloped && s.type === "perp") {
+        // When ridgeAlongX, rotation -PI/2 flips local X → world -Y,
+        // so local -hw → world north (e1h), local +hw → world south (e0h).
+        // Pass heights reversed to compensate.
+        if (ridgeAlongX) {
+          geo = makeTrapWallGeo(faceLen, thick, e1h, e0h);
+          mesh = new THREE.Mesh(geo, wMat);
+          mesh.rotation.z = -Math.PI / 2;
+          mesh.position.set(s.cx + thick / 2, s.cy, 0);
+        } else {
+          geo = makeTrapWallGeo(faceLen, thick, e0h, e1h);
+          mesh = new THREE.Mesh(geo, wMat);
+          mesh.position.set(s.cx, s.cy - thick / 2, 0);
+        }
+      } else if (isFlatSloped && s.type === "long") {
+        geo = new THREE.BoxGeometry(s.sx, s.sy, s.edgeH);
+        mesh = new THREE.Mesh(geo, wMat);
+        mesh.position.set(s.cx, s.cy, s.edgeH / 2);
+      } else {
+        geo = new THREE.BoxGeometry(s.sx, s.sy, h);
+        mesh = new THREE.Mesh(geo, wMat);
+        mesh.position.set(s.cx, s.cy, h / 2);
+      }
+
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.userData.isWall = true;
+      mesh.userData.wallIdx = s.idx;
+      g.add(mesh);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), eMat);
+      edges.position.copy(mesh.position);
+      edges.rotation.copy(mesh.rotation);
+      g.add(edges);
     }
-
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.userData.isWall = true;
-    mesh.userData.wallIdx = s.idx;
-    g.add(mesh);
-
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), eMat);
-    edges.position.copy(mesh.position);
-    edges.rotation.copy(mesh.rotation);
-    g.add(edges);
   }
 
   // Floor
@@ -1265,7 +1396,7 @@ function placeRoom() {
 function rebuildScene() {
   if (!c1 || !c2) return;
   if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
-  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
+  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat, openings);
   scene.add(roomGroup);
   if (roofGroup || currentStep >= 2) buildRoof();
   if (currentStep === 0) positionArrows();
@@ -1327,10 +1458,11 @@ function makeOpeningGroup(wallIdx, posAlong, type, dims) {
 
   const oMat = type === "window" ? windowMat : doorMat;
   const oEdgeMat = type === "window" ? windowFrameMat : doorFrameMat;
-  const depth = t + 40;
+  // Thin pane sits inside the wall opening
+  const paneDepth = type === "window" ? 20 : 40;
   const geo = new THREE.BoxGeometry(
-    wallIdx <= 1 ? ow : depth,
-    wallIdx <= 1 ? depth : ow,
+    wallIdx <= 1 ? ow : paneDepth,
+    wallIdx <= 1 ? paneDepth : ow,
     oh
   );
   const g = new THREE.Group();
@@ -1470,6 +1602,15 @@ function rebuildSingleOpening(idx) {
   openingsGroup.add(g);
   o.mesh = g;
   if (selectedOpening === idx) applySelectionHighlight(idx);
+  rebuildWalls();
+}
+
+function rebuildWalls() {
+  // Rebuild only the room geometry with current openings (preserves opening meshes)
+  if (!c1 || !c2) return;
+  if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
+  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat, openings);
+  scene.add(roomGroup);
 }
 
 /* ────────────────── opening drag & drop ────────────────── */
@@ -1548,6 +1689,7 @@ function finishOpeningDrag(e) {
       const rel = new THREE.Vector3().subVectors(hp, info.origin);
       const posAlong = rel.dot(info.along);
       placeOpening(wi, posAlong, draggingOpening.type);
+      rebuildScene();
     }
   }
 
@@ -1577,15 +1719,70 @@ function buildRoof() {
   roofGroup = new THREE.Group();
 
   if (roofType === "flat") {
-    // Flat roof: simple box slab sitting on top of walls
-    const geo = new THREE.BoxGeometry(w + overhang * 2, d + overhang * 2, roofT);
-    const mesh = new THREE.Mesh(geo, roofMat);
-    mesh.position.set(x0 + w / 2, y0 + d / 2, h + roofT / 2);
-    mesh.castShadow = true;
-    roofGroup.add(mesh);
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
-    edges.position.copy(mesh.position);
-    roofGroup.add(edges);
+    const f = flatSlopeH[0], b = flatSlopeH[1];
+    const oh = overhang;
+    const ridgeAlongX = w >= d;
+
+    if (f === 0 && b === 0) {
+      // Perfectly flat — simple box slab
+      const geo = new THREE.BoxGeometry(w + oh * 2, d + oh * 2, roofT);
+      const mesh = new THREE.Mesh(geo, roofMat);
+      mesh.position.set(x0 + w / 2, y0 + d / 2, h + roofT / 2);
+      mesh.castShadow = true;
+      roofGroup.add(mesh);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
+      edges.position.copy(mesh.position);
+      roofGroup.add(edges);
+    } else {
+      // Sloped flat roof — tilted slab with thickness
+      // Top surface at h + roofT + slope, bottom surface at h + slope
+      let top, bot;
+      if (ridgeAlongX) {
+        top = [
+          x0 - oh, y0 - oh, h + roofT + f,
+          x1 + oh, y0 - oh, h + roofT + f,
+          x1 + oh, y1 + oh, h + roofT + b,
+          x0 - oh, y1 + oh, h + roofT + b,
+        ];
+        bot = [
+          x0 - oh, y0 - oh, h + f,
+          x1 + oh, y0 - oh, h + f,
+          x1 + oh, y1 + oh, h + b,
+          x0 - oh, y1 + oh, h + b,
+        ];
+      } else {
+        top = [
+          x0 - oh, y0 - oh, h + roofT + f,
+          x0 - oh, y1 + oh, h + roofT + f,
+          x1 + oh, y1 + oh, h + roofT + b,
+          x1 + oh, y0 - oh, h + roofT + b,
+        ];
+        bot = [
+          x0 - oh, y0 - oh, h + f,
+          x0 - oh, y1 + oh, h + f,
+          x1 + oh, y1 + oh, h + b,
+          x1 + oh, y0 - oh, h + b,
+        ];
+      }
+      const verts = new Float32Array([...top, ...bot]);
+      const idx = [
+        0,1,2, 0,2,3,       // top
+        4,6,5, 4,7,6,       // bottom
+        0,5,1, 0,4,5,       // front edge
+        2,7,3, 2,6,7,       // back edge
+        0,3,7, 0,7,4,       // left side
+        1,6,2, 1,5,6,       // right side
+      ];
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, roofMat);
+      mesh.castShadow = true;
+      roofGroup.add(mesh);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
+      roofGroup.add(edges);
+    }
   } else {
     // Gable: two sloped faces, each thickened into a triangular-prism wedge
     const ridgeH = getRidgeH();
@@ -1898,6 +2095,7 @@ async function generateFrame() {
         })),
         roofType: roofType,
         ridgeH: getRidgeH(),
+        flatSlopeH: flatSlopeH,
         devSimple: !!window._devSimple,
       }),
     });
@@ -1943,7 +2141,7 @@ async function generateFrame() {
     if (json.stats) {
       const s = json.stats;
       const fmt = (n) => n.toLocaleString("en", { maximumFractionDigits: 1 });
-      const eur = (n) => "€" + n.toLocaleString("en", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+      const eur = (n) => n.toLocaleString("da-DK", { maximumFractionDigits: 0 }) + " kr";
 
       $("infoMembers").textContent = s.member_count + " pcs.";
       $("infoWaste").textContent = s.waste_pct + " %";
@@ -1953,15 +2151,14 @@ async function generateFrame() {
       $("infoCostFab").textContent = eur(s.price - s.timber_cost);
       $("infoPriceTotal").textContent = eur(s.price);
 
-      // Build cut list rows
+      // Build part list rows
       const cl = $("infoCutList");
       cl.innerHTML = "";
-      for (const item of s.cut_list) {
+      for (const item of s.part_list) {
         const row = document.createElement("div");
         row.className = "cut-row";
-        row.innerHTML = `<span class="cut-qty">${item.count}</span>`
-          + `<span class="cut-len">${item.length}</span>`
-          + `<span class="cut-sec">${item.section}</span>`;
+        row.innerHTML = `<span class="cut-sec">${item.section}</span>`
+          + `<span class="cut-len">${item.meters} m</span>`;
         cl.appendChild(row);
       }
     }
@@ -2031,6 +2228,17 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
         return;
       }
     }
+    // Check flat roof slope arrows
+    const visSlopeArrows = slopeArrows.filter(a => a.visible);
+    if (visSlopeArrows.length) {
+      const hits = rc.intersectObjects(visSlopeArrows);
+      if (hits.length) {
+        draggingSlopeEdge = hits[0].object.userData.slopeEdge;
+        orbit.enabled = false;
+        renderer.domElement.style.cursor = "grabbing";
+        return;
+      }
+    }
   }
 
   // Arrow drag start (footprint step)
@@ -2088,6 +2296,26 @@ document.addEventListener("pointerup", (e) => {
 });
 
 renderer.domElement.addEventListener("pointermove", (e) => {
+  // Flat roof slope arrow dragging
+  if (draggingSlopeEdge >= 0) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const arrowPos = slopeArrows[draggingSlopeEdge].position.clone();
+    const camDir = cam.getWorldDirection(new THREE.Vector3());
+    const vertPlane = new THREE.Plane(new THREE.Vector3(-camDir.x, -camDir.y, 0).normalize(), 0);
+    vertPlane.constant = -vertPlane.normal.dot(arrowPos);
+    const hitPt = new THREE.Vector3();
+    if (rc.ray.intersectPlane(vertPlane, hitPt)) {
+      const h = +inH.value;
+      const roofT = 120;
+      flatSlopeH[draggingSlopeEdge] = Math.max(0, snap(hitPt.z - h - roofT));
+      rebuildScene();
+    }
+    return;
+  }
+
   // Ridge arrow dragging — project mouse to vertical plane through ridge
   if (draggingRidge) {
     const r = renderer.domElement.getBoundingClientRect();
@@ -2109,13 +2337,14 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     return;
   }
 
-  // Roof arrow hover (roof step — ridge arrow only for gable)
-  if (currentStep === 2 && !dragging) {
+  // Roof arrow hover (roof step — ridge for gable, slope arrows for flat)
+  if (currentStep === 2 && !dragging && draggingSlopeEdge < 0) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     rc.setFromCamera(ndc, cam);
-    const hits = ridgeArrow.visible ? rc.intersectObjects([ridgeArrow]) : [];
+    const allRoofArrows = [ridgeArrow, ...slopeArrows].filter(a => a.visible);
+    const hits = allRoofArrows.length ? rc.intersectObjects(allRoofArrows) : [];
     setArrowHover(hits.length ? hits[0].object : null);
     if (hits.length) {
       renderer.domElement.style.cursor = "grab";
@@ -2196,6 +2425,11 @@ renderer.domElement.addEventListener("pointerup", () => {
   }
   if (draggingRidge) {
     draggingRidge = false;
+    orbit.enabled = true;
+    renderer.domElement.style.cursor = "";
+  }
+  if (draggingSlopeEdge >= 0) {
+    draggingSlopeEdge = -1;
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
   }
@@ -2308,6 +2542,7 @@ $("btnDeleteOpening").addEventListener("click", () => {
   const idx = selectedOpening;
   deselectOpening();
   removeOpeningByIdx(idx);
+  rebuildScene();
 });
 
 // Step tab clicks
@@ -2355,6 +2590,7 @@ document.querySelectorAll(".tool-item").forEach(el => {
 document.querySelectorAll(".roof-option").forEach(el => {
   el.addEventListener("click", () => {
     roofType = el.dataset.roof;
+    if (roofType === "gable") flatSlopeH = [0, 0];
     document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
     rebuildScene();
   });
@@ -2392,6 +2628,7 @@ function loadExample() {
   placeOpening(0, 3500, "door");
   placeOpening(2, 1200, "window");
   placeOpening(3, 1200, "window");
+  rebuildWalls();
   // Mark step 0 as visited so it won't show the intro hint
   stepVisited[0] = true;
   enterSet();
@@ -2422,6 +2659,7 @@ function startDrawing() {
   stepVisited[0] = true;  // footprint intro is the default view
   roofType = "flat";
   customRidgeH = null;
+  flatSlopeH = [0, 0];
   activeTool = null;
   tip.style.display = "none";
   panel.classList.remove("open");
