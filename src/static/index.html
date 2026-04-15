@@ -3,100 +3,391 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FrameAI – Wall Framer</title>
+<title>FrameAI</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #1a1a2e; color: #e0e0e0;
-    display: flex; height: 100vh; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: #0a0a0a;
+    color: #fafafa;
+    overflow: hidden;
+    height: 100vh;
   }
 
-  /* ── sidebar ── */
-  .sidebar {
-    width: 300px; padding: 24px 20px;
-    background: #16213e; display: flex; flex-direction: column; gap: 16px;
-    border-right: 1px solid #0f3460; overflow-y: auto;
-  }
-  .sidebar h1 { font-size: 20px; color: #e94560; letter-spacing: 1px; }
-  .section-title {
-    font-size: 11px; text-transform: uppercase; color: #666;
-    letter-spacing: 1px; margin-top: 4px;
+  #viewport { position: fixed; inset: 0; }
+
+  /* ── Glass panels ── */
+  .glass {
+    background: rgba(28, 28, 30, 0.82);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
   }
 
-  .field { display: flex; flex-direction: column; gap: 4px; }
-  .field label { font-size: 12px; color: #aaa; }
-  .field .row { display: flex; align-items: center; gap: 6px; }
-  .field input[type=number] {
-    width: 72px; padding: 5px 7px; background: #0f3460; border: 1px solid #1a3a6e;
-    color: #fff; border-radius: 4px; font-size: 13px; text-align: right;
+  /* ── Top row ── */
+  .toprow {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 10;
   }
-  .field .unit { font-size: 11px; color: #555; min-width: 24px; }
 
-  .btn {
-    padding: 12px; border: none; border-radius: 6px;
-    font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s;
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 6px 10px;
+  }
+
+  /* Steps */
+  .steps { display: flex; align-items: center; gap: 0; }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 0;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.25);
+    white-space: nowrap;
+    transition: color 0.3s;
+    cursor: pointer;
+  }
+
+  .step-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.15);
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.3s;
+  }
+
+  .step.active { color: #F9BC06; }
+  .step.active .step-num { border-color: #F9BC06; background: #F9BC06; color: #0a0a0a; }
+
+  .step.done { color: rgba(255, 255, 255, 0.4); }
+  .step.done .step-num { border-color: rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.5); }
+
+  .step-arrow {
+    margin: 0 12px;
+    color: rgba(255, 255, 255, 0.12);
+    font-size: 11px;
+  }
+
+  /* Buttons */
+  .btn-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-icon:hover { color: rgba(255, 255, 255, 0.85); }
+  .btn-icon svg { width: 16px; height: 16px; }
+
+  .btn-next {
+    padding: 7px 22px;
+    background: #F9BC06;
+    border: none;
+    border-radius: 8px;
+    color: #0a0a0a;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .btn-next:hover { background: #e5ab00; }
+
+  /* ── Dimension panel ── */
+  .panel {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 196px;
+    padding: 18px;
+    display: none;
+    flex-direction: column;
+    gap: 14px;
+    z-index: 10;
+  }
+
+  .panel.open { display: flex; }
+
+  .panel-title {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .f { display: flex; flex-direction: column; gap: 4px; }
+  .f label { font-size: 12px; color: rgba(255, 255, 255, 0.4); }
+  .fr { display: flex; align-items: center; gap: 7px; }
+
+  .f input[type="number"] {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    -moz-appearance: textfield;
+  }
+
+  .f input:focus { border-color: rgba(255, 255, 255, 0.22); }
+  .f input::-webkit-inner-spin-button,
+  .f input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .f .u { font-size: 11px; color: rgba(255, 255, 255, 0.2); min-width: 22px; }
+
+  /* ── Hint ── */
+  .hint {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 24px 32px;
+    font-size: 18px;
+    font-weight: 500;
+    color: rgba(251, 250, 249, 0.95);
+    z-index: 10;
+    pointer-events: none;
+    transition: all 0.4s ease;
+    background: rgba(251, 250, 249, 0.1);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: 1px solid rgba(251, 250, 249, 0.6);
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+
+  .hint.small {
+    top: auto;
+    bottom: 20px;
+    transform: translateX(-50%);
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.35);
+    border-radius: 8px;
+    background: rgba(251, 250, 249, 0.06);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* ── Inline dim editor ── */
+  .dim-edit {
+    position: fixed;
+    display: none;
+    width: 90px;
+    padding: 6px 10px;
+    background: rgba(28, 28, 30, 0.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1.5px solid #F9BC06;
+    border-radius: 8px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 500;
     text-align: center;
+    outline: none;
+    z-index: 30;
+    -moz-appearance: textfield;
   }
-  .btn-draw    { background: #0f3460; color: #4da6ff; border: 1px solid #1a5aaa; }
-  .btn-draw:hover { background: #153d6e; }
-  .btn-draw.active { background: #1a5aaa; color: #fff; }
-  .btn-primary { background: #e94560; color: #fff; }
-  .btn-primary:hover { background: #c73550; }
-  .btn-primary:disabled { background: #444; color: #777; cursor: default; }
-  .btn-secondary { background: #0f3460; color: #aaa; }
-  .btn-secondary:hover { background: #153d6e; }
-  .btn-secondary:disabled { background: #333; color: #555; cursor: default; }
+  .dim-edit::-webkit-inner-spin-button,
+  .dim-edit::-webkit-outer-spin-button { -webkit-appearance: none; }
 
-  #status {
-    font-size: 12px; color: #4da6ff; min-height: 18px; line-height: 1.5;
-  }
-  #info {
-    font-size: 11px; color: #555; line-height: 1.6; margin-top: auto;
+  /* ── Tooltip ── */
+  .tip {
+    position: fixed;
+    display: none;
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.65);
+    pointer-events: none;
+    z-index: 20;
+    font-variant-numeric: tabular-nums;
   }
 
-  /* ── viewport ── */
-  .viewport { flex: 1; position: relative; cursor: crosshair; }
-  .viewport.orbit { cursor: grab; }
-  canvas { display: block; width: 100%; height: 100%; }
+  /* ── Left panel (Openings) ── */
+  .left-panel {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 170px;
+    padding: 18px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 10;
+  }
+  .left-panel.open { display: flex; }
+
+  .tool-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    color: rgba(255,255,255,0.55);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .tool-item:hover {
+    border-color: rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.85);
+  }
+  .tool-item.active {
+    border-color: #F9BC06;
+    color: #F9BC06;
+    background: rgba(249,188,6,0.08);
+  }
+  .tool-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+  /* ── Roof panel ── */
+  .roof-panel {
+    position: fixed;
+    left: 50%;
+    bottom: 80px;
+    transform: translateX(-50%);
+    display: none;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 22px;
+    z-index: 10;
+  }
+  .roof-panel.open { display: flex; }
+
+  .roof-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 18px 28px;
+    background: rgba(255,255,255,0.04);
+    border: 1.5px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    color: rgba(255,255,255,0.5);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    min-width: 110px;
+  }
+  .roof-option:hover {
+    border-color: rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.8);
+  }
+  .roof-option.active {
+    border-color: #F9BC06;
+    color: #F9BC06;
+    background: rgba(249,188,6,0.08);
+  }
+  .roof-option svg { width: 40px; height: 40px; }
 </style>
 </head>
 <body>
 
-<div class="sidebar">
-  <h1>FrameAI</h1>
-
-  <button class="btn btn-draw" id="drawBtn">Draw Wall</button>
-  <div id="status">Click "Draw Wall", then click two points on the ground.</div>
-
-  <div class="section-title">Wall</div>
-  <div class="field">
-    <label>Height</label>
-    <div class="row"><input type="number" id="wallHeight" value="2400" min="100" max="20000"><span class="unit">mm</span></div>
+<!-- Top bar row -->
+<div class="toprow" id="toprow">
+  <button class="btn-icon glass" id="btnClear" style="display:none" title="Start over">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2.5v4h4"/><path d="M2.9 10a5.5 5.5 0 1 0 1-3.4L2.5 6.5"/></svg>
+  </button>
+  <div class="toolbar glass">
+    <div class="steps">
+      <div class="step active" id="step0"><span class="step-num">1</span> Footprint</div>
+      <span class="step-arrow">&#9656;</span>
+      <div class="step" id="step1"><span class="step-num">2</span> Openings</div>
+      <span class="step-arrow">&#9656;</span>
+      <div class="step" id="step2"><span class="step-num">3</span> Roof</div>
+      <span class="step-arrow">&#9656;</span>
+      <div class="step" id="step3"><span class="step-num">4</span> Generate</div>
+    </div>
   </div>
-
-  <div class="section-title">Studs</div>
-  <div class="field">
-    <label>Spacing (on center)</label>
-    <div class="row"><input type="number" id="studSpacing" value="600" min="100" max="2400"><span class="unit">mm</span></div>
-  </div>
-  <div class="field">
-    <label>Width (along wall)</label>
-    <div class="row"><input type="number" id="studWidth" value="45" min="10" max="200"><span class="unit">mm</span></div>
-  </div>
-  <div class="field">
-    <label>Depth (wall thickness)</label>
-    <div class="row"><input type="number" id="studDepth" value="90" min="10" max="300"><span class="unit">mm</span></div>
-  </div>
-
-  <button class="btn btn-primary" id="frameBtn" disabled>Generate Frame</button>
-  <button class="btn btn-primary" id="ghBtn" disabled style="background:#0f3460;color:#4da6ff;border:1px solid #1a5aaa;">Run GH Definition</button>
-  <button class="btn btn-secondary" id="clearBtn" disabled>Clear</button>
-
-  <div id="info"></div>
+  <button class="btn-next" id="btnNext" style="display:none">Openings →</button>
 </div>
 
-<div class="viewport orbit" id="viewport"></div>
+<!-- Dimension panel -->
+<div class="panel glass" id="panel">
+  <span class="panel-title">Dimensions</span>
+  <div class="f"><label>Width</label>  <div class="fr"><input type="number" id="inW" value="4000" min="500" step="10"><span class="u">mm</span></div></div>
+  <div class="f"><label>Depth</label>  <div class="fr"><input type="number" id="inD" value="3000" min="500" step="10"><span class="u">mm</span></div></div>
+  <div class="f"><label>Wall Height</label>    <div class="fr"><input type="number" id="inH" value="2400" min="500" step="10"><span class="u">mm</span></div></div>
+  <div class="f"><label>Thickness</label> <div class="fr"><input type="number" id="inT" value="150"  min="50"  step="10"><span class="u">mm</span></div></div>
+</div>
+
+<!-- Left panel (Openings) -->
+<div class="left-panel glass" id="leftPanel">
+  <span class="panel-title">Place on walls</span>
+  <div class="tool-item" data-tool="window">
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="2" y="3" width="14" height="12" rx="1"/><line x1="9" y1="3" x2="9" y2="15"/><line x1="2" y1="9" x2="16" y2="9"/></svg>
+    Window
+  </div>
+  <div class="tool-item" data-tool="door">
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="4" y="2" width="10" height="14" rx="1"/><circle cx="12" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
+    Door
+  </div>
+</div>
+
+<!-- Roof panel -->
+<div class="roof-panel glass" id="roofPanel">
+  <div class="roof-option" data-roof="flat">
+    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="16" width="28" height="18" rx="1"/><line x1="4" y1="16" x2="36" y2="16" stroke-width="2.2"/></svg>
+    Flat
+  </div>
+  <div class="roof-option" data-roof="gable">
+    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="20" width="28" height="14" rx="1"/><polyline points="4,20 20,6 36,20" stroke-width="2.2"/></svg>
+    Gable
+  </div>
+</div>
+
+<!-- Hint bar -->
+<div class="hint" id="hint">Click to place your house</div>
+
+<!-- Cursor tooltip -->
+<div class="tip" id="tip"></div>
+
+<!-- Inline dimension editor -->
+<input type="number" class="dim-edit" id="dimEdit" step="0.01" min="0.5">
+
+<!-- Viewport -->
+<div id="viewport"></div>
 
 <script type="importmap">
 {
@@ -110,350 +401,1109 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-// ── Scene ──
+/* ────────────────── renderer ────────────────── */
 const vp = document.getElementById("viewport");
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setClearColor(0x1a1a2e);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x0a0a0a);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
 vp.appendChild(renderer.domElement);
 
+/* ────────────────── scene / camera ────────────────── */
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(45, 1, 1, 500000);
-camera.position.set(6000, -4000, 5000);
-camera.up.set(0, 0, 1);
+const cam = new THREE.PerspectiveCamera(35, 1, 10, 200000);
+cam.position.set(9000, -7000, 7000);
+cam.up.set(0, 0, 1);
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.target.set(2000, 0, 1200);
+const orbit = new OrbitControls(cam, renderer.domElement);
+orbit.enableDamping = true;
+orbit.dampingFactor = 0.07;
+orbit.target.set(0, 0, 0);
+orbit.maxPolarAngle = Math.PI / 2.05;
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-dir.position.set(5000, -3000, 8000);
-scene.add(dir);
+/* ────────────────── lights ────────────────── */
+scene.add(new THREE.AmbientLight(0xffffff, 0.45));
 
-// Grid on XY plane (Z=0)
-const gridHelper = new THREE.GridHelper(20000, 40, 0x0f3460, 0x0f3460);
-gridHelper.rotation.x = Math.PI / 2;
-scene.add(gridHelper);
-scene.add(new THREE.AxesHelper(1500));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+sun.position.set(6000, -4000, 9000);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = sun.shadow.camera.bottom = -15000;
+sun.shadow.camera.right = sun.shadow.camera.top = 15000;
+scene.add(sun);
 
-// ── State ──
-const S = { IDLE: 0, DRAW_START: 1, DRAW_END: 2, WALL_SET: 3, GENERATING: 4, FRAMED: 5 };
-let state = S.IDLE;
-let wallStart = null, wallEnd = null;
+const fill = new THREE.DirectionalLight(0xffffff, 0.25);
+fill.position.set(-4000, 5000, 3000);
+scene.add(fill);
 
-// Visual helpers
-let startMarker = null, endMarker = null, wallLine = null, wallOutline = null;
-let frameMesh = null, frameEdges = null;
+/* ────────────────── ground ────────────────── */
+const GRID = 30000;
+const grid = new THREE.GridHelper(GRID, 60, 0x1a1a1a, 0x141414);
+grid.rotation.x = Math.PI / 2;
+scene.add(grid);
 
-const markerGeo  = new THREE.SphereGeometry(60, 16, 16);
-const markerMat   = new THREE.MeshBasicMaterial({ color: 0x4da6ff });
-const previewMat  = new THREE.LineBasicMaterial({ color: 0x4da6ff });
-const outlineMat  = new THREE.LineBasicMaterial({ color: 0xe94560 });
+const shadowMat = new THREE.ShadowMaterial({ opacity: 0.18 });
+shadowMat.polygonOffset = true;
+shadowMat.polygonOffsetFactor = 1;
+shadowMat.polygonOffsetUnits = 1;
+const shadowGround = new THREE.Mesh(new THREE.PlaneGeometry(GRID, GRID), shadowMat);
+shadowGround.receiveShadow = true;
+scene.add(shadowGround);
 
-// ── Raycast to ground plane (Z = 0) ──
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-const groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+/* ────────────────── snap cursor (orange circle) ────────────────── */
+const dot = new THREE.Mesh(
+  new THREE.CircleGeometry(60, 32),
+  new THREE.MeshBasicMaterial({ color: 0xF9BC06, depthTest: false })
+);
+dot.renderOrder = 999;
+dot.position.set(0, 0, 2);
+dot.visible = false;
+scene.add(dot);
 
-function groundHit(event) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  mouse.x =  ((event.clientX - rect.left) / rect.width)  * 2 - 1;
-  mouse.y = -((event.clientY - rect.top)  / rect.height) * 2 + 1;
-  raycaster.setFromCamera(mouse, camera);
-  const hit = new THREE.Vector3();
-  if (raycaster.ray.intersectPlane(groundPlane, hit)) return hit;
-  return null;
+function moveDot(snapped) {
+  dot.position.set(snapped.x, snapped.y, 2);
+  dot.visible = true;
 }
 
-// ── Drawing helpers ──
-function addMarker(pt) {
-  const m = new THREE.Mesh(markerGeo, markerMat);
-  m.position.copy(pt);
-  scene.add(m);
+function hideDot() {
+  dot.visible = false;
+}
+
+/* ────────────────── materials ────────────────── */
+const wallMat = new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.82, metalness: 0 });
+const ghostMat = new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.82, metalness: 0, transparent: true, opacity: 0.5 });
+const edgeMat = new THREE.LineBasicMaterial({ color: 0xaaaaaa });
+const ghostEdge = new THREE.LineBasicMaterial({ color: 0x666666, transparent: true, opacity: 0.4 });
+const floorMat = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.95, metalness: 0 });
+const ghostFloor = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.35 });
+
+const frameMat = new THREE.MeshStandardMaterial({ color: 0xd4a76a, roughness: 0.65, metalness: 0.05 });
+
+const windowMat = new THREE.MeshStandardMaterial({ color: 0x7ebadb, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.3, side: THREE.DoubleSide });
+const windowFrameMat = new THREE.LineBasicMaterial({ color: 0x4499bb });
+const doorMat = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.55, metalness: 0.05, side: THREE.DoubleSide });
+const doorFrameMat = new THREE.LineBasicMaterial({ color: 0x6b5335 });
+const roofMat = new THREE.MeshStandardMaterial({ color: 0xc8bfb0, roughness: 0.7, metalness: 0 });
+const roofEdgeMat = new THREE.LineBasicMaterial({ color: 0x999999 });
+
+/* ────────────────── drag arrows ────────────────── */
+// Arrow shape: flat triangle + stem, pointing +Y in local space
+function makeArrowMesh() {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 280);       // tip
+  shape.lineTo(-150, 70);
+  shape.lineTo(-55, 70);
+  shape.lineTo(-55, -140);
+  shape.lineTo(55, -140);
+  shape.lineTo(55, 70);
+  shape.lineTo(150, 70);
+  shape.closePath();
+  const geo = new THREE.ShapeGeometry(shape);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, side: THREE.DoubleSide, depthTest: false,
+    transparent: true, opacity: 0.9,
+  });
+  const m = new THREE.Mesh(geo, mat);
+  m.renderOrder = 998;
   return m;
 }
 
-function drawWallOutline() {
-  if (wallOutline) { scene.remove(wallOutline); wallOutline = null; }
-  if (!wallStart || !wallEnd) return;
+const COL_DEFAULT = new THREE.Color(0xffffff);
+const COL_HOVER   = new THREE.Color(0xF9BC06);
+let hoveredArrow = null;
 
-  const h  = +document.getElementById("wallHeight").value;
-  const sd = +document.getElementById("studDepth").value;
-
-  const dx = wallEnd.x - wallStart.x;
-  const dy = wallEnd.y - wallStart.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 1) return;
-  const nx = -dy / len * sd, ny = dx / len * sd;
-
-  const pts = [
-    new THREE.Vector3(wallStart.x,      wallStart.y,      0),
-    new THREE.Vector3(wallEnd.x,        wallEnd.y,        0),
-    new THREE.Vector3(wallEnd.x,        wallEnd.y,        h),
-    new THREE.Vector3(wallStart.x,      wallStart.y,      h),
-    new THREE.Vector3(wallStart.x,      wallStart.y,      0),
-    // thickness
-    new THREE.Vector3(wallStart.x + nx, wallStart.y + ny, 0),
-    new THREE.Vector3(wallEnd.x + nx,   wallEnd.y + ny,   0),
-    new THREE.Vector3(wallEnd.x + nx,   wallEnd.y + ny,   h),
-    new THREE.Vector3(wallStart.x + nx, wallStart.y + ny, h),
-    new THREE.Vector3(wallStart.x + nx, wallStart.y + ny, 0),
-  ];
-  const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  wallOutline = new THREE.Line(geo, outlineMat);
-  scene.add(wallOutline);
-
-  // connecting lines top
-  const con = [
-    new THREE.Vector3(wallStart.x, wallStart.y, h),
-    new THREE.Vector3(wallStart.x + nx, wallStart.y + ny, h),
-    new THREE.Vector3(wallEnd.x + nx, wallEnd.y + ny, h),
-    new THREE.Vector3(wallEnd.x, wallEnd.y, h),
-  ];
-  const cGeo = new THREE.BufferGeometry().setFromPoints(con);
-  const cLine = new THREE.Line(cGeo, outlineMat);
-  wallOutline.add(cLine);
-
-  // connecting lines bottom
-  const con2 = [
-    new THREE.Vector3(wallEnd.x, wallEnd.y, 0),
-    new THREE.Vector3(wallEnd.x + nx, wallEnd.y + ny, 0),
-  ];
-  const c2Geo = new THREE.BufferGeometry().setFromPoints(con2);
-  const c2Line = new THREE.Line(c2Geo, outlineMat);
-  wallOutline.add(c2Line);
+function setArrowHover(arrow) {
+  if (hoveredArrow === arrow) return;
+  if (hoveredArrow) {
+    hoveredArrow.material.color.copy(COL_DEFAULT);
+    hoveredArrow.scale.set(1, 1, 1);
+  }
+  hoveredArrow = arrow;
+  if (hoveredArrow) {
+    hoveredArrow.material.color.copy(COL_HOVER);
+    hoveredArrow.scale.set(1.3, 1.3, 1.3);
+  }
 }
 
-function updateInfo() {
-  const el = document.getElementById("info");
-  if (!wallStart || !wallEnd) { el.textContent = ""; return; }
-  const len = Math.hypot(wallEnd.x - wallStart.x, wallEnd.y - wallStart.y);
-  const h = +document.getElementById("wallHeight").value;
-  el.textContent = `Wall: ${Math.round(len)} mm long, ${h} mm high`;
+// 4 arrows: south(-Y), north(+Y), west(-X), east(+X)
+const arrows = [];
+const ARROW_DIRS = [
+  { axis: "y", sign: -1 },   // south
+  { axis: "y", sign:  1 },   // north
+  { axis: "x", sign: -1 },   // west
+  { axis: "x", sign:  1 },   // east
+];
+// Shape is in XY plane pointing +Y. Ground is XY (Z=up). Just rotate Z.
+// south=-Y, north=+Y, west=-X, east=+X
+const ARROW_ROT_Z = [Math.PI, 0, Math.PI / 2, -Math.PI / 2];
+for (let i = 0; i < 4; i++) {
+  const a = makeArrowMesh();
+  a.visible = false;
+  a.userData.idx = i;
+  a.geometry = a.geometry.clone();
+  a.geometry.rotateZ(ARROW_ROT_Z[i]);
+  scene.add(a);
+  arrows.push(a);
 }
 
-// ── Mouse interaction ──
+function positionArrows() {
+  if (!c1 || !c2) return;
+  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+  const off = 350;
+
+  arrows[0].position.set(mx, y0 - off, 10);  // south
+  arrows[1].position.set(mx, y1 + off, 10);  // north
+  arrows[2].position.set(x0 - off, my, 10);  // west
+  arrows[3].position.set(x1 + off, my, 10);  // east
+  for (const a of arrows) a.visible = true;
+}
+
+function hideArrows() {
+  for (const a of arrows) a.visible = false;
+  setArrowHover(null);
+}
+
+let dragging = null;  // { idx, axis, sign }
+
+/* ────────────────── dimension lines ────────────────── */
+let dimGroup = null;
+const dimLabels = [];
+const dimLineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthTest: false });
+
+function makeTextSprite(text) {
+  const c = document.createElement("canvas");
+  const ctx = c.getContext("2d");
+  const fontSize = 64;
+  ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  const m = ctx.measureText(text);
+  const pad = 20;
+  c.width = m.width + pad * 2;
+  c.height = fontSize * 1.4;
+  // re-set font after resize
+  ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, c.width / 2, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true });
+  const sprite = new THREE.Sprite(mat);
+  sprite.renderOrder = 999;
+  // scale: 1 canvas pixel ≈ 3 world units looks good
+  sprite.scale.set(c.width * 3, c.height * 3, 1);
+  return sprite;
+}
+
+function updateDims(a, b) {
+  if (dimGroup) { scene.remove(dimGroup); dimGroup = null; }
+  dimLabels.length = 0;
+  const pa = a || c1, pb = b || c2;
+  if (!pa || !pb) return;
+
+  dimGroup = new THREE.Group();
+  const x0 = Math.min(pa.x, pb.x), x1 = Math.max(pa.x, pb.x);
+  const y0 = Math.min(pa.y, pb.y), y1 = Math.max(pa.y, pb.y);
+  const w = x1 - x0, d = y1 - y0;
+  const z = 3;           // slightly above ground
+  const gap = 1250;      // offset from walls
+  const tick = 150;      // end tick length
+
+  // ── Width dim (along bottom, south side) ──
+  const wy = y0 - gap;
+  const wPts = [
+    // left tick
+    new THREE.Vector3(x0, wy - tick, z), new THREE.Vector3(x0, wy + tick, z),
+    // main line
+    new THREE.Vector3(x0, wy, z), new THREE.Vector3(x1, wy, z),
+    // right tick
+    new THREE.Vector3(x1, wy - tick, z), new THREE.Vector3(x1, wy + tick, z),
+  ];
+  const wGeo = new THREE.BufferGeometry().setFromPoints(wPts);
+  const wLine = new THREE.LineSegments(wGeo, dimLineMat);
+  wLine.renderOrder = 999;
+  dimGroup.add(wLine);
+
+  const wLabel = makeTextSprite((w / 1000).toFixed(2) + " m");
+  wLabel.position.set((x0 + x1) / 2, wy - 300, z);
+  wLabel.userData.dimAxis = "w";
+  dimGroup.add(wLabel);
+  dimLabels.push(wLabel);
+
+  // ── Depth dim (along right side, east side) ──
+  const dx = x1 + gap;
+  const dPts = [
+    // bottom tick
+    new THREE.Vector3(dx - tick, y0, z), new THREE.Vector3(dx + tick, y0, z),
+    // main line
+    new THREE.Vector3(dx, y0, z), new THREE.Vector3(dx, y1, z),
+    // top tick
+    new THREE.Vector3(dx - tick, y1, z), new THREE.Vector3(dx + tick, y1, z),
+  ];
+  const dGeo = new THREE.BufferGeometry().setFromPoints(dPts);
+  const dLine = new THREE.LineSegments(dGeo, dimLineMat);
+  dLine.renderOrder = 999;
+  dimGroup.add(dLine);
+
+  const dLabel = makeTextSprite((d / 1000).toFixed(2) + " m");
+  dLabel.position.set(dx + 300, (y0 + y1) / 2, z);
+  dLabel.userData.dimAxis = "d";
+  dimGroup.add(dLabel);
+  dimLabels.push(dLabel);
+
+  scene.add(dimGroup);
+}
+
+function hideDims() {
+  if (dimGroup) { scene.remove(dimGroup); dimGroup = null; }
+  dimLabels.length = 0;
+}
+
+/* ────────────────── state ────────────────── */
+const M = { P1: 1, P2: 2, SET: 3 };
+let mode = M.P1;
+let c1 = null, c2 = null;   // THREE.Vector3
+let signX = 1, signY = 1;   // draw direction for input rebuild
+
+let ghostGroup = null;
+let roomGroup  = null;
+let frameGroup = null;
+
+/* ────────────────── DOM ────────────────── */
+const $ = id => document.getElementById(id);
+const hint   = $("hint");
+const panel  = $("panel");
+const tip    = $("tip");
+const btnClear = $("btnClear");
+const btnNext  = $("btnNext");
+const leftPanel = $("leftPanel");
+const roofPanel = $("roofPanel");
+const inW = $("inW"), inD = $("inD"), inH = $("inH"), inT = $("inT");
+const stepEls = [$("step0"), $("step1"), $("step2"), $("step3")];
+const NEXT_LABELS = ["Openings \u2192", "Roof \u2192", "Generate \u2192"];
+
+let currentStep = 0;
+let activeTool = null;       // "window" | "door" | null
+const stepVisited = [false, false, false, false];  // track first visit per tab
+
+// Intro hints shown centered on first visit to each tab
+const stepIntroHints = [
+  "Click to place your house",
+  "Add windows and doors to your walls",
+  "Pick a roof style for your house",
+  "Generate the timber frame"
+];
+let roofType = "flat";       // "flat" | "gable"
+const openings = [];         // { type, wallIdx, posAlong, mesh }
+let openingsGroup = new THREE.Group();
+scene.add(openingsGroup);
+let roofGroup = null;
+
+function setStep(n) {
+  stepEls.forEach((s, i) => {
+    s.classList.remove("active", "done");
+    if (i < n) s.classList.add("done");
+    else if (i === n) s.classList.add("active");
+  });
+}
+
+/* ────────────────── ground raycast ────────────────── */
+const rc = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+const gp = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+
+function groundHit(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  rc.setFromCamera(ndc, cam);
+  const pt = new THREE.Vector3();
+  return rc.ray.intersectPlane(gp, pt) ? pt : null;
+}
+
+const SNAP = 500;  // matches grid lines (30000 / 60)
+function snap(v) { return Math.round(v / SNAP) * SNAP; }
+
+/* ────────────────── build 4 walls + floor ────────────────── */
+function buildRoom(a, b, h, t, wMat, eMat, fMat) {
+  const g = new THREE.Group();
+
+  const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+  const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+  const w = x1 - x0, d = y1 - y0;
+
+  // Walls: south/north full width, east/west fill between
+  const specs = [
+    { cx: x0 + w / 2,     cy: y0 + t / 2,               sx: w,         sy: t         },  // south
+    { cx: x0 + w / 2,     cy: y1 - t / 2,               sx: w,         sy: t         },  // north
+    { cx: x0 + t / 2,     cy: y0 + t + (d - 2 * t) / 2, sx: t,         sy: d - 2 * t },  // west
+    { cx: x1 - t / 2,     cy: y0 + t + (d - 2 * t) / 2, sx: t,         sy: d - 2 * t },  // east
+  ];
+
+  let wallIdx = 0;
+  for (const s of specs) {
+    if (s.sx <= 0 || s.sy <= 0) { wallIdx++; continue; }
+    const geo = new THREE.BoxGeometry(s.sx, s.sy, h);
+    const mesh = new THREE.Mesh(geo, wMat);
+    mesh.position.set(s.cx, s.cy, h / 2);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.isWall = true;
+    mesh.userData.wallIdx = wallIdx++;
+    g.add(mesh);
+
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
+    edges.position.copy(mesh.position);
+    g.add(edges);
+  }
+
+  // Floor
+  const fw = w - 2 * t, fd = d - 2 * t;
+  if (fw > 0 && fd > 0) {
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(fw, fd), fMat);
+    floor.position.set(x0 + w / 2, y0 + d / 2, 1);
+    floor.receiveShadow = true;
+    g.add(floor);
+  }
+
+  return g;
+}
+
+/* ────────────────── place / preview ────────────────── */
+function showGhost(a, b) {
+  if (ghostGroup) scene.remove(ghostGroup);
+  ghostGroup = buildRoom(a, b, +inH.value, +inT.value, ghostMat, ghostEdge, ghostFloor);
+  scene.add(ghostGroup);
+}
+
+function placeRoom() {
+  if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; }
+  if (roomGroup)  { scene.remove(roomGroup);  roomGroup = null; }
+
+  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
+  scene.add(roomGroup);
+  positionArrows();
+  updateDims();
+
+  // Sync dimension inputs
+  inW.value = Math.round(Math.abs(c2.x - c1.x));
+  inD.value = Math.round(Math.abs(c2.y - c1.y));
+}
+
+function rebuildRoom() {
+  if (mode !== M.SET || !c1) return;
+  c2 = new THREE.Vector3(c1.x + (+inW.value) * signX, c1.y + (+inD.value) * signY, 0);
+  if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
+  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
+  scene.add(roomGroup);
+  positionArrows();
+  updateDims();
+  rebuildOpenings();
+  if (roofGroup) buildRoof();
+}
+
+/* ────────────────── openings ────────────────── */
+const WINDOW_W = 1000, WINDOW_H = 1000, WINDOW_SILL = 900;
+const DOOR_W = 900, DOOR_H = 2100;
+
+function getWallMeshes() {
+  if (!roomGroup) return [];
+  return roomGroup.children.filter(c => c.userData && c.userData.isWall);
+}
+
+function wallInfo(wallIdx) {
+  // Returns { origin, along, outward, length } for each wall
+  if (!c1 || !c2) return null;
+  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const t = +inT.value;
+  switch (wallIdx) {
+    case 0: return { origin: new THREE.Vector3(x0, y0, 0), along: new THREE.Vector3(1,0,0), outward: new THREE.Vector3(0,-1,0), length: x1-x0 }; // south
+    case 1: return { origin: new THREE.Vector3(x0, y1, 0), along: new THREE.Vector3(1,0,0), outward: new THREE.Vector3(0,1,0), length: x1-x0 };  // north
+    case 2: return { origin: new THREE.Vector3(x0, y0+t, 0), along: new THREE.Vector3(0,1,0), outward: new THREE.Vector3(-1,0,0), length: y1-y0-2*t }; // west
+    case 3: return { origin: new THREE.Vector3(x1, y0+t, 0), along: new THREE.Vector3(0,1,0), outward: new THREE.Vector3(1,0,0), length: y1-y0-2*t };  // east
+  }
+}
+
+function placeOpening(wallIdx, posAlong, type) {
+  const info = wallInfo(wallIdx);
+  if (!info) return;
+  const t = +inT.value;
+  const ow = type === "window" ? WINDOW_W : DOOR_W;
+  const oh = type === "window" ? WINDOW_H : DOOR_H;
+  const oz = type === "window" ? WINDOW_SILL + WINDOW_H / 2 : DOOR_H / 2;
+
+  // Clamp within wall
+  const half = ow / 2;
+  posAlong = Math.max(half + t, Math.min(info.length - half - t, posAlong));
+
+  const g = new THREE.Group();
+
+  // Position: centered on wall (origin + along * posAlong, inward by t/2)
+  const cx = info.origin.x + info.along.x * posAlong - info.outward.x * (t / 2);
+  const cy = info.origin.y + info.along.y * posAlong - info.outward.y * (t / 2);
+
+  // Opening panel — slightly wider than wall so it pokes through both faces
+  const mat = type === "window" ? windowMat : doorMat;
+  const eMat = type === "window" ? windowFrameMat : doorFrameMat;
+  const depth = t + 40;  // 20mm overshoot each side
+  const geo = new THREE.BoxGeometry(
+    wallIdx <= 1 ? ow : depth,   // width in X
+    wallIdx <= 1 ? depth : ow,   // depth in Y
+    oh
+  );
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(cx, cy, oz);
+  mesh.userData.isOpening = true;
+  g.add(mesh);
+
+  // Edge outline
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
+  edges.position.copy(mesh.position);
+  g.add(edges);
+
+
+  openingsGroup.add(g);
+  openings.push({ type, wallIdx, posAlong, mesh: g });
+}
+
+function removeOpening(groupMesh) {
+  const idx = openings.findIndex(o => o.mesh === groupMesh || o.mesh.children.includes(groupMesh));
+  if (idx < 0) {
+    // Try finding by child
+    for (let i = 0; i < openings.length; i++) {
+      if (openings[i].mesh.children.some(c => c === groupMesh)) { return removeOpeningByIdx(i); }
+    }
+    return;
+  }
+  removeOpeningByIdx(idx);
+}
+
+function removeOpeningByIdx(idx) {
+  const o = openings[idx];
+  openingsGroup.remove(o.mesh);
+  openings.splice(idx, 1);
+}
+
+function clearOpenings() {
+  while (openings.length) removeOpeningByIdx(0);
+}
+
+function rebuildOpenings() {
+  // Re-place all openings after room resize
+  const saved = openings.map(o => ({ type: o.type, wallIdx: o.wallIdx, posAlong: o.posAlong }));
+  clearOpenings();
+  for (const s of saved) placeOpening(s.wallIdx, s.posAlong, s.type);
+}
+
+/* ────────────────── roof ────────────────── */
+function buildRoof() {
+  if (roofGroup) { scene.remove(roofGroup); roofGroup = null; }
+  if (!c1 || !c2) return;
+
+  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const h = +inH.value;
+  const w = x1 - x0, d = y1 - y0;
+  const overhang = 200;
+
+  roofGroup = new THREE.Group();
+
+  if (roofType === "flat") {
+    const slab = 120;
+    const geo = new THREE.BoxGeometry(w + overhang * 2, d + overhang * 2, slab);
+    const mesh = new THREE.Mesh(geo, roofMat);
+    mesh.position.set(x0 + w/2, y0 + d/2, h + slab/2);
+    mesh.castShadow = true;
+    roofGroup.add(mesh);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
+    edges.position.copy(mesh.position);
+    roofGroup.add(edges);
+  } else {
+    // Gable: ridge along longer axis
+    const ridgeH = Math.min(w, d) * 0.35;
+    const ridgeAlongX = w >= d;
+
+    if (ridgeAlongX) {
+      // Ridge runs along X, gable ends on east/west
+      const halfD = d / 2 + overhang;
+      const shape = new THREE.Shape();
+      shape.moveTo(-halfD, 0);
+      shape.lineTo(0, ridgeH);
+      shape.lineTo(halfD, 0);
+      shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: w + overhang * 2, bevelEnabled: false });
+      geo.rotateX(Math.PI / 2);
+      geo.rotateZ(-Math.PI / 2);
+      const mesh = new THREE.Mesh(geo, roofMat);
+      mesh.position.set(x0 - overhang, y0 + d/2, h);
+      mesh.castShadow = true;
+      roofGroup.add(mesh);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
+      edges.position.copy(mesh.position);
+      roofGroup.add(edges);
+    } else {
+      // Ridge runs along Y, gable ends on north/south
+      const halfW = w / 2 + overhang;
+      const shape = new THREE.Shape();
+      shape.moveTo(-halfW, 0);
+      shape.lineTo(0, ridgeH);
+      shape.lineTo(halfW, 0);
+      shape.closePath();
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: d + overhang * 2, bevelEnabled: false });
+      geo.rotateX(Math.PI / 2);
+      const mesh = new THREE.Mesh(geo, roofMat);
+      mesh.position.set(x0 + w/2, y0 + d + overhang, h);
+      mesh.castShadow = true;
+      roofGroup.add(mesh);
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
+      edges.position.copy(mesh.position);
+      roofGroup.add(edges);
+    }
+  }
+
+  scene.add(roofGroup);
+}
+
+/* ────────────────── step navigation ────────────────── */
+function goToStep(n) {
+  if (n < 0 || n > 3) return;
+  currentStep = n;
+  setStep(n);
+
+  // Hide everything step-specific
+  panel.classList.remove("open");
+  leftPanel.classList.remove("open");
+  roofPanel.classList.remove("open");
+  hideArrows();
+  hideDims();
+  activeTool = null;
+  document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
+  dimEdit.style.display = "none"; editingAxis = null;
+
+  // Common: show walls and openings in steps 0-2
+  if (roomGroup) roomGroup.visible = (n <= 2);
+  if (frameGroup) frameGroup.visible = (n === 3);
+  openingsGroup.visible = (n >= 1 && n <= 2);
+  if (roofGroup) roofGroup.visible = (n >= 2);
+
+  const firstVisit = !stepVisited[n];
+  stepVisited[n] = true;
+
+  // Small hints shown after intro dismisses (or on revisit)
+  const stepSmallHints = [
+    "Drag arrows or edit dimensions",
+    "Select a tool, then click a wall to place",
+    "Choose a roof type",
+    ""
+  ];
+
+  // Show intro hint on first visit, then transition to small hint
+  function showIntroThenSmall() {
+    hint.classList.remove("small");
+    hint.innerHTML = stepIntroHints[n];
+    hint.style.pointerEvents = "auto";
+    hint.style.cursor = "pointer";
+    let dismissed = false;
+    function dismiss() {
+      if (dismissed) return;
+      dismissed = true;
+      hint.style.pointerEvents = "";
+      hint.style.cursor = "";
+      hint.removeEventListener("click", dismiss);
+      hint.classList.add("small");
+      hint.innerHTML = stepSmallHints[n];
+    }
+    hint.addEventListener("click", dismiss);
+    setTimeout(dismiss, 3000);
+  }
+
+  switch (n) {
+    case 0: // Footprint
+      if (mode === M.SET) {
+        panel.classList.add("open");
+        positionArrows();
+        updateDims();
+        btnNext.textContent = NEXT_LABELS[0];
+        btnNext.style.display = "";
+        hint.classList.add("small");
+        hint.innerHTML = "Drag arrows or edit dimensions";
+      } else {
+        btnNext.style.display = "none";
+        if (firstVisit) {
+          hint.classList.remove("small");
+          hint.innerHTML = "Click to place your house";
+        } else {
+          hint.classList.remove("small");
+          hint.innerHTML = "Click to place your house";
+        }
+        orbit.enabled = false;
+        renderer.domElement.style.cursor = "crosshair";
+      }
+      break;
+
+    case 1: // Openings
+      orbit.enabled = true;
+      renderer.domElement.style.cursor = "";
+      leftPanel.classList.add("open");
+      openingsGroup.visible = true;
+      btnNext.textContent = NEXT_LABELS[1];
+      btnNext.style.display = "";
+      if (firstVisit) {
+        showIntroThenSmall();
+      } else {
+        hint.classList.add("small");
+        hint.innerHTML = "Select a tool, then click a wall to place";
+      }
+      break;
+
+    case 2: // Roof
+      orbit.enabled = true;
+      renderer.domElement.style.cursor = "";
+      roofPanel.classList.add("open");
+      buildRoof();
+      document.querySelectorAll(".roof-option").forEach(o => {
+        o.classList.toggle("active", o.dataset.roof === roofType);
+      });
+      btnNext.textContent = NEXT_LABELS[2];
+      btnNext.style.display = "";
+      if (firstVisit) {
+        showIntroThenSmall();
+      } else {
+        hint.classList.add("small");
+        hint.innerHTML = "Choose a roof type";
+      }
+      break;
+
+    case 3: // Generate
+      if (firstVisit) {
+        hint.classList.remove("small");
+        hint.innerHTML = stepIntroHints[3];
+        setTimeout(() => { generateFrame(); }, 1500);
+      } else {
+        generateFrame();
+      }
+      break;
+  }
+}
+
+/* ────────────────── events ────────────────── */
+// Start in drawing mode immediately
+orbit.enabled = false;
+renderer.domElement.style.cursor = "crosshair";
+
+btnClear.addEventListener("click", startDrawing);
+btnNext.addEventListener("click", () => goToStep(currentStep + 1));
+
+async function generateFrame() {
+  if (!c1 || !c2) return;
+
+  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+
+  setStep(3);
+  hideArrows();
+  hideDims();
+  btnNext.style.display = "none";
+  panel.classList.remove("open");
+  leftPanel.classList.remove("open");
+  roofPanel.classList.remove("open");
+  hint.classList.add("small");
+  hint.innerHTML = "Generating\u2026";
+
+  try {
+    const res = await fetch("/generate-frame", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        x0, y0, x1, y1,
+        height: +inH.value,
+        thickness: +inT.value,
+        openings: openings.map(o => ({
+          type: o.type,
+          wallIdx: o.wallIdx,
+          posAlong: o.posAlong,
+        })),
+        roofType: roofType,
+      }),
+    });
+    const json = await res.json();
+    if (json.error) { alert("Error: " + json.error); return; }
+
+    // Hide wall room + roof, remove any previous frame
+    if (roomGroup) roomGroup.visible = false;
+    if (roofGroup) roofGroup.visible = false;
+    openingsGroup.visible = false;
+    if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
+    panel.classList.remove("open");
+
+    // Build Three.js mesh from server triangles
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(json.vertices.length * 3);
+    for (let i = 0; i < json.vertices.length; i++) {
+      pos[i * 3]     = json.vertices[i][0];
+      pos[i * 3 + 1] = json.vertices[i][1];
+      pos[i * 3 + 2] = json.vertices[i][2];
+    }
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+
+    const idx = [];
+    for (const f of json.faces) idx.push(f[0], f[1], f[2]);
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geo, frameMat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    frameGroup = new THREE.Group();
+    frameGroup.add(mesh);
+    scene.add(frameGroup);
+
+    hint.innerHTML = `Frame generated \u2014 ${json.result_count} members`;
+  } catch (err) {
+    alert("Request failed: " + err.message);
+  } finally {}
+}
+
+// ── Arrow hit-testing ──
+function hitArrow(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  rc.setFromCamera(ndc, cam);
+  const hits = rc.intersectObjects(arrows);
+  return hits.length ? hits[0].object : null;
+}
+
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
-  if (state === S.DRAW_START) {
-    const pt = groundHit(e);
-    if (!pt) return;
-    wallStart = pt.clone();
-    startMarker = addMarker(wallStart);
-    state = S.DRAW_END;
-    setStatus("Click to place wall end point.");
-  } else if (state === S.DRAW_END) {
-    const pt = groundHit(e);
-    if (!pt) return;
-    wallEnd = pt.clone();
-    endMarker = addMarker(wallEnd);
-    if (wallLine) { scene.remove(wallLine); wallLine = null; }
-    drawWallOutline();
-    updateInfo();
-    state = S.WALL_SET;
-    setStatus("Wall defined. Adjust params, then click Generate Frame.");
-    document.getElementById("frameBtn").disabled = false;
-    document.getElementById("ghBtn").disabled = false;
-    document.getElementById("clearBtn").disabled = false;
-    document.getElementById("drawBtn").classList.remove("active");
-    vp.classList.add("orbit");
-    controls.enabled = true;
+
+  // ── Openings step: place or remove openings ──
+  if (currentStep === 1) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+
+    // Check if clicking an existing opening to remove it
+    const openingMeshes = [];
+    openingsGroup.traverse(c => { if (c.isMesh) openingMeshes.push(c); });
+    const oHits = rc.intersectObjects(openingMeshes);
+    if (oHits.length) {
+      const hitGroup = oHits[0].object.parent;
+      const idx = openings.findIndex(o => o.mesh === hitGroup);
+      if (idx >= 0) { removeOpeningByIdx(idx); return; }
+    }
+
+    // Place new opening on wall
+    if (activeTool) {
+      const walls = getWallMeshes();
+      const wHits = rc.intersectObjects(walls);
+      if (wHits.length) {
+        const wallMesh = wHits[0].object;
+        const wi = wallMesh.userData.wallIdx;
+        const hp = wHits[0].point;
+        const info = wallInfo(wi);
+        if (info) {
+          // Project hit point onto wall's along-axis to get posAlong
+          const rel = new THREE.Vector3().subVectors(hp, info.origin);
+          const posAlong = rel.dot(info.along);
+          placeOpening(wi, posAlong, activeTool);
+        }
+        return;
+      }
+    }
+    return;
+  }
+
+  // Arrow drag start (footprint step)
+  if (currentStep === 0 && mode === M.SET) {
+    const hit = hitArrow(e);
+    if (hit) {
+      const idx = hit.userData.idx;
+      dragging = { idx, ...ARROW_DIRS[idx] };
+      orbit.enabled = false;
+      renderer.domElement.style.cursor = "grabbing";
+      return;
+    }
+  }
+
+  if (currentStep !== 0) return;
+
+  const pt = groundHit(e);
+  if (!pt) return;
+  const s = new THREE.Vector3(snap(pt.x), snap(pt.y), 0);
+
+  if (mode === M.P1) {
+    c1 = s;
+    mode = M.P2;
+    hint.classList.add("small");
+    hint.innerHTML = "Move to size, click to place";
+  } else if (mode === M.P2) {
+    const w = Math.abs(s.x - c1.x), d = Math.abs(s.y - c1.y);
+    if (w < 400 || d < 400) { hint.innerHTML = "Too small — move further"; return; }
+
+    c2 = s;
+    signX = c2.x >= c1.x ? 1 : -1;
+    signY = c2.y >= c1.y ? 1 : -1;
+    placeRoom();
+    enterSet();
   }
 });
 
 renderer.domElement.addEventListener("pointermove", (e) => {
-  if (state === S.DRAW_END && wallStart) {
+  // Arrow dragging
+  if (dragging) {
     const pt = groundHit(e);
     if (!pt) return;
-    if (wallLine) scene.remove(wallLine);
-    const geo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(wallStart.x, wallStart.y, 0), pt
-    ]);
-    wallLine = new THREE.Line(geo, previewMat);
-    scene.add(wallLine);
+    const sv = snap(dragging.axis === "x" ? pt.x : pt.y);
+    const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+    const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+
+    let nx0 = x0, nx1 = x1, ny0 = y0, ny1 = y1;
+    if (dragging.idx === 0) ny0 = Math.min(sv, ny1 - SNAP);  // south
+    if (dragging.idx === 1) ny1 = Math.max(sv, ny0 + SNAP);  // north
+    if (dragging.idx === 2) nx0 = Math.min(sv, nx1 - SNAP);  // west
+    if (dragging.idx === 3) nx1 = Math.max(sv, nx0 + SNAP);  // east
+
+    c1 = new THREE.Vector3(nx0, ny0, 0);
+    c2 = new THREE.Vector3(nx1, ny1, 0);
+    signX = 1; signY = 1;
+
+    if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
+    roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
+    scene.add(roomGroup);
+    positionArrows();
+    updateDims();
+    rebuildOpenings();
+
+    inW.value = Math.round(nx1 - nx0);
+    inD.value = Math.round(ny1 - ny0);
+    return;
+  }
+
+  // Arrow hover cursor + highlight (footprint step only)
+  if (currentStep === 0 && mode === M.SET) {
+    const hit = hitArrow(e);
+    setArrowHover(hit);
+    renderer.domElement.style.cursor = hit ? "grab" : "";
+    return;
+  }
+
+  if (currentStep !== 0) return;
+
+  const pt = groundHit(e);
+  if (!pt) return;
+  const s = new THREE.Vector3(snap(pt.x), snap(pt.y), 0);
+  moveDot(s);
+
+  if (mode === M.P2 && c1) {
+    showGhost(c1, s);
+    updateDims(c1, s);
+    const w = Math.abs(s.x - c1.x), d = Math.abs(s.y - c1.y);
+    tip.style.display = "block";
+    tip.style.left = (e.clientX + 18) + "px";
+    tip.style.top = (e.clientY - 10) + "px";
+    tip.textContent = `${Math.round(w)} × ${Math.round(d)} mm`;
   }
 });
 
-// ── Buttons ──
-document.getElementById("drawBtn").addEventListener("click", () => {
-  clearScene();
-  state = S.DRAW_START;
-  setStatus("Click on the ground to place wall start point.");
-  document.getElementById("drawBtn").classList.add("active");
-  vp.classList.remove("orbit");
-  controls.enabled = false;
-});
-
-document.getElementById("clearBtn").addEventListener("click", () => {
-  clearScene();
-  state = S.IDLE;
-  setStatus('Click "Draw Wall", then click two points on the ground.');
-});
-
-document.getElementById("frameBtn").addEventListener("click", async () => {
-  if (state !== S.WALL_SET) return;
-  state = S.GENERATING;
-  const btn = document.getElementById("frameBtn");
-  btn.disabled = true;
-  btn.textContent = "Generating...";
-  setStatus("Sending wall to server...");
-
-  try {
-    const res = await fetch("/frame", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        start_x: wallStart.x,
-        start_y: wallStart.y,
-        end_x:   wallEnd.x,
-        end_y:   wallEnd.y,
-        height:       +document.getElementById("wallHeight").value,
-        stud_spacing: +document.getElementById("studSpacing").value,
-        stud_width:   +document.getElementById("studWidth").value,
-        stud_depth:   +document.getElementById("studDepth").value,
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      try { throw new Error(JSON.parse(text).error); }
-      catch (pe) { throw new Error(text.slice(0, 200)); }
-    }
-    const data = await res.json();
-    renderFrame(data);
-    state = S.FRAMED;
-    setStatus(`Frame generated: ${data.member_count} members. Saved to wall_frame.3dm`);
-  } catch (e) {
-    setStatus("Error: " + e.message);
-    state = S.WALL_SET;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Generate Frame";
+renderer.domElement.addEventListener("pointerup", () => {
+  if (dragging) {
+    dragging = null;
+    orbit.enabled = true;
+    renderer.domElement.style.cursor = "";
   }
 });
 
-document.getElementById("ghBtn").addEventListener("click", async () => {
-  if (state !== S.WALL_SET && state !== S.FRAMED) return;
-  const prevState = state;
-  state = S.GENERATING;
-  const btn = document.getElementById("ghBtn");
-  btn.disabled = true;
-  btn.textContent = "Solving...";
-  setStatus("Running GH definition on server...");
+/* ── Double-click dimension label to edit ── */
+const dimEdit = $("dimEdit");
+let editingAxis = null;
 
-  try {
-    const res = await fetch("/solve-gh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        start_x: wallStart.x,
-        start_y: wallStart.y,
-        end_x:   wallEnd.x,
-        end_y:   wallEnd.y,
-        height:       +document.getElementById("wallHeight").value,
-        stud_spacing: +document.getElementById("studSpacing").value,
-        stud_width:   +document.getElementById("studWidth").value,
-        stud_depth:   +document.getElementById("studDepth").value,
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      try { throw new Error(JSON.parse(text).error); }
-      catch (pe) { throw new Error(text.slice(0, 200)); }
-    }
-    const data = await res.json();
-    renderFrame(data);
-    state = S.FRAMED;
-    setStatus(`GH solved: ${data.mesh_count} meshes returned.`);
-  } catch (e) {
-    setStatus("Error: " + e.message);
-    state = prevState;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "Run GH Definition";
-  }
+renderer.domElement.addEventListener("dblclick", (e) => {
+  if (!dimLabels.length) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  rc.setFromCamera(ndc, cam);
+  const hits = rc.intersectObjects(dimLabels);
+  if (!hits.length) return;
+
+  const label = hits[0].object;
+  editingAxis = label.userData.dimAxis;  // "w" or "d"
+
+  // Project label world pos to screen
+  const wp = label.position.clone();
+  wp.project(cam);
+  const sx = (wp.x * 0.5 + 0.5) * r.width + r.left;
+  const sy = (-wp.y * 0.5 + 0.5) * r.height + r.top;
+
+  const curMM = editingAxis === "w"
+    ? Math.abs((c2 || c1).x - c1.x)
+    : Math.abs((c2 || c1).y - c1.y);
+
+  dimEdit.value = (curMM / 1000).toFixed(2);
+  dimEdit.style.display = "block";
+  dimEdit.style.left = (sx - 45) + "px";
+  dimEdit.style.top = (sy - 18) + "px";
+  dimEdit.focus();
+  dimEdit.select();
 });
 
-// Re-draw outline when params change
-for (const id of ["wallHeight", "studDepth"]) {
-  document.getElementById(id).addEventListener("input", () => {
-    if (state === S.WALL_SET || state === S.FRAMED) {
-      drawWallOutline();
-      updateInfo();
+function applyDimEdit() {
+  dimEdit.style.display = "none";
+  if (!editingAxis || !c1 || !c2) return;
+  const val = parseFloat(dimEdit.value) * 1000;
+  if (!val || val < 500) return;
+
+  const x0 = Math.min(c1.x, c2.x), y0 = Math.min(c1.y, c2.y);
+  if (editingAxis === "w") {
+    c2 = new THREE.Vector3(x0 + val, c2.y, 0);
+    c1 = new THREE.Vector3(x0, c1.y, 0);
+    signX = 1;
+    inW.value = Math.round(val);
+  } else {
+    c2 = new THREE.Vector3(c2.x, y0 + val, 0);
+    c1 = new THREE.Vector3(c1.x, y0, 0);
+    signY = 1;
+    inD.value = Math.round(val);
+  }
+  editingAxis = null;
+
+  if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
+  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
+  scene.add(roomGroup);
+  positionArrows();
+  updateDims();
+  rebuildOpenings();
+  if (roofGroup) buildRoof();
+}
+
+dimEdit.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") applyDimEdit();
+  if (e.key === "Escape") { dimEdit.style.display = "none"; editingAxis = null; }
+});
+dimEdit.addEventListener("blur", applyDimEdit);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") startDrawing();
+});
+
+for (const inp of [inW, inD, inH, inT]) inp.addEventListener("input", rebuildRoom);
+
+// Step tab clicks
+for (let i = 0; i < 4; i++) {
+  stepEls[i].addEventListener("click", () => {
+    if (!c1 || !c2 || mode !== M.SET) return;
+    // For Generate step: if frame exists, show it; else trigger generation
+    if (i === 3 && frameGroup) {
+      goToStep(3);
+      // Just show existing frame
+      setStep(3);
+      if (roomGroup) roomGroup.visible = false;
+      frameGroup.visible = true;
+      hint.innerHTML = "Frame generated";
+      return;
     }
+    goToStep(i);
   });
 }
 
-// ── Render frame mesh from server ──
-function renderFrame(data) {
-  if (frameMesh)  { scene.remove(frameMesh);  frameMesh = null;  }
-  if (frameEdges) { scene.remove(frameEdges); frameEdges = null; }
-  if (wallOutline) { scene.remove(wallOutline); wallOutline = null; }
-
-  const { vertices, faces } = data;
-  const positions = new Float32Array(vertices.length * 3);
-  for (let i = 0; i < vertices.length; i++) {
-    positions[i * 3]     = vertices[i][0];
-    positions[i * 3 + 1] = vertices[i][1];
-    positions[i * 3 + 2] = vertices[i][2];
-  }
-  const indices = [];
-  for (const f of faces) { indices.push(f[0], f[1], f[2]); }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geo.setIndex(indices);
-  geo.computeVertexNormals();
-
-  const mat = new THREE.MeshPhongMaterial({
-    color: 0xdeb887,      // burlywood – timber color
-    side: THREE.DoubleSide,
+// Openings tool selection
+document.querySelectorAll(".tool-item").forEach(el => {
+  el.addEventListener("click", () => {
+    const tool = el.dataset.tool;
+    if (activeTool === tool) {
+      activeTool = null;
+      el.classList.remove("active");
+      renderer.domElement.style.cursor = "";
+    } else {
+      activeTool = tool;
+      document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
+      el.classList.add("active");
+      renderer.domElement.style.cursor = "crosshair";
+    }
   });
-  frameMesh = new THREE.Mesh(geo, mat);
-  scene.add(frameMesh);
+});
 
-  const edgeMat = new THREE.LineBasicMaterial({ color: 0x8b6914 });
-  const edgeGeo = new THREE.EdgesGeometry(geo, 15);
-  frameEdges = new THREE.LineSegments(edgeGeo, edgeMat);
-  scene.add(frameEdges);
+// Roof type selection
+document.querySelectorAll(".roof-option").forEach(el => {
+  el.addEventListener("click", () => {
+    roofType = el.dataset.roof;
+    document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
+    buildRoof();
+  });
+});
+
+function enterSet() {
+  mode = M.SET;
+  currentStep = 0;
+  setStep(0);
+  tip.style.display = "none";
+  hideDot();
+  panel.classList.add("open");
+  btnClear.style.display = "";
+  btnNext.textContent = NEXT_LABELS[0];
+  btnNext.style.display = "";
+  orbit.enabled = true;
+  renderer.domElement.style.cursor = "";
+  hint.classList.add("small");
+  hint.innerHTML = "Drag arrows or edit dimensions";
+
+  // Frame the room in view
+  const cx = (c1.x + c2.x) / 2;
+  const cy = (c1.y + c2.y) / 2;
+  orbit.target.set(cx, cy, (+inH.value) / 3);
 }
 
-// ── Clear ──
-function clearScene() {
-  if (startMarker) { scene.remove(startMarker); startMarker = null; }
-  if (endMarker)   { scene.remove(endMarker);   endMarker = null;   }
-  if (wallLine)    { scene.remove(wallLine);     wallLine = null;    }
-  if (wallOutline) { scene.remove(wallOutline);  wallOutline = null; }
-  if (frameMesh)   { scene.remove(frameMesh);    frameMesh = null;   }
-  if (frameEdges)  { scene.remove(frameEdges);   frameEdges = null;  }
-  wallStart = null; wallEnd = null;
-  document.getElementById("frameBtn").disabled = true;
-  document.getElementById("ghBtn").disabled = true;
-  document.getElementById("clearBtn").disabled = true;
-  document.getElementById("drawBtn").classList.remove("active");
-  vp.classList.add("orbit");
-  controls.enabled = true;
-  document.getElementById("info").textContent = "";
+function startDrawing() {
+  if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; }
+  if (roomGroup)  { scene.remove(roomGroup);  roomGroup = null; }
+  if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
+  if (roofGroup)  { scene.remove(roofGroup);  roofGroup = null; }
+  clearOpenings();
+  hideArrows();
+  hideDims();
+  dimEdit.style.display = "none"; editingAxis = null;
+  c1 = c2 = null;
+  mode = M.P1;
+  currentStep = 0;
+  setStep(0);
+  stepVisited.fill(false);
+  stepVisited[0] = true;  // footprint intro is the default view
+  roofType = "flat";
+  activeTool = null;
+  tip.style.display = "none";
+  panel.classList.remove("open");
+  leftPanel.classList.remove("open");
+  roofPanel.classList.remove("open");
+  btnClear.style.display = "none";
+  btnNext.style.display = "none";
+  orbit.enabled = false;
+  renderer.domElement.style.cursor = "crosshair";
+  hint.classList.remove("small");
+  hint.innerHTML = "Click to place your house";
 }
 
-function setStatus(msg) {
-  document.getElementById("status").textContent = msg;
-}
-
-// ── Resize + render loop ──
+/* ────────────────── resize / loop ────────────────── */
 function onResize() {
-  const { clientWidth: w, clientHeight: h } = vp;
+  const w = vp.clientWidth, h = vp.clientHeight;
   renderer.setSize(w, h);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
+  cam.aspect = w / h;
+  cam.updateProjectionMatrix();
 }
 window.addEventListener("resize", onResize);
 onResize();
 
-(function animate() {
-  requestAnimationFrame(animate);
-  controls.update();
-  renderer.render(scene, camera);
+(function loop() {
+  requestAnimationFrame(loop);
+  orbit.update();
+  renderer.render(scene, cam);
 })();
 </script>
 </body>

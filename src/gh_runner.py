@@ -24,19 +24,20 @@ _setter = _rdoc.GetType().GetMethod(
 _setter.Invoke(None, System.Array[System.Object]([_rdoc]))
 
 
-def solve_definition(gh_filename, input_breps):
-    """Load a .gh file, feed Breps in, solve, return output geometry.
+def solve_definition(gh_filename, inputs):
+    """Load a .gh file, feed named Brep inputs, solve, return output geometry.
 
     The GH definition must use:
-      - A **Get Geometry** component (Params > Util) named "WallBreps" for input
+      - **Get Geometry** components (Params > Util) with matching NickNames
       - A **Context Bake** component (Params > Util) for output
 
     Parameters
     ----------
     gh_filename : str
-        Filename inside the definitions/ folder (e.g. "test_simple.gh").
-    input_breps : list[Rhino.Geometry.Brep]
-        Breps to set on the "WallBreps" Get Geometry input.
+        Filename inside the definitions/ folder (e.g. "generator_3.0.gh").
+    inputs : dict[str, list[Rhino.Geometry.Brep]]
+        Maps Get Geometry component NickNames to lists of Breps.
+        e.g. {"WallBreps": [...], "DoorBreps": [...]}
 
     Returns
     -------
@@ -54,33 +55,31 @@ def solve_definition(gh_filename, input_breps):
     doc = io.Document
     doc.Enabled = True
 
-    # -- Find Get Geometry input and Context Bake output --
-    input_param = None
+    # -- Find Get Geometry inputs and Context Bake output --
+    input_params = {}  # NickName -> list of components
     bake_component = None
     for obj in doc.Objects:
         tn = obj.GetType().Name
-        if tn == "GetGeometryParameter" and obj.NickName == "WallBreps":
-            input_param = obj
+        if tn == "GetGeometryParameter":
+            input_params.setdefault(obj.NickName, []).append(obj)
         elif tn == "ContextBakeComponent":
             bake_component = obj
 
-    if input_param is None:
-        raise RuntimeError(
-            'No Get Geometry component named "WallBreps" found in the GH definition'
-        )
     if bake_component is None:
         raise RuntimeError("No Context Bake component found in the GH definition")
 
-    # -- Set input via contextual API --
-    it = input_param.GetType()
-    brep_list = System.Collections.ArrayList()
-    for b in input_breps:
-        brep_list.Add(GH_Brep(b))
-
-    it.GetMethod("ClearContextualData").Invoke(input_param, None)
-    it.GetMethod("AssignContextualData").Invoke(
-        input_param, System.Array[System.Object]([brep_list])
-    )
+    # -- Set each named input via contextual API --
+    for name, breps in inputs.items():
+        params = input_params.get(name, [])
+        for param in params:
+            it = param.GetType()
+            brep_list = System.Collections.ArrayList()
+            for b in breps:
+                brep_list.Add(GH_Brep(b))
+            it.GetMethod("ClearContextualData").Invoke(param, None)
+            it.GetMethod("AssignContextualData").Invoke(
+                param, System.Array[System.Object]([brep_list])
+            )
 
     # -- Solve --
     doc.NewSolution(True)

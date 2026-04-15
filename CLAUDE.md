@@ -1,3 +1,13 @@
+# Vision:
+A timber frame generator. Webplatform UI for simple user friendly house drawing by non-exports which connects to rhino grasshopper to generate the timber frame. UI should be clean and simple and the UX should take inspiration from simple fun modeling such as the house builder in Sims 4.
+
+# Very important instructions from the user:
+- Always use the most efficient elegant analytical approach. Avoid slow geometric operations.
+- Always check that the full platform (Design - Generated Frame) works after adding features or changing code. 
+
+#UI Look. 
+- Things that are highlighted such as important buttons etc. should use the color #F9BC06
+
 # FrameAI – Claude Code Project Rules
 
 ## Running tests
