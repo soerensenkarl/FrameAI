@@ -606,28 +606,19 @@
 
 <!-- Frame info panel (shown after generation) -->
 <div class="info-panel glass" id="infoPanel">
-  <span class="panel-title">Frame Summary</span>
+  <span class="panel-title">Your Order</span>
 
   <div class="info-section">
-    <div class="info-row"><span class="info-label">Members</span><span class="info-value" id="infoMembers">—</span></div>
-    <div class="info-row"><span class="info-label">Floor area</span><span class="info-value" id="infoArea">—</span></div>
-    <div class="info-row"><span class="info-label">Wall height</span><span class="info-value" id="infoHeight">—</span></div>
-  </div>
-
-  <div class="info-divider"></div>
-
-  <div class="info-section">
-    <span class="panel-title">Timber</span>
-    <div class="info-row"><span class="info-label">Volume</span><span class="info-value" id="infoVolume">—</span></div>
+    <div class="info-row"><span class="info-label">Timber members</span><span class="info-value" id="infoMembers">—</span></div>
     <div class="info-row"><span class="info-label">Total length</span><span class="info-value" id="infoLength">—</span></div>
-    <div class="info-row"><span class="info-label">Weight (est.)</span><span class="info-value" id="infoWeight">—</span></div>
+    <div class="info-row"><span class="info-label">Volume</span><span class="info-value" id="infoVolume">—</span></div>
+    <div class="info-row"><span class="info-label">Weight</span><span class="info-value" id="infoWeight">—</span></div>
   </div>
 
   <div class="info-divider"></div>
 
   <div class="info-section">
-    <span class="panel-title">Price</span>
-    <div class="info-row"><span class="info-label">Timber</span><span class="info-value" id="infoCostTimber">—</span></div>
+    <div class="info-row"><span class="info-label">Material</span><span class="info-value" id="infoCostTimber">—</span></div>
     <div class="info-row"><span class="info-label">Fabrication</span><span class="info-value" id="infoCostFab">—</span></div>
     <div class="info-price-row"><span class="info-label">Total</span><span class="info-value" id="infoPriceTotal">—</span></div>
   </div>
@@ -1926,10 +1917,8 @@ async function generateFrame() {
       const eur = (n) => "€" + n.toLocaleString("en", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
       $("infoMembers").textContent = s.member_count;
-      $("infoArea").textContent = fmt(s.floor_area_m2) + " m²";
-      $("infoHeight").textContent = fmt(s.wall_height_m * 1000) + " mm";
-      $("infoVolume").textContent = fmt(s.total_volume_m3 * 1000) + " L";
       $("infoLength").textContent = fmt(s.total_length_m) + " m";
+      $("infoVolume").textContent = fmt(s.total_volume_m3 * 1000) + " L";
       $("infoWeight").textContent = fmt(s.weight_kg) + " kg";
       $("infoCostTimber").textContent = eur(s.timber_cost);
       $("infoCostFab").textContent = eur(s.price - s.timber_cost);

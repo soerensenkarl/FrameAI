@@ -500,7 +500,6 @@ def generate_frame():
         total_volume_m3 = total_volume_mm3 / 1e9
         total_length_m = total_length_mm / 1000
         weight_kg = total_volume_m3 * 500  # ~500 kg/m³ for structural timber
-        floor_area_m2 = (x1 - x0) * (y1 - y0) / 1e6
 
         # Pricing: structural C24 timber ~€450/m³ + markup
         timber_cost = total_volume_m3 * 450
@@ -520,8 +519,6 @@ def generate_frame():
                 "total_volume_m3": round(total_volume_m3, 3),
                 "total_length_m": round(total_length_m, 1),
                 "weight_kg": round(weight_kg, 1),
-                "floor_area_m2": round(floor_area_m2, 1),
-                "wall_height_m": round(h / 1000, 2),
                 "timber_cost": round(timber_cost, 2),
                 "price": round(price, 2),
             },
