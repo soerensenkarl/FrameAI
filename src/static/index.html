@@ -90,6 +90,7 @@
   </div>
 
   <button class="btn btn-primary" id="frameBtn" disabled>Generate Frame</button>
+  <button class="btn btn-primary" id="ghBtn" disabled style="background:#0f3460;color:#4da6ff;border:1px solid #1a5aaa;">Run GH Definition</button>
   <button class="btn btn-secondary" id="clearBtn" disabled>Clear</button>
 
   <div id="info"></div>
@@ -253,6 +254,7 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
     state = S.WALL_SET;
     setStatus("Wall defined. Adjust params, then click Generate Frame.");
     document.getElementById("frameBtn").disabled = false;
+    document.getElementById("ghBtn").disabled = false;
     document.getElementById("clearBtn").disabled = false;
     document.getElementById("drawBtn").classList.remove("active");
     vp.classList.add("orbit");
@@ -313,8 +315,9 @@ document.getElementById("frameBtn").addEventListener("click", async () => {
       }),
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || res.statusText);
+      const text = await res.text();
+      try { throw new Error(JSON.parse(text).error); }
+      catch (pe) { throw new Error(text.slice(0, 200)); }
     }
     const data = await res.json();
     renderFrame(data);
@@ -326,6 +329,48 @@ document.getElementById("frameBtn").addEventListener("click", async () => {
   } finally {
     btn.disabled = false;
     btn.textContent = "Generate Frame";
+  }
+});
+
+document.getElementById("ghBtn").addEventListener("click", async () => {
+  if (state !== S.WALL_SET && state !== S.FRAMED) return;
+  const prevState = state;
+  state = S.GENERATING;
+  const btn = document.getElementById("ghBtn");
+  btn.disabled = true;
+  btn.textContent = "Solving...";
+  setStatus("Running GH definition on server...");
+
+  try {
+    const res = await fetch("/solve-gh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        start_x: wallStart.x,
+        start_y: wallStart.y,
+        end_x:   wallEnd.x,
+        end_y:   wallEnd.y,
+        height:       +document.getElementById("wallHeight").value,
+        stud_spacing: +document.getElementById("studSpacing").value,
+        stud_width:   +document.getElementById("studWidth").value,
+        stud_depth:   +document.getElementById("studDepth").value,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      try { throw new Error(JSON.parse(text).error); }
+      catch (pe) { throw new Error(text.slice(0, 200)); }
+    }
+    const data = await res.json();
+    renderFrame(data);
+    state = S.FRAMED;
+    setStatus(`GH solved: ${data.mesh_count} meshes returned.`);
+  } catch (e) {
+    setStatus("Error: " + e.message);
+    state = prevState;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run GH Definition";
   }
 });
 
@@ -383,6 +428,7 @@ function clearScene() {
   if (frameEdges)  { scene.remove(frameEdges);   frameEdges = null;  }
   wallStart = null; wallEnd = null;
   document.getElementById("frameBtn").disabled = true;
+  document.getElementById("ghBtn").disabled = true;
   document.getElementById("clearBtn").disabled = true;
   document.getElementById("drawBtn").classList.remove("active");
   vp.classList.add("orbit");

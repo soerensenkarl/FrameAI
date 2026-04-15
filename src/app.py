@@ -14,6 +14,7 @@ rhinoinside.load(RHINO_SYSTEM, "net8.0")
 from flask import Flask, request, send_file, jsonify
 from box_gen import generate_box
 from wall_framer import frame_wall
+from gh_runner import solve_definition
 
 import Rhino.FileIO as rio
 import Rhino.Geometry as rg
@@ -92,31 +93,112 @@ def generate():
 
 @app.route("/frame", methods=["POST"])
 def frame():
-    data = request.get_json()
-    members = frame_wall(
-        start_x=float(data["start_x"]),
-        start_y=float(data["start_y"]),
-        end_x=float(data["end_x"]),
-        end_y=float(data["end_y"]),
-        height=float(data.get("height", 2400)),
-        stud_spacing=float(data.get("stud_spacing", 600)),
-        stud_width=float(data.get("stud_width", 45)),
-        stud_depth=float(data.get("stud_depth", 90)),
-    )
+    try:
+        data = request.get_json()
+        members = frame_wall(
+            start_x=float(data["start_x"]),
+            start_y=float(data["start_y"]),
+            end_x=float(data["end_x"]),
+            end_y=float(data["end_y"]),
+            height=float(data.get("height", 2400)),
+            stud_spacing=float(data.get("stud_spacing", 600)),
+            stud_width=float(data.get("stud_width", 45)),
+            stud_depth=float(data.get("stud_depth", 90)),
+        )
 
-    # Save Breps to .3dm
-    saved_path = _save_breps_3dm(members, "wall_frame.3dm")
+        # Save Breps to .3dm
+        saved_path = _save_breps_3dm(members, "wall_frame.3dm")
 
-    # Convert Breps → single Mesh → triangles for three.js
-    mesh = _breps_to_mesh(members)
-    all_verts, all_tris = _mesh_to_triangles(mesh)
+        # Convert Breps → single Mesh → triangles for three.js
+        mesh = _breps_to_mesh(members)
+        all_verts, all_tris = _mesh_to_triangles(mesh)
 
-    return jsonify({
-        "vertices": all_verts,
-        "faces": all_tris,
-        "member_count": len(members),
-        "file_saved": saved_path,
-    })
+        return jsonify({
+            "vertices": all_verts,
+            "faces": all_tris,
+            "member_count": len(members),
+            "file_saved": saved_path,
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/solve-gh", methods=["POST"])
+def solve_gh():
+    try:
+        data = request.get_json()
+        start_x = float(data["start_x"])
+        start_y = float(data["start_y"])
+        end_x = float(data["end_x"])
+        end_y = float(data["end_y"])
+        height = float(data.get("height", 2400))
+        stud_depth = float(data.get("stud_depth", 90))
+
+        # Build a single wall box Brep for the GH definition
+        import math
+        dx = end_x - start_x
+        dy = end_y - start_y
+        wall_length = math.hypot(dx, dy)
+
+        # Local axes: along wall, perpendicular, up
+        x_vec = rg.Vector3d(dx / wall_length, dy / wall_length, 0)
+        y_vec = rg.Vector3d(-dy / wall_length, dx / wall_length, 0)
+        z_vec = rg.Vector3d(0, 0, 1)
+
+        origin = rg.Point3d(start_x, start_y, 0)
+        plane = rg.Plane(origin, x_vec, y_vec)
+        box = rg.Box(plane, rg.Interval(0, wall_length),
+                     rg.Interval(0, stud_depth),
+                     rg.Interval(0, height))
+        wall_brep = box.ToBrep()
+
+        # Solve the GH definition with the wall box
+        results = solve_definition("generator_3.0.gh", [wall_brep])
+
+        # Convert output geometry to mesh triangles for three.js
+        mp = rg.MeshingParameters.FastRenderMesh
+        joined = rg.Mesh()
+        for geom in results:
+            # Try converting to Brep first (works for Brep, Extrusion, Surface)
+            brep = None
+            if isinstance(geom, rg.Mesh):
+                joined.Append(geom)
+                continue
+            elif isinstance(geom, rg.Brep):
+                brep = geom
+            elif isinstance(geom, rg.Extrusion):
+                brep = geom.ToBrep()
+            else:
+                # Fallback: use .NET type name for pythonnet casting issues
+                tn = geom.GetType().Name
+                if tn == "Mesh":
+                    joined.Append(geom)
+                    continue
+                elif tn == "Extrusion":
+                    brep = geom.ToBrep()
+                elif tn == "Brep":
+                    brep = geom
+                else:
+                    # Last resort: try ToBrep if available
+                    if hasattr(geom, "ToBrep"):
+                        brep = geom.ToBrep()
+            if brep:
+                for fm in (rg.Mesh.CreateFromBrep(brep, mp) or []):
+                    joined.Append(fm)
+
+        verts, tris = _mesh_to_triangles(joined)
+
+        return jsonify({
+            "vertices": verts,
+            "faces": tris,
+            "result_count": len(results),
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
