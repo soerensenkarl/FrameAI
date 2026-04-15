@@ -185,7 +185,7 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
         return breps
 
     # Default: flat roof (possibly sloped)
-    slab = 120
+    slab = 295
     f, b = flat_slope[0], flat_slope[1]
     if f == 0 and b == 0:
         box = rg.Box(rg.Plane.WorldXY,
@@ -407,6 +407,29 @@ def generate_frame():
                     rg.Interval(0, h),
                 )
                 wall_breps.append(box.ToBrep())
+
+        # Build interior wall Breps
+        for iw in data.get("interiorWalls", []):
+            ix0, iy0 = float(iw["x0"]), float(iw["y0"])
+            ix1, iy1 = float(iw["x1"]), float(iw["y1"])
+            is_horiz = abs(iy1 - iy0) < 1  # horizontal = same y
+            if is_horiz:
+                bx0 = min(ix0, ix1)
+                bx1 = max(ix0, ix1)
+                by0 = iy0 - t / 2
+                by1 = iy0 + t / 2
+            else:
+                bx0 = ix0 - t / 2
+                bx1 = ix0 + t / 2
+                by0 = min(iy0, iy1)
+                by1 = max(iy0, iy1)
+            box = rg.Box(
+                rg.Plane.WorldXY,
+                rg.Interval(bx0, bx1),
+                rg.Interval(by0, by1),
+                rg.Interval(0, h),
+            )
+            wall_breps.append(box.ToBrep())
 
         # Build opening Breps from frontend placement data
         door_breps = []

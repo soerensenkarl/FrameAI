@@ -572,13 +572,15 @@
     <div class="steps">
       <div class="step active" id="step0"><span class="step-num">1</span> Footprint</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step1"><span class="step-num">2</span> Openings</div>
+      <div class="step" id="step1"><span class="step-num">2</span> Walls</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step2"><span class="step-num">3</span> Roof</div>
+      <div class="step" id="step2"><span class="step-num">3</span> Openings</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step3"><span class="step-num">4</span> Generate</div>
+      <div class="step" id="step3"><span class="step-num">4</span> Roof</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step4"><span class="step-num">5</span> Buy</div>
+      <div class="step" id="step4"><span class="step-num">5</span> Generate</div>
+      <span class="step-arrow">&#9656;</span>
+      <div class="step" id="step5"><span class="step-num">6</span> Buy</div>
     </div>
   </div>
   <button class="btn-next" id="btnNext" style="display:none">Openings →</button>
@@ -607,6 +609,15 @@
     <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="8" y="4" width="24" height="32" rx="2"/><circle cx="27" cy="22" r="2" fill="currentColor" stroke="none"/></svg>
     Door
   </div>
+</div>
+
+<!-- Interior walls panel -->
+<div class="left-panel glass" id="iwPanel">
+  <span class="panel-title">Interior Walls</span>
+  <p style="font-size:12px; color:rgba(255,255,255,0.5); margin:0 0 8px">
+    Click start point on a wall,<br>then click end point.
+  </p>
+  <button class="btn-delete" id="btnDeleteIW" style="display:none">Delete Wall</button>
 </div>
 
 <!-- Roof panel -->
@@ -911,7 +922,7 @@ function positionRoofArrows() {
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
   const h = +inH.value;
   const w = x1 - x0, d = y1 - y0;
-  const roofT = 120;
+  const roofT = roofType === "flat" ? 295 : 120;
   const ridgeAlongX = w >= d;
 
   if (roofType === "gable") {
@@ -1081,19 +1092,20 @@ btnDev.addEventListener("click", () => {
   btnDev.classList.toggle("active", open);
 });
 $("devSimpleCb").addEventListener("change", e => { window._devSimple = e.target.checked; });
-const stepEls = [$("step0"), $("step1"), $("step2"), $("step3"), $("step4")];
+const stepEls = [$("step0"), $("step1"), $("step2"), $("step3"), $("step4"), $("step5")];
 const infoPanel = $("infoPanel");
-const NEXT_LABELS = ["Openings →", "Roof →", "Generate →", "Buy →"];
+const NEXT_LABELS = ["Walls \u2192", "Openings \u2192", "Roof \u2192", "Generate \u2192", "Buy \u2192"];
 
 let currentStep = 0;
 let activeTool = null;       // "window" | "door" | null
 let isTopView = false;
 let savedCamState = null;    // { pos, target } to restore on toggle off
-const stepVisited = [false, false, false, false, false];  // track first visit per tab
+const stepVisited = [false, false, false, false, false, false];  // track first visit per tab
 
 // Intro hints shown centered on first visit to each tab
 const stepIntroHints = [
   "Click to place your house",
+  "Click on a wall to start drawing interior walls",
   "Drag windows and doors onto walls \u2022 click to edit",
   "Pick a roof style for your house",
   "Generate the timber frame",
@@ -1104,6 +1116,15 @@ const openings = [];         // { type, wallIdx, posAlong, mesh }
 let openingsGroup = new THREE.Group();
 scene.add(openingsGroup);
 let roofGroup = null;
+
+// Interior walls
+const interiorWalls = [];    // { x0, y0, x1, y1 } — centerline endpoints, orthogonal
+const iwGroup = new THREE.Group();
+scene.add(iwGroup);
+let iwDrawStart = null;      // Vector3 — first click point
+let iwGhostMesh = null;      // ghost preview during draw
+let selectedIW = -1;         // selected interior wall index
+let iwPointerDown = null;    // {x,y} screen coords — distinguish click from orbit drag
 
 function setStep(n) {
   stepEls.forEach((s, i) => {
@@ -1398,11 +1419,13 @@ function rebuildScene() {
   if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
   roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat, openings);
   scene.add(roomGroup);
-  if (roofGroup || currentStep >= 2) buildRoof();
+  if (currentStep >= 3) buildRoof();
+  else if (roofGroup) { scene.remove(roofGroup); roofGroup = null; }
   if (currentStep === 0) positionArrows();
   positionRoofArrows();
   updateDims();
   rebuildOpenings();
+  rebuildInteriorWalls();
 }
 
 function rebuildRoom() {
@@ -1487,11 +1510,10 @@ function placeOpening(wallIdx, posAlong, type, dims) {
 }
 
 function removeOpening(groupMesh) {
-  const idx = openings.findIndex(o => o.mesh === groupMesh || o.mesh.children.includes(groupMesh));
+  const idx = openings.findIndex(o => o.mesh && (o.mesh === groupMesh || o.mesh.children.includes(groupMesh)));
   if (idx < 0) {
-    // Try finding by child
     for (let i = 0; i < openings.length; i++) {
-      if (openings[i].mesh.children.some(c => c === groupMesh)) { return removeOpeningByIdx(i); }
+      if (openings[i].mesh && openings[i].mesh.children.some(c => c === groupMesh)) { return removeOpeningByIdx(i); }
     }
     return;
   }
@@ -1628,10 +1650,10 @@ function buildGhostOpening(wallIdx, posAlong, type) {
   posAlong = Math.max(half + t, Math.min(info.length - half - t, posAlong));
   const cx = info.origin.x + info.along.x * posAlong - info.outward.x * (t / 2);
   const cy = info.origin.y + info.along.y * posAlong - info.outward.y * (t / 2);
-  const depth = t + 40;
+  const paneDepth = type === "window" ? 20 : 40;
   const geo = new THREE.BoxGeometry(
-    wallIdx <= 1 ? ow : depth,
-    wallIdx <= 1 ? depth : ow,
+    wallIdx <= 1 ? ow : paneDepth,
+    wallIdx <= 1 ? paneDepth : ow,
     oh
   );
   const g = new THREE.Group();
@@ -1688,7 +1710,9 @@ function finishOpeningDrag(e) {
     if (info) {
       const rel = new THREE.Vector3().subVectors(hp, info.origin);
       const posAlong = rel.dot(info.along);
-      placeOpening(wi, posAlong, draggingOpening.type);
+      const dims = defaultDims(draggingOpening.type);
+      openings.push({ type: draggingOpening.type, wallIdx: wi, posAlong, mesh: null,
+                       width: dims.width, height: dims.height, sill: dims.sill });
       rebuildScene();
     }
   }
@@ -1714,7 +1738,7 @@ function buildRoof() {
   const h = +inH.value;
   const w = x1 - x0, d = y1 - y0;
   const overhang = 200;
-  const roofT = 120;  // roof slab thickness (offset down from surface)
+  const roofT = roofType === "flat" ? 295 : 120;
 
   roofGroup = new THREE.Group();
 
@@ -1874,9 +1898,158 @@ function buildRoof() {
   scene.add(roofGroup);
 }
 
+/* ────────────────── interior walls ────────────────── */
+const iwSelectedMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6, metalness: 0 });
+
+function rebuildInteriorWalls() {
+  while (iwGroup.children.length) iwGroup.remove(iwGroup.children[0]);
+  const h = +inH.value, t = +inT.value;
+  interiorWalls.forEach((iw, i) => {
+    const isHoriz = Math.abs(iw.y1 - iw.y0) < 1;
+    const len = isHoriz ? Math.abs(iw.x1 - iw.x0) : Math.abs(iw.y1 - iw.y0);
+    if (len < 1) return;
+    const geo = isHoriz
+      ? new THREE.BoxGeometry(len, t, h)
+      : new THREE.BoxGeometry(t, len, h);
+    const mat = (i === selectedIW) ? iwSelectedMat : wallMat;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set((iw.x0 + iw.x1) / 2, (iw.y0 + iw.y1) / 2, h / 2);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.isInteriorWall = true;
+    mesh.userData.iwIdx = i;
+    iwGroup.add(mesh);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
+    edges.position.copy(mesh.position);
+    iwGroup.add(edges);
+  });
+}
+
+function selectIW(idx) {
+  deselectIW();
+  selectedIW = idx;
+  rebuildInteriorWalls();
+  $("btnDeleteIW").style.display = "";
+}
+
+function deselectIW() {
+  if (selectedIW >= 0) {
+    selectedIW = -1;
+    rebuildInteriorWalls();
+  }
+  selectedIW = -1;
+  $("btnDeleteIW").style.display = "none";
+}
+
+function deleteSelectedIW() {
+  if (selectedIW < 0) return;
+  interiorWalls.splice(selectedIW, 1);
+  selectedIW = -1;
+  $("btnDeleteIW").style.display = "none";
+  rebuildInteriorWalls();
+}
+
+/* ────────────────── interior wall snap logic ────────────────── */
+function getInnerBounds() {
+  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const t = +inT.value;
+  return { ix0: x0 + t, iy0: y0 + t, ix1: x1 - t, iy1: y1 - t, t };
+}
+
+// Snap a point to the nearest interior wall face or exterior wall inner face, then grid
+function snapIWPoint(pt) {
+  const b = getInnerBounds();
+  const threshold = 250; // snap distance to wall faces
+  let x = pt.x, y = pt.y;
+
+  // Collect snap lines: exterior inner faces
+  const xSnaps = [b.ix0, b.ix1];
+  const ySnaps = [b.iy0, b.iy1];
+
+  // Interior wall faces (centerline ± t/2)
+  const t = +inT.value;
+  for (const iw of interiorWalls) {
+    const isHoriz = Math.abs(iw.y1 - iw.y0) < 1;
+    if (isHoriz) {
+      ySnaps.push(iw.y0 - t / 2, iw.y0 + t / 2);
+    } else {
+      xSnaps.push(iw.x0 - t / 2, iw.x0 + t / 2);
+    }
+  }
+
+  // Snap to nearest x snap line if close enough
+  let bestDx = threshold;
+  for (const sx of xSnaps) {
+    const d = Math.abs(x - sx);
+    if (d < bestDx) { bestDx = d; x = sx; }
+  }
+  if (bestDx >= threshold) x = snap(x);
+
+  // Snap to nearest y snap line if close enough
+  let bestDy = threshold;
+  for (const sy of ySnaps) {
+    const d = Math.abs(y - sy);
+    if (d < bestDy) { bestDy = d; y = sy; }
+  }
+  if (bestDy >= threshold) y = snap(y);
+
+  // Clamp to inner bounds
+  x = Math.max(b.ix0, Math.min(b.ix1, x));
+  y = Math.max(b.iy0, Math.min(b.iy1, y));
+
+  return new THREE.Vector3(x, y, 0);
+}
+
+// Constrain endpoint to orthogonal from start, snap, clamp inside bounds
+function constrainIWEnd(start, pt) {
+  const dx = Math.abs(pt.x - start.x);
+  const dy = Math.abs(pt.y - start.y);
+  const b = getInnerBounds();
+
+  let end;
+  if (dx >= dy) {
+    // Horizontal wall — lock y
+    end = snapIWPoint(new THREE.Vector3(pt.x, start.y, 0));
+    end.y = start.y; // enforce exact horizontal
+  } else {
+    // Vertical wall — lock x
+    end = snapIWPoint(new THREE.Vector3(start.x, pt.y, 0));
+    end.x = start.x; // enforce exact vertical
+  }
+
+  // Clamp to inner bounds
+  end.x = Math.max(b.ix0, Math.min(b.ix1, end.x));
+  end.y = Math.max(b.iy0, Math.min(b.iy1, end.y));
+
+  return end;
+}
+
+// Show ghost preview of wall being drawn
+function showIWGhost(start, end) {
+  if (iwGhostMesh) { scene.remove(iwGhostMesh); iwGhostMesh = null; }
+  const isHoriz = Math.abs(end.y - start.y) < 1;
+  const len = isHoriz ? Math.abs(end.x - start.x) : Math.abs(end.y - start.y);
+  if (len < 10) return;
+  const h = +inH.value, t = +inT.value;
+  const geo = isHoriz
+    ? new THREE.BoxGeometry(len, t, h)
+    : new THREE.BoxGeometry(t, len, h);
+  iwGhostMesh = new THREE.Mesh(geo, ghostMat);
+  iwGhostMesh.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, h / 2);
+  iwGhostMesh.renderOrder = 998;
+  scene.add(iwGhostMesh);
+}
+
+function cancelIWDraw() {
+  iwDrawStart = null;
+  iwPointerDown = null;
+  if (iwGhostMesh) { scene.remove(iwGhostMesh); iwGhostMesh = null; }
+}
+
 /* ────────────────── step navigation ────────────────── */
 function goToStep(n) {
-  if (n < 0 || n > 4) return;
+  if (n < 0 || n > 5) return;
   currentStep = n;
   setStep(n);
 
@@ -1885,22 +2058,25 @@ function goToStep(n) {
   leftPanel.classList.remove("open");
   roofPanel.classList.remove("open");
   infoPanel.classList.remove("open");
+  $("iwPanel").classList.remove("open");
   deselectOpening();
+  deselectIW();
   hideArrows();
   hideDims();
   activeTool = null;
   document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
   dimEdit.style.display = "none"; editingAxis = null;
 
-  // Top-view button only in step 0; exit top view when leaving
-  if (n !== 0 && isTopView) disableTopView();
-  $("btnTopView").style.display = n === 0 ? "flex" : "none";
+  // Top-view button in steps 0 and 1; exit top view when leaving those
+  if (n > 1 && isTopView) disableTopView();
+  $("btnTopView").style.display = (n === 0 || n === 1) ? "flex" : "none";
 
-  // Common: show walls and openings in steps 0-2
-  if (roomGroup) roomGroup.visible = (n <= 2);
-  if (frameGroup) frameGroup.visible = (n >= 3);
-  openingsGroup.visible = (n >= 1 && n <= 2);
-  if (roofGroup) roofGroup.visible = (n >= 2 && n <= 2);
+  // Common visibility
+  if (roomGroup) roomGroup.visible = (n <= 3);
+  if (frameGroup) frameGroup.visible = (n >= 4);
+  openingsGroup.visible = (n >= 2 && n <= 3);
+  iwGroup.visible = (n >= 1 && n <= 3);
+  if (roofGroup) roofGroup.visible = (n >= 3 && n <= 3);
 
   const firstVisit = !stepVisited[n];
   stepVisited[n] = true;
@@ -1908,6 +2084,7 @@ function goToStep(n) {
   // Small hints shown after intro dismisses (or on revisit)
   const stepSmallHints = [
     "Drag arrows or edit dimensions",
+    "Click to draw \u2022 Click wall to delete",
     "Drag to add \u2022 Click to inspect",
     "Choose a roof type",
     "",
@@ -1958,12 +2135,28 @@ function goToStep(n) {
       }
       break;
 
-    case 1: // Openings
+    case 1: // Interior Walls
+      orbit.enabled = true;
+      renderer.domElement.style.cursor = "crosshair";
+      $("iwPanel").classList.add("open");
+      iwGroup.visible = true;
+      btnNext.textContent = NEXT_LABELS[1];
+      btnNext.style.display = "";
+      if (!isTopView) enableTopView();
+      if (firstVisit) {
+        showIntroThenSmall();
+      } else {
+        hint.classList.add("small");
+        hint.innerHTML = "Click to draw interior walls";
+      }
+      break;
+
+    case 2: // Openings
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
       leftPanel.classList.add("open");
       openingsGroup.visible = true;
-      btnNext.textContent = NEXT_LABELS[1];
+      btnNext.textContent = NEXT_LABELS[2];
       btnNext.style.display = "";
       if (firstVisit) {
         showIntroThenSmall();
@@ -1973,7 +2166,7 @@ function goToStep(n) {
       }
       break;
 
-    case 2: // Roof
+    case 3: // Roof
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
       roofPanel.classList.add("open");
@@ -1981,7 +2174,7 @@ function goToStep(n) {
       document.querySelectorAll(".roof-option").forEach(o => {
         o.classList.toggle("active", o.dataset.roof === roofType);
       });
-      btnNext.textContent = NEXT_LABELS[2];
+      btnNext.textContent = NEXT_LABELS[3];
       btnNext.style.display = "";
       if (firstVisit) {
         showIntroThenSmall();
@@ -1991,17 +2184,17 @@ function goToStep(n) {
       }
       break;
 
-    case 3: // Generate
+    case 4: // Generate
       if (firstVisit) {
         hint.classList.remove("small");
-        hint.innerHTML = stepIntroHints[3];
+        hint.innerHTML = stepIntroHints[4];
         setTimeout(() => { generateFrame(); }, 1500);
       } else {
         generateFrame();
       }
       break;
 
-    case 4: // Buy
+    case 5: // Buy
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
       infoPanel.classList.add("open");
@@ -2061,7 +2254,7 @@ async function generateFrame() {
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
 
-  setStep(3);
+  setStep(4);
   hideArrows();
   hideDims();
   btnNext.style.display = "none";
@@ -2069,6 +2262,7 @@ async function generateFrame() {
   leftPanel.classList.remove("open");
   infoPanel.classList.remove("open");
   roofPanel.classList.remove("open");
+  $("iwPanel").classList.remove("open");
   hint.style.display = "none";
 
   // Hide design geometry immediately while generating
@@ -2093,6 +2287,7 @@ async function generateFrame() {
           wallIdx: o.wallIdx,
           posAlong: o.posAlong,
         })),
+        interiorWalls: interiorWalls.map(iw => ({ x0: iw.x0, y0: iw.y0, x1: iw.x1, y1: iw.y1 })),
         roofType: roofType,
         ridgeH: getRidgeH(),
         flatSlopeH: flatSlopeH,
@@ -2163,7 +2358,7 @@ async function generateFrame() {
       }
     }
     infoPanel.classList.add("open");
-    btnNext.textContent = NEXT_LABELS[3];
+    btnNext.textContent = NEXT_LABELS[4];
     btnNext.style.display = "";
 
     hint.innerHTML = `Frame generated — ${json.result_count} members`;
@@ -2189,8 +2384,13 @@ function hitArrow(e) {
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
 
-  // ── Openings step: click to select opening ──
+  // ── Interior Walls step: record mouse down position (handled on pointerup) ──
   if (currentStep === 1) {
+    iwPointerDown = { x: e.clientX, y: e.clientY };
+  }
+
+  // ── Openings step: click to select opening ──
+  if (currentStep === 2) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -2213,7 +2413,7 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   }
 
   // Roof arrow drag start (roof step)
-  if (currentStep === 2) {
+  if (currentStep === 3) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -2296,6 +2496,16 @@ document.addEventListener("pointerup", (e) => {
 });
 
 renderer.domElement.addEventListener("pointermove", (e) => {
+  // Interior wall ghost preview
+  if (currentStep === 1 && iwDrawStart) {
+    const pt = groundHit(e);
+    if (pt) {
+      const end = constrainIWEnd(iwDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
+      showIWGhost(iwDrawStart, end);
+    }
+    return;
+  }
+
   // Flat roof slope arrow dragging
   if (draggingSlopeEdge >= 0) {
     const r = renderer.domElement.getBoundingClientRect();
@@ -2309,7 +2519,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     const hitPt = new THREE.Vector3();
     if (rc.ray.intersectPlane(vertPlane, hitPt)) {
       const h = +inH.value;
-      const roofT = 120;
+      const roofT = 295;
       flatSlopeH[draggingSlopeEdge] = Math.max(0, snap(hitPt.z - h - roofT));
       rebuildScene();
     }
@@ -2338,7 +2548,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   }
 
   // Roof arrow hover (roof step — ridge for gable, slope arrows for flat)
-  if (currentStep === 2 && !dragging && draggingSlopeEdge < 0) {
+  if (currentStep === 3 && !dragging && draggingSlopeEdge < 0) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -2354,8 +2564,8 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     }
   }
 
-  // Opening hover cursor (step 1)
-  if (currentStep === 1 && !draggingOpening) {
+  // Opening hover cursor (step 2)
+  if (currentStep === 2 && !draggingOpening) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -2417,7 +2627,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   }
 });
 
-renderer.domElement.addEventListener("pointerup", () => {
+renderer.domElement.addEventListener("pointerup", (e) => {
   if (dragging) {
     dragging = null;
     orbit.enabled = true;
@@ -2432,6 +2642,47 @@ renderer.domElement.addEventListener("pointerup", () => {
     draggingSlopeEdge = -1;
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
+  }
+
+  // ── Interior Walls step: only act on click (not drag/orbit) ──
+  if (currentStep === 1 && iwPointerDown) {
+    const dx = e.clientX - iwPointerDown.x;
+    const dy = e.clientY - iwPointerDown.y;
+    iwPointerDown = null;
+    if (dx * dx + dy * dy > 25) return; // moved > 5px → was orbiting
+
+    // Raycast to check if clicking an existing IW mesh
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const iwMeshes = [];
+    iwGroup.traverse(c => { if (c.isMesh) iwMeshes.push(c); });
+    const iwHits = rc.intersectObjects(iwMeshes);
+    if (iwHits.length && iwHits[0].object.userData.isInteriorWall) {
+      deselectIW();
+      selectIW(iwHits[0].object.userData.iwIdx);
+      return;
+    }
+
+    // Ground hit for drawing
+    const pt = groundHit(e);
+    if (!pt) return;
+
+    if (!iwDrawStart) {
+      // First click — start drawing
+      deselectIW();
+      iwDrawStart = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
+    } else {
+      // Second click — finish wall
+      const end = constrainIWEnd(iwDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
+      const len = iwDrawStart.distanceTo(end);
+      if (len >= 500) {
+        interiorWalls.push({ x0: iwDrawStart.x, y0: iwDrawStart.y, x1: end.x, y1: end.y });
+        rebuildInteriorWalls();
+      }
+      cancelIWDraw();
+    }
   }
 });
 
@@ -2506,12 +2757,23 @@ document.addEventListener("keydown", (e) => {
     if (selectedOpening >= 0) { deselectOpening(); return; }
     startDrawing();
   }
-  if (e.key === "Delete" && currentStep === 1 && selectedOpening >= 0) {
+  if (e.key === "Delete" && currentStep === 2 && selectedOpening >= 0) {
     const idx = selectedOpening;
     deselectOpening();
     removeOpeningByIdx(idx);
   }
+  // Interior wall: Escape to cancel draw, Delete to remove selected
+  if (e.key === "Escape" && currentStep === 1 && iwDrawStart) {
+    cancelIWDraw();
+    hint.classList.add("small");
+    hint.innerHTML = "Click to draw interior walls";
+  }
+  if (e.key === "Delete" && currentStep === 1 && selectedIW >= 0) {
+    deleteSelectedIW();
+  }
 });
+
+$("btnDeleteIW").addEventListener("click", deleteSelectedIW);
 
 for (const inp of [inW, inD, inH, inT]) inp.addEventListener("input", rebuildRoom);
 
@@ -2546,14 +2808,14 @@ $("btnDeleteOpening").addEventListener("click", () => {
 });
 
 // Step tab clicks
-for (let i = 0; i < 4; i++) {
+for (let i = 0; i < 5; i++) {
   stepEls[i].addEventListener("click", () => {
     if (!c1 || !c2 || mode !== M.SET) return;
     // For Generate step: if frame exists, show it; else trigger generation
-    if (i === 3 && frameGroup) {
-      goToStep(3);
+    if (i === 4 && frameGroup) {
+      goToStep(4);
       // Just show existing frame
-      setStep(3);
+      setStep(4);
       if (roomGroup) roomGroup.visible = false;
       frameGroup.visible = true;
       hint.innerHTML = "Frame generated";
@@ -2648,6 +2910,10 @@ function startDrawing() {
   if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
   if (roofGroup)  { scene.remove(roofGroup);  roofGroup = null; }
   clearOpenings();
+  interiorWalls.length = 0;
+  while (iwGroup.children.length) iwGroup.remove(iwGroup.children[0]);
+  cancelIWDraw();
+  selectedIW = -1;
   hideArrows();
   hideDims();
   dimEdit.style.display = "none"; editingAxis = null;
@@ -2665,6 +2931,7 @@ function startDrawing() {
   panel.classList.remove("open");
   leftPanel.classList.remove("open");
   roofPanel.classList.remove("open");
+  $("iwPanel").classList.remove("open");
   btnClear.style.display = "none";
   btnNext.style.display = "none";
   $("btnTopView").style.display = "flex";
