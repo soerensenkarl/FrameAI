@@ -481,6 +481,32 @@ def generate_frame():
 
         verts, normals, tris = _mesh_to_triangles(joined)
 
+        # Compute frame statistics from Breps
+        total_volume_mm3 = 0.0
+        total_length_mm = 0.0
+        member_count = len(breps_out)
+        for b in breps_out:
+            vol = rg.VolumeMassProperties.Compute(b)
+            if vol:
+                total_volume_mm3 += abs(vol.Volume)
+            bb = b.GetBoundingBox(True)
+            dims = sorted([
+                bb.Max.X - bb.Min.X,
+                bb.Max.Y - bb.Min.Y,
+                bb.Max.Z - bb.Min.Z,
+            ])
+            total_length_mm += dims[2]  # longest axis = member length
+
+        total_volume_m3 = total_volume_mm3 / 1e9
+        total_length_m = total_length_mm / 1000
+        weight_kg = total_volume_m3 * 500  # ~500 kg/m³ for structural timber
+        floor_area_m2 = (x1 - x0) * (y1 - y0) / 1e6
+
+        # Pricing: structural C24 timber ~€450/m³ + markup
+        timber_cost = total_volume_m3 * 450
+        markup = timber_cost * 0.35  # fabrication + handling
+        price = timber_cost + markup
+
         return jsonify({
             "vertices": verts,
             "normals": normals,
@@ -489,6 +515,16 @@ def generate_frame():
             "design_saved": input_saved,
             "frame_brep_saved": frame_brep_saved,
             "frame_mesh_saved": frame_mesh_saved,
+            "stats": {
+                "member_count": member_count,
+                "total_volume_m3": round(total_volume_m3, 3),
+                "total_length_m": round(total_length_m, 1),
+                "weight_kg": round(weight_kg, 1),
+                "floor_area_m2": round(floor_area_m2, 1),
+                "wall_height_m": round(h / 1000, 2),
+                "timber_cost": round(timber_cost, 2),
+                "price": round(price, 2),
+            },
         })
     except Exception as e:
         import traceback
