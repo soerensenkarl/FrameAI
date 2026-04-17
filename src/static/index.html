@@ -211,6 +211,30 @@
     -moz-appearance: textfield;
   }
 
+  .f select {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 26px;
+  }
+  .f select:focus { border-color: rgba(255, 255, 255, 0.22); }
+  .f select option { background: #1a1a1a; color: #fff; }
+
   .f input:focus { border-color: rgba(255, 255, 255, 0.22); }
   .f input::-webkit-inner-spin-button,
   .f input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -592,7 +616,7 @@
   <div class="f"><label>Width</label>  <div class="fr"><input type="number" id="inW" value="4000" min="500" step="10"><span class="u">mm</span></div></div>
   <div class="f"><label>Depth</label>  <div class="fr"><input type="number" id="inD" value="3000" min="500" step="10"><span class="u">mm</span></div></div>
   <div class="f"><label>Wall Height</label>    <div class="fr"><input type="number" id="inH" value="2400" min="500" step="10"><span class="u">mm</span></div></div>
-  <div class="f"><label>Thickness</label> <div class="fr"><input type="number" id="inT" value="150"  min="50"  step="10"><span class="u">mm</span></div></div>
+  <div class="f"><label>Thickness</label> <div class="fr"><select id="inT"><option value="95">95</option><option value="120">120</option><option value="145">145</option><option value="195" selected>195</option><option value="245">245</option><option value="295">295</option></select><span class="u">mm</span></div></div>
 </div>
 
 <!-- Drag ghost that follows cursor -->
@@ -706,6 +730,7 @@
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 /* ────────────────── renderer ────────────────── */
 const vp = document.getElementById("viewport");
@@ -714,7 +739,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setClearColor(0x0a0a0a);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.0;
 vp.appendChild(renderer.domElement);
 
@@ -739,11 +764,36 @@ sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = sun.shadow.camera.bottom = -15000;
 sun.shadow.camera.right = sun.shadow.camera.top = 15000;
+sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 2;
 scene.add(sun);
 
 const fill = new THREE.DirectionalLight(0xffffff, 0.25);
 fill.position.set(-4000, 5000, 3000);
 scene.add(fill);
+
+// Pre-generate studio environment map (once)
+const pmrem = new THREE.PMREMGenerator(renderer);
+const studioEnvMap = pmrem.fromScene(new RoomEnvironment()).texture;
+pmrem.dispose();
+
+function enableStudioLights() {
+  scene.environment = studioEnvMap;
+  renderer.toneMappingExposure = 0.8;
+  sun.intensity = 0.4;
+  fill.intensity = 0.1;
+  shadowMat.opacity = 0.12;
+  sun.shadow.normalBias = 0.02;
+}
+
+function disableStudioLights() {
+  scene.environment = null;
+  renderer.toneMappingExposure = 1.0;
+  sun.intensity = 1.1;
+  fill.intensity = 0.25;
+  shadowMat.opacity = 0.18;
+  sun.shadow.normalBias = 0;
+}
 
 /* ────────────────── ground ────────────────── */
 const GRID = 30000;
@@ -778,6 +828,27 @@ function hideDot() {
   dot.visible = false;
 }
 
+/* ────────────────── snap guide tower ────────────────── */
+const snapBarMat = new THREE.MeshBasicMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.5, depthTest: false });
+const snapTower = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), snapBarMat);
+snapTower.renderOrder = 998;
+snapTower.visible = false;
+scene.add(snapTower);
+
+function showSnapBars(snapped) {
+  if (!snapped.snappedX && !snapped.snappedY) { hideSnapBars(); return; }
+  const h = +inH.value;
+  const t = +inT.value;
+  snapTower.geometry.dispose();
+  snapTower.geometry = new THREE.BoxGeometry(t, t, h);
+  snapTower.position.set(snapped.x, snapped.y, h / 2);
+  snapTower.visible = true;
+}
+
+function hideSnapBars() {
+  snapTower.visible = false;
+}
+
 /* ────────────────── materials ────────────────── */
 const wallMat = new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.82, metalness: 0 });
 const ghostMat = new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.82, metalness: 0, transparent: true, opacity: 0.5 });
@@ -786,7 +857,7 @@ const ghostEdge = new THREE.LineBasicMaterial({ color: 0x666666, transparent: tr
 const floorMat = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.95, metalness: 0 });
 const ghostFloor = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.35 });
 
-const frameMat = new THREE.MeshStandardMaterial({ color: 0xd4a76a, roughness: 0.65, metalness: 0.05, side: THREE.DoubleSide });
+const frameMat = new THREE.MeshStandardMaterial({ color: 0xc8b080, roughness: 0.7, metalness: 0.0, side: THREE.DoubleSide });
 
 const windowMat = new THREE.MeshStandardMaterial({ color: 0x7ebadb, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.3, side: THREE.DoubleSide });
 const windowFrameMat = new THREE.LineBasicMaterial({ color: 0x4499bb });
@@ -912,7 +983,7 @@ function getRidgeH() {
 }
 
 function positionRoofArrows() {
-  if (!c1 || !c2) {
+  if (!c1 || !c2 || currentStep !== 3) {
     ridgeArrow.visible = false;
     slopeArrows[0].visible = false;
     slopeArrows[1].visible = false;
@@ -1166,92 +1237,113 @@ function snap(v) { return Math.round(v / SNAP) * SNAP; }
  * Gable walls are perpendicular to the ridge.
  */
 
-// Helper: extruded trapezoidal wall (different heights at each end)
-// Profile in XZ, extruded along Y by thickness t.
-// wallW = width along wall face, hLeft/hRight = heights at -hw / +hw ends
-function makeTrapWallGeo(wallW, t, hLeft, hRight) {
-  const hw = wallW / 2;
-  const verts = new Float32Array([
-    // front (y=0)
-    -hw, 0, 0,    hw, 0, 0,    hw, 0, hRight,    -hw, 0, hLeft,
-    // back (y=t)
-    -hw, t, 0,    hw, t, 0,    hw, t, hRight,     -hw, t, hLeft,
-  ]);
-  const idx = [
-    0,1,2, 0,2,3,       // front
-    4,6,5, 4,7,6,       // back
-    0,5,1, 0,4,5,       // bottom
-    1,5,6, 1,6,2,       // right
-    2,6,7, 2,7,3,       // top (slope)
-    3,7,4, 3,4,0,       // left
-  ];
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
+/* ── Wall geometry (unified: flat / sloped / gabled, with opening holes) ──
+ *
+ * Each wall has:
+ *   from, to       outer-face endpoints in world XY (ground level)
+ *   outward        unit outward normal (world XY)
+ *   topPoints      [[u, y], ...] where u ∈ [0,1] along the wall, y = world height
+ *   idx            0=S, 1=N, 2=W, 3=E
+ *
+ * We build a 2D polygon in face space (x=u·wallLen, y=height), punch opening
+ * holes, then extrude by thickness t and orient into the world via a basis
+ * matrix (uDir, up, inward). No rotation hacks, no per-shape positioning logic.
+ */
+
+// Canonical world position of an opening, from wallInfo's (origin + along·posAlong).
+// Used so the opening follows the wall regardless of how the wall is shortened
+// for corner handling — we project that world point onto each wall's face.
+function openingWorldPos(wallIdx, posAlong) {
+  const info = wallInfo(wallIdx);
+  if (!info) return null;
+  return new THREE.Vector3(
+    info.origin.x + info.along.x * posAlong,
+    info.origin.y + info.along.y * posAlong,
+    0
+  );
 }
 
-/* ── wall segmentation for opening cutouts ── */
-function computeWallSegments(faceWidth, wallHeight, holes) {
-  // holes: [{localX, width, zBottom, height}] sorted by localX
-  // Returns: [{u, v, w, h}] rectangles filling the wall around the holes
-  const segs = [];
-  const sorted = [...holes].sort((a, b) => a.localX - b.localX);
-  let prevRight = 0;
+function buildWallMesh(spec, t, wMat, eMat, wallCutouts) {
+  const fromV = new THREE.Vector3(spec.from[0], spec.from[1], 0);
+  const toV = new THREE.Vector3(spec.to[0], spec.to[1], 0);
+  const wallLen = fromV.distanceTo(toV);
+  if (wallLen < 1) return [];
 
-  for (const op of sorted) {
-    const left = Math.max(0, op.localX - op.width / 2);
-    const right = Math.min(faceWidth, op.localX + op.width / 2);
-    const top = Math.min(wallHeight, op.zBottom + op.height);
+  const uDir = toV.clone().sub(fromV).normalize();
+  const inward = new THREE.Vector3(-spec.outward[0], -spec.outward[1], 0);
+  const up = new THREE.Vector3(0, 0, 1);
 
-    // Full-height strip before opening
-    if (left - prevRight > 1)
-      segs.push({ u: prevRight, v: 0, w: left - prevRight, h: wallHeight });
+  // Build face polygon: bottom corners, then top profile reversed
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  shape.lineTo(wallLen, 0);
+  for (let i = spec.topPoints.length - 1; i >= 0; i--) {
+    const [u, y] = spec.topPoints[i];
+    shape.lineTo(u * wallLen, y);
+  }
+  shape.closePath();
 
-    // Header above opening
-    if (wallHeight - top > 1)
-      segs.push({ u: left, v: top, w: right - left, h: wallHeight - top });
+  // Wall top height (for clamping holes so they never pierce the top profile)
+  const wallTopAt = (x) => {
+    const u = x / wallLen;
+    const tp = spec.topPoints;
+    for (let i = 0; i < tp.length - 1; i++) {
+      const [u0, y0] = tp[i], [u1, y1] = tp[i + 1];
+      if (u >= u0 && u <= u1) {
+        const t2 = (u1 === u0) ? 0 : (u - u0) / (u1 - u0);
+        return y0 + (y1 - y0) * t2;
+      }
+    }
+    return tp[tp.length - 1][1];
+  };
 
-    // Sill below opening (windows)
-    if (op.zBottom > 1)
-      segs.push({ u: left, v: 0, w: right - left, h: op.zBottom });
+  // Holes — openings on this wall, projected into face space
+  const ops = (wallCutouts || []).filter(o => o.wallIdx === spec.idx);
+  for (const op of ops) {
+    const wp = openingWorldPos(op.wallIdx, op.posAlong);
+    if (!wp) continue;
+    const localX = wp.sub(fromV).dot(uDir);
+    const halfW = op.width / 2;
+    const left = localX - halfW;
+    const right = localX + halfW;
+    if (right <= 0 || left >= wallLen) continue;  // entirely outside wall
 
-    prevRight = Math.max(prevRight, right);
+    const bot = op.type === "window" ? op.sill : 0;
+    const desiredTop = bot + op.height;
+    // Clamp to wall top profile (use the lower of the two end heights as a safe bound)
+    const topBound = Math.min(wallTopAt(Math.max(0, left)), wallTopAt(Math.min(wallLen, right)));
+    const top = Math.min(desiredTop, topBound - 50);
+    if (top <= bot) continue;
+
+    const cLeft = Math.max(0, left);
+    const cRight = Math.min(wallLen, right);
+
+    const hole = new THREE.Path();
+    hole.moveTo(cLeft, bot);
+    hole.lineTo(cRight, bot);
+    hole.lineTo(cRight, top);
+    hole.lineTo(cLeft, top);
+    hole.closePath();
+    shape.holes.push(hole);
   }
 
-  // Final strip after last opening
-  if (faceWidth - prevRight > 1)
-    segs.push({ u: prevRight, v: 0, w: faceWidth - prevRight, h: wallHeight });
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false, steps: 1 });
 
-  return segs;
-}
+  // Orient: local (X=along, Y=up, Z=inward) → world
+  const m = new THREE.Matrix4().makeBasis(uDir, up, inward);
+  m.setPosition(fromV);
 
-// Helper: extruded pentagonal gable-end wall
-// Profile in XZ, extruded along Y by thickness t.
-// wallW = width along the wall face, t = thickness (depth), h = eave height, ridgeH = extra height at peak
-function makeGableWallGeo(wallW, t, h, ridgeH) {
-  const hw = wallW / 2;
-  const verts = new Float32Array([
-    // front (y=0)
-    -hw, 0, 0,    hw, 0, 0,    hw, 0, h,    0, 0, h + ridgeH,    -hw, 0, h,
-    // back (y=t)
-    -hw, t, 0,    hw, t, 0,    hw, t, h,    0, t, h + ridgeH,    -hw, t, h,
-  ]);
-  const idx = [
-    0,1,2, 0,2,4, 4,2,3,           // front
-    5,7,6, 5,9,7, 9,8,7,           // back
-    0,6,1, 0,5,6,                   // bottom
-    1,6,7, 1,7,2,                   // right
-    2,7,8, 2,8,3,                   // top-right slope
-    3,8,9, 3,9,4,                   // top-left slope
-    4,9,5, 4,5,0,                   // left
-  ];
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  return geo;
+  const mesh = new THREE.Mesh(geo, wMat);
+  mesh.applyMatrix4(m);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.userData.isWall = true;
+  mesh.userData.wallIdx = spec.idx;
+
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
+  edges.applyMatrix4(m);
+
+  return [mesh, edges];
 }
 
 function buildRoom(a, b, h, t, wMat, eMat, fMat, wallCutouts) {
@@ -1265,119 +1357,55 @@ function buildRoom(a, b, h, t, wMat, eMat, fMat, wallCutouts) {
   const ridgeH = isGable ? getRidgeH() : 0;
   const ridgeAlongX = w >= d;
   const isFlatSloped = roofType === "flat" && (flatSlopeH[0] !== 0 || flatSlopeH[1] !== 0);
-
-  // Thickening order: gable/slope-perp walls first (full span), then long walls (shortened by t).
-  // ridgeAlongX: perp = west/east (idx 2,3), long = south/north (idx 0,1)
-  // ridgeAlongY: perp = south/north (idx 0,1), long = west/east (idx 2,3)
-
-  // For sloped flat roof, edge heights for the two long walls:
-  // edge0 → first long wall (south or west), edge1 → second long wall (north or east)
   const e0h = h + flatSlopeH[0], e1h = h + flatSlopeH[1];
 
-  const specs = ridgeAlongX ? [
-    // Long walls (south/north) — shortened by t on each end
-    { cx: x0 + w / 2, cy: y0 + t / 2,          sx: w - 2 * t, sy: t, idx: 0, type: "long", edgeH: e0h },
-    { cx: x0 + w / 2, cy: y1 - t / 2,          sx: w - 2 * t, sy: t, idx: 1, type: "long", edgeH: e1h },
-    // Perp walls (west/east) — full depth
-    { cx: x0 + t / 2, cy: y0 + d / 2,          sx: t,         sy: d, idx: 2, type: "perp" },
-    { cx: x1 - t / 2, cy: y0 + d / 2,          sx: t,         sy: d, idx: 3, type: "perp" },
-  ] : [
-    // Perp walls (south/north) — full width
-    { cx: x0 + w / 2, cy: y0 + t / 2,          sx: w,         sy: t, idx: 0, type: "perp" },
-    { cx: x0 + w / 2, cy: y1 - t / 2,          sx: w,         sy: t, idx: 1, type: "perp" },
-    // Long walls (west/east) — shortened by t on each end
-    { cx: x0 + t / 2, cy: y0 + t + (d - 2*t)/2, sx: t, sy: d - 2 * t, idx: 2, type: "long", edgeH: e0h },
-    { cx: x1 - t / 2, cy: y0 + t + (d - 2*t)/2, sx: t, sy: d - 2 * t, idx: 3, type: "long", edgeH: e1h },
-  ];
+  // Wall specs: "perp" walls own the corners (full length, sloped/gabled top);
+  // "long" walls are inset by t on each end (flat top).
+  //   ridgeAlongX  → perp = W,E (slope runs along Y or gable spans Y)
+  //   ridgeAlongY  → perp = S,N
+  const specs = [];
+  const flat = (hVal) => [[0, hVal], [1, hVal]];
+  const gableProfile = [[0, h], [0.5, h + ridgeH], [1, h]];
 
-  for (const s of specs) {
-    if (s.sx <= 0 || s.sy <= 0) continue;
+  if (ridgeAlongX) {
+    // Long S/N: inset by t, flat top at eave height (or edge height for sloped flat)
+    const sh = isFlatSloped ? e0h : h;
+    const nh = isFlatSloped ? e1h : h;
+    specs.push(
+      { idx: 0, from: [x0 + t, y0],       to: [x1 - t, y0],       outward: [0, -1], topPoints: flat(sh) },
+      { idx: 1, from: [x1 - t, y1],       to: [x0 + t, y1],       outward: [0,  1], topPoints: flat(nh) },
+    );
+    // Perp W/E: full depth, sloped/gabled top
+    let wTop, eTop;
+    if (isGable)          { wTop = gableProfile;            eTop = gableProfile; }
+    else if (isFlatSloped){ wTop = [[0, e1h], [1, e0h]];    eTop = [[0, e0h], [1, e1h]]; }
+    else                  { wTop = flat(h);                 eTop = flat(h); }
+    specs.push(
+      { idx: 2, from: [x0, y1], to: [x0, y0], outward: [-1, 0], topPoints: wTop },
+      { idx: 3, from: [x1, y0], to: [x1, y1], outward: [ 1, 0], topPoints: eTop },
+    );
+  } else {
+    // Perp S/N: full width, sloped/gabled top
+    let sTop, nTop;
+    if (isGable)           { sTop = gableProfile;            nTop = gableProfile; }
+    else if (isFlatSloped) { sTop = [[0, e0h], [1, e1h]];    nTop = [[0, e1h], [1, e0h]]; }
+    else                   { sTop = flat(h);                 nTop = flat(h); }
+    specs.push(
+      { idx: 0, from: [x0, y0], to: [x1, y0], outward: [0, -1], topPoints: sTop },
+      { idx: 1, from: [x1, y1], to: [x0, y1], outward: [0,  1], topPoints: nTop },
+    );
+    // Long W/E: inset, flat top at edge height
+    const wh = isFlatSloped ? e0h : h;
+    const eh = isFlatSloped ? e1h : h;
+    specs.push(
+      { idx: 2, from: [x0, y1 - t], to: [x0, y0 + t], outward: [-1, 0], topPoints: flat(wh) },
+      { idx: 3, from: [x1, y0 + t], to: [x1, y1 - t], outward: [ 1, 0], topPoints: flat(eh) },
+    );
+  }
 
-    const faceLen = ridgeAlongX && s.type === "perp" ? s.sy : s.sx;
-    const thick   = ridgeAlongX && s.type === "perp" ? s.sx : s.sy;
-    const isHoriz = s.idx <= 1;
-    const isSpecial = (isGable && s.type === "perp") || (isFlatSloped && s.type === "perp");
-    const wallOps = (!isSpecial && wallCutouts) ? wallCutouts.filter(o => o.wallIdx === s.idx) : [];
-    const wallH = (isFlatSloped && s.type === "long") ? s.edgeH : h;
-
-    if (wallOps.length > 0) {
-      // Wall with openings — break into box segments around holes
-      const faceWidth = isHoriz ? s.sx : s.sy;
-      const faceStart = isHoriz ? (s.cx - s.sx / 2) : (s.cy - s.sy / 2);
-      const infoOrigin = isHoriz ? x0 : (y0 + t);
-      const faceOffset = faceStart - infoOrigin;
-      const localHoles = wallOps.map(o => ({
-        localX: o.posAlong - faceOffset,
-        width: o.width, height: o.height,
-        zBottom: o.type === "window" ? o.sill : 0,
-      }));
-      const segs = computeWallSegments(faceWidth, wallH, localHoles);
-
-      for (const seg of segs) {
-        const geo = isHoriz
-          ? new THREE.BoxGeometry(seg.w, s.sy, seg.h)
-          : new THREE.BoxGeometry(s.sx, seg.w, seg.h);
-        const mesh = new THREE.Mesh(geo, wMat);
-        if (isHoriz)
-          mesh.position.set(faceStart + seg.u + seg.w / 2, s.cy, seg.v + seg.h / 2);
-        else
-          mesh.position.set(s.cx, faceStart + seg.u + seg.w / 2, seg.v + seg.h / 2);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.userData.isWall = true;
-        mesh.userData.wallIdx = s.idx;
-        g.add(mesh);
-        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
-        edges.position.copy(mesh.position);
-        g.add(edges);
-      }
-    } else {
-      // Single-piece wall (no openings, or special shape)
-      let mesh, geo;
-
-      if (isGable && s.type === "perp") {
-        geo = makeGableWallGeo(faceLen, thick, h, ridgeH);
-        mesh = new THREE.Mesh(geo, wMat);
-        if (ridgeAlongX) {
-          mesh.rotation.z = -Math.PI / 2;
-          mesh.position.set(s.cx + thick / 2, s.cy, 0);
-        } else {
-          mesh.position.set(s.cx, s.cy - thick / 2, 0);
-        }
-      } else if (isFlatSloped && s.type === "perp") {
-        // When ridgeAlongX, rotation -PI/2 flips local X → world -Y,
-        // so local -hw → world north (e1h), local +hw → world south (e0h).
-        // Pass heights reversed to compensate.
-        if (ridgeAlongX) {
-          geo = makeTrapWallGeo(faceLen, thick, e1h, e0h);
-          mesh = new THREE.Mesh(geo, wMat);
-          mesh.rotation.z = -Math.PI / 2;
-          mesh.position.set(s.cx + thick / 2, s.cy, 0);
-        } else {
-          geo = makeTrapWallGeo(faceLen, thick, e0h, e1h);
-          mesh = new THREE.Mesh(geo, wMat);
-          mesh.position.set(s.cx, s.cy - thick / 2, 0);
-        }
-      } else if (isFlatSloped && s.type === "long") {
-        geo = new THREE.BoxGeometry(s.sx, s.sy, s.edgeH);
-        mesh = new THREE.Mesh(geo, wMat);
-        mesh.position.set(s.cx, s.cy, s.edgeH / 2);
-      } else {
-        geo = new THREE.BoxGeometry(s.sx, s.sy, h);
-        mesh = new THREE.Mesh(geo, wMat);
-        mesh.position.set(s.cx, s.cy, h / 2);
-      }
-
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.userData.isWall = true;
-      mesh.userData.wallIdx = s.idx;
-      g.add(mesh);
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), eMat);
-      edges.position.copy(mesh.position);
-      edges.rotation.copy(mesh.rotation);
-      g.add(edges);
-    }
+  for (const spec of specs) {
+    const items = buildWallMesh(spec, t, wMat, eMat, wallCutouts);
+    for (const it of items) g.add(it);
   }
 
   // Floor
@@ -1962,19 +1990,22 @@ function snapIWPoint(pt) {
   const b = getInnerBounds();
   const threshold = 250; // snap distance to wall faces
   let x = pt.x, y = pt.y;
+  let snappedX = false, snappedY = false;
 
   // Collect snap lines: exterior inner faces
   const xSnaps = [b.ix0, b.ix1];
   const ySnaps = [b.iy0, b.iy1];
 
-  // Interior wall faces (centerline ± t/2)
+  // Interior wall faces (centerline ± t/2) and endpoints
   const t = +inT.value;
   for (const iw of interiorWalls) {
     const isHoriz = Math.abs(iw.y1 - iw.y0) < 1;
     if (isHoriz) {
       ySnaps.push(iw.y0 - t / 2, iw.y0 + t / 2);
+      xSnaps.push(iw.x0, iw.x1);
     } else {
       xSnaps.push(iw.x0 - t / 2, iw.x0 + t / 2);
+      ySnaps.push(iw.y0, iw.y1);
     }
   }
 
@@ -1984,7 +2015,7 @@ function snapIWPoint(pt) {
     const d = Math.abs(x - sx);
     if (d < bestDx) { bestDx = d; x = sx; }
   }
-  if (bestDx >= threshold) x = snap(x);
+  if (bestDx >= threshold) x = snap(x); else snappedX = true;
 
   // Snap to nearest y snap line if close enough
   let bestDy = threshold;
@@ -1992,13 +2023,17 @@ function snapIWPoint(pt) {
     const d = Math.abs(y - sy);
     if (d < bestDy) { bestDy = d; y = sy; }
   }
-  if (bestDy >= threshold) y = snap(y);
+  if (bestDy >= threshold) y = snap(y); else snappedY = true;
 
   // Clamp to inner bounds
   x = Math.max(b.ix0, Math.min(b.ix1, x));
   y = Math.max(b.iy0, Math.min(b.iy1, y));
 
-  return new THREE.Vector3(x, y, 0);
+  const v = new THREE.Vector3(x, y, 0);
+  v.snappedX = snappedX;
+  v.snappedY = snappedY;
+  v.bounds = b;
+  return v;
 }
 
 // Constrain endpoint to orthogonal from start, snap, clamp inside bounds
@@ -2035,7 +2070,7 @@ function showIWGhost(start, end) {
   const geo = isHoriz
     ? new THREE.BoxGeometry(len, t, h)
     : new THREE.BoxGeometry(t, len, h);
-  iwGhostMesh = new THREE.Mesh(geo, ghostMat);
+  iwGhostMesh = new THREE.Mesh(geo, ghostOpeningMat);
   iwGhostMesh.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, h / 2);
   iwGhostMesh.renderOrder = 998;
   scene.add(iwGhostMesh);
@@ -2062,14 +2097,19 @@ function goToStep(n) {
   deselectOpening();
   deselectIW();
   hideArrows();
+  hideDot();
+  hideSnapBars();
   hideDims();
   activeTool = null;
   document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
   dimEdit.style.display = "none"; editingAxis = null;
 
-  // Top-view button in steps 0 and 1; exit top view when leaving those
-  if (n > 1 && isTopView) disableTopView();
-  $("btnTopView").style.display = (n === 0 || n === 1) ? "flex" : "none";
+  // Studio lighting for frame view
+  if (n >= 4) enableStudioLights(); else disableStudioLights();
+
+  // Top-view button in steps 0, 1, and 2; exit top view when leaving those
+  if (n > 2 && isTopView) disableTopView();
+  $("btnTopView").style.display = (n <= 2) ? "flex" : "none";
 
   // Common visibility
   if (roomGroup) roomGroup.visible = (n <= 3);
@@ -2496,12 +2536,20 @@ document.addEventListener("pointerup", (e) => {
 });
 
 renderer.domElement.addEventListener("pointermove", (e) => {
-  // Interior wall ghost preview
-  if (currentStep === 1 && iwDrawStart) {
+  // Interior wall snap dot + ghost preview
+  if (currentStep === 1) {
     const pt = groundHit(e);
     if (pt) {
-      const end = constrainIWEnd(iwDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
-      showIWGhost(iwDrawStart, end);
+      if (iwDrawStart) {
+        const end = constrainIWEnd(iwDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
+        showIWGhost(iwDrawStart, end);
+        moveDot(end);
+        showSnapBars(end);
+      } else {
+        const snapped = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
+        moveDot(snapped);
+        showSnapBars(snapped);
+      }
     }
     return;
   }
@@ -2775,7 +2823,8 @@ document.addEventListener("keydown", (e) => {
 
 $("btnDeleteIW").addEventListener("click", deleteSelectedIW);
 
-for (const inp of [inW, inD, inH, inT]) inp.addEventListener("input", rebuildRoom);
+for (const inp of [inW, inD, inH]) inp.addEventListener("input", rebuildRoom);
+inT.addEventListener("change", rebuildRoom);
 
 // Opening inspector inputs
 $("oInspW").addEventListener("input", () => {
@@ -2884,7 +2933,7 @@ function loadExample() {
   c1 = new THREE.Vector3(0, 0, 0);
   c2 = new THREE.Vector3(7000, 5000, 0);
   signX = 1; signY = 1;
-  inW.value = 7000; inD.value = 5000; inH.value = 2400; inT.value = 150;
+  inW.value = 7000; inD.value = 5000; inH.value = 2400; inT.value = 195;
   roofType = "flat";
   placeRoom();
   placeOpening(0, 3500, "door");
