@@ -858,6 +858,18 @@ const floorMat = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.
 const ghostFloor = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.35 });
 
 const frameMat = new THREE.MeshStandardMaterial({ color: 0xc8b080, roughness: 0.7, metalness: 0.0, side: THREE.DoubleSide });
+frameMat.onBeforeCompile = (shader) => {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <emissivemap_fragment>',
+    `#include <emissivemap_fragment>
+    // Fake bevel: highlight geometric edges using screen-space derivatives of the normal.
+    // Inside a flat face fwidth(normal) ~ 0; at a crease between two faces it spikes,
+    // producing a thin bright line that reads as a chamfered edge catching light.
+    float edgeAmt = length(fwidth(normal));
+    float bevel = smoothstep(0.25, 1.0, edgeAmt);
+    totalEmissiveRadiance += vec3(1.0, 0.92, 0.78) * bevel * 0.55;`
+  );
+};
 
 const windowMat = new THREE.MeshStandardMaterial({ color: 0x7ebadb, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.3, side: THREE.DoubleSide });
 const windowFrameMat = new THREE.LineBasicMaterial({ color: 0x4499bb });
@@ -2113,8 +2125,8 @@ function goToStep(n) {
   // Studio lighting for frame view
   if (n >= 4) enableStudioLights(); else disableStudioLights();
 
-  // Top-view button in steps 0, 1, and 2; exit top view when leaving those
-  if (n > 2 && isTopView) disableTopView();
+  // Top-view button in steps 0, 1, and 2; exit top view when leaving the Walls step
+  if (n !== 1 && isTopView) disableTopView();
   $("btnTopView").style.display = (n <= 2) ? "flex" : "none";
 
   // Common visibility
