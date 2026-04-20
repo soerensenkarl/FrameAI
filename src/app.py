@@ -52,6 +52,67 @@ def _mesh_to_triangles(mesh):
     return verts, normals, tris
 
 
+def _member_long_axis(brep):
+    """World-axis unit vector most aligned with a member's longest bbox dimension.
+
+    Used by the frontend shader to run wood-grain UVs along each member's length.
+    """
+    bb = brep.GetBoundingBox(True)
+    dx = abs(bb.Max.X - bb.Min.X)
+    dy = abs(bb.Max.Y - bb.Min.Y)
+    dz = abs(bb.Max.Z - bb.Min.Z)
+    if dx >= dy and dx >= dz:
+        return [1.0, 0.0, 0.0]
+    if dy >= dz:
+        return [0.0, 1.0, 0.0]
+    return [0.0, 0.0, 1.0]
+
+
+def _members_to_triangles(mesh_geoms, brep_geoms):
+    """Build per-member verts/normals/tangents/tris arrays.
+
+    Each member's vertices carry the member's long-axis as a tangent so the
+    frontend can orient the wood-grain texture along the member.
+    Pairs ``mesh_geoms[i]`` with ``brep_geoms[i]`` (same GH output order).
+    """
+    verts, normals, tangents, tris = [], [], [], []
+    n = min(len(mesh_geoms), len(brep_geoms))
+    for i in range(n):
+        mg = mesh_geoms[i]
+        bg = brep_geoms[i]
+        mesh = mg if isinstance(mg, rg.Mesh) else None
+        if mesh is None and getattr(mg, "GetType", lambda: None)() and mg.GetType().Name == "Mesh":
+            mesh = mg
+        if mesh is None:
+            continue
+        if isinstance(bg, rg.Brep):
+            brep = bg
+        elif isinstance(bg, rg.Extrusion):
+            brep = bg.ToBrep()
+        elif getattr(bg, "GetType", lambda: None)() and bg.GetType().Name == "Extrusion":
+            brep = bg.ToBrep()
+        elif getattr(bg, "GetType", lambda: None)() and bg.GetType().Name == "Brep":
+            brep = bg
+        else:
+            continue
+        mesh.FaceNormals.ComputeFaceNormals()
+        mesh.Normals.ComputeNormals()
+        tangent = _member_long_axis(brep)
+        offset = len(verts)
+        for j in range(mesh.Vertices.Count):
+            v = mesh.Vertices[j]
+            nrm = mesh.Normals[j]
+            verts.append([float(v.X), float(v.Y), float(v.Z)])
+            normals.append([float(nrm.X), float(nrm.Y), float(nrm.Z)])
+            tangents.append(tangent)
+        for j in range(mesh.Faces.Count):
+            f = mesh.Faces[j]
+            tris.append([f.A + offset, f.B + offset, f.C + offset])
+            if f.IsQuad:
+                tris.append([f.A + offset, f.C + offset, f.D + offset])
+    return verts, normals, tangents, tris
+
+
 def _breps_to_mesh(breps):
     """Convert Breps into a single clean Mesh for Three.js rendering.
 
@@ -575,7 +636,7 @@ def generate_frame():
             model.Objects.AddMesh(joined)
             frame_mesh_saved = _write_3dm(model, "frame_mesh.3dm")
 
-        verts, normals, tris = _mesh_to_triangles(joined)
+        verts, normals, tangents, tris = _members_to_triangles(mesh_geoms, breps_out)
 
         # Compute frame statistics: total length per cross-section
         STOCK_LENGTHS = [2400, 3000, 3600, 4200, 4800, 5400, 6000, 6600, 7200]
@@ -638,6 +699,7 @@ def generate_frame():
         return jsonify({
             "vertices": verts,
             "normals": normals,
+            "tangents": tangents,
             "faces": tris,
             "result_count": len(mesh_geoms),
             "design_saved": input_saved,
