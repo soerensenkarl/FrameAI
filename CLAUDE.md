@@ -38,3 +38,6 @@ The server must run single-threaded (`threaded=False`) because .NET/RhinoCommon 
 ## Key rule
 
 All logic lives in `src/`. Grasshopper components and tests import from `src/` — they never contain geometry logic themselves.
+
+## Multiple agents. 
+User often runs two agents in parallel by simply launching two terminals in the same folder. Therefore you might sometimes clash with code being rewritten by another agent in front of you. Just fyi.
