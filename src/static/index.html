@@ -1598,15 +1598,90 @@ function rebuildScene() {
 // as a solid corner. No miter, no insets — simplicity > pixel-perfect joinery.
 function buildFreeFormRoom(walls, h, t, wMat, eMat) {
   const g = new THREE.Group();
+  // Resolve corner overlaps: at each shared endpoint between two non-parallel walls,
+  // one wall runs through (extended by t/2) and the other butts against it (shortened by t/2).
+  // Rule: longer wall runs through; ties broken by lower index.
+  const drawn = walls.map(w => ({ x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 }));
+  const EPS = 1;                                    // mm
+  const key = (x, y) => Math.round(x / EPS) + "," + Math.round(y / EPS);
+  const corners = new Map();                        // key → [{wallIdx, end:0|1}]
   walls.forEach((w, i) => {
+    const k0 = key(w.x0, w.y0), k1 = key(w.x1, w.y1);
+    if (!corners.has(k0)) corners.set(k0, []);
+    if (!corners.has(k1)) corners.set(k1, []);
+    corners.get(k0).push({ wallIdx: i, end: 0 });
+    corners.get(k1).push({ wallIdx: i, end: 1 });
+  });
+  const lenOf = i => Math.hypot(walls[i].x1 - walls[i].x0, walls[i].y1 - walls[i].y0);
+  const adjustEnd = (i, end, sign) => {
+    // sign = +1 extends outward, -1 shortens inward (relative to wall midpoint)
+    const w = walls[i];
     const dx = w.x1 - w.x0, dy = w.y1 - w.y0;
+    const L = Math.hypot(dx, dy);
+    if (L < 1) return;
+    const ux = dx / L, uy = dy / L;                 // unit P0→P1
+    const s = (end === 0 ? -1 : 1) * sign * (t / 2);
+    if (end === 0) { drawn[i].x0 += ux * s; drawn[i].y0 += uy * s; }
+    else           { drawn[i].x1 += ux * s; drawn[i].y1 += uy * s; }
+  };
+  for (const entries of corners.values()) {
+    if (entries.length < 2) continue;
+    // Compute each wall's outgoing direction from this corner
+    const dirs = entries.map(e => {
+      const w = walls[e.wallIdx];
+      const L = lenOf(e.wallIdx);
+      const ux = (w.x1 - w.x0) / L, uy = (w.y1 - w.y0) / L;
+      // outgoing from corner: +u if corner is P0, -u if corner is P1
+      return { e, L, ox: e.end === 0 ? ux : -ux, oy: e.end === 0 ? uy : -uy };
+    });
+    // Group collinear walls (opposite outgoing directions) into pairs
+    const pairs = [];                                 // [[dirIdxA, dirIdxB]]
+    const paired = new Array(dirs.length).fill(false);
+    for (let i = 0; i < dirs.length; i++) {
+      if (paired[i]) continue;
+      for (let j = i + 1; j < dirs.length; j++) {
+        if (paired[j]) continue;
+        const cos = dirs[i].ox * dirs[j].ox + dirs[i].oy * dirs[j].oy;
+        if (cos < -0.99) { paired[i] = paired[j] = true; pairs.push([i, j]); break; }
+      }
+    }
+    const unpaired = dirs.filter((_, i) => !paired[i]);
+
+    if (entries.length === 2 && unpaired.length === 2) {
+      // L-corner: longer extends (through), shorter butts
+      const [u0, u1] = unpaired;
+      const throughFirst = (u0.L > u1.L) || (u0.L === u1.L && u0.e.wallIdx < u1.e.wallIdx);
+      const through = throughFirst ? u0 : u1;
+      const butt    = throughFirst ? u1 : u0;
+      adjustEnd(through.e.wallIdx, through.e.end, +1);
+      adjustEnd(butt.e.wallIdx,    butt.e.end,    -1);
+    } else if (pairs.length === 2 && unpaired.length === 0) {
+      // 4-wall cross: keep the longer parallel pair through; trim the other pair
+      const total = p => dirs[p[0]].L + dirs[p[1]].L;
+      const minIdx = p => Math.min(dirs[p[0]].e.wallIdx, dirs[p[1]].e.wallIdx);
+      const [p0, p1] = pairs;
+      const keepFirst = total(p0) > total(p1) || (total(p0) === total(p1) && minIdx(p0) < minIdx(p1));
+      const trimPair = keepFirst ? p1 : p0;
+      for (const dIdx of trimPair) {
+        const d = dirs[dIdx];
+        adjustEnd(d.e.wallIdx, d.e.end, -1);
+      }
+    } else {
+      // T or mixed: paired walls unchanged; unpaired walls butt
+      for (const u of unpaired) adjustEnd(u.e.wallIdx, u.e.end, -1);
+    }
+  }
+
+  walls.forEach((w, i) => {
+    const d = drawn[i];
+    const dx = d.x1 - d.x0, dy = d.y1 - d.y0;
     const len = Math.hypot(dx, dy);
     if (len < 1) return;
     const isSelected = (i === selectedFF);
     const mat = isSelected ? new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6 }) : wMat;
     const geo = new THREE.BoxGeometry(len, t, h);
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set((w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2, h / 2);
+    mesh.position.set((d.x0 + d.x1) / 2, (d.y0 + d.y1) / 2, h / 2);
     mesh.rotation.z = Math.atan2(dy, dx);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -2554,7 +2629,12 @@ function goToStep(n) {
         $("rowW").style.display = "none";
         $("rowD").style.display = "none";
         hint.classList.add("small");
-        hint.innerHTML = "Click to start a wall, click again to finish it \u2022 Shift releases ortho";
+        if (footprintWalls.length || ffDrawStart) {
+          hint.style.display = "none";
+        } else {
+          hint.style.display = "";
+          hint.innerHTML = "Click to draw \u2022 Right-drag to pan \u2022 Wheel to zoom";
+        }
         orbit.enabled = true;   // allow pan/zoom; click-vs-drag is separated by ffPointerDown
         renderer.domElement.style.cursor = "crosshair";
         btnNext.textContent = NEXT_LABELS[0];
@@ -2684,9 +2764,9 @@ $("tileFree").addEventListener("click", () => {
   $("exampleLink").style.display = "none";
   hint.style.display = "";
   hint.classList.remove("small");
-  hint.innerHTML = "Click to start a wall, click again to finish it \u2022 hold Shift to release ortho";
+  hint.innerHTML = "Click to draw \u2022 Right-drag to pan \u2022 Wheel to zoom \u2022 Shift = no ortho";
   enableTopView();
-  orbit.enabled = false;
+  orbit.enabled = true;    // right-drag pans, wheel zooms (rotation is already locked)
   renderer.domElement.style.cursor = "crosshair";
   rebuildScene();  // shows endpoint markers (empty at first, but wires the group up)
 });
@@ -2881,17 +2961,8 @@ function hitArrow(e) {
   return hits.length ? hits[0].object : null;
 }
 
-renderer.domElement.addEventListener("contextmenu", (e) => {
-  if (currentStep === 0 && houseMode === 'free') e.preventDefault();
-});
-
 renderer.domElement.addEventListener("pointerdown", (e) => {
-  // Right-click cancels an in-progress free-form draw
-  if (e.button === 2 && currentStep === 0 && houseMode === 'free' && ffDrawStart) {
-    cancelFFDraw();
-    return;
-  }
-  if (e.button !== 0) return;
+  if (e.button !== 0) return;   // right/middle reserved for OrbitControls pan/dolly
   if (!houseTypePicked) return;
 
   // ── Free-form footprint step: record mouse down position (handled on pointerup) ──
@@ -3255,6 +3326,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     if (!ffDrawStart) {
       deselectFFWall();
       ffDrawStart = ffSnapPoint(new THREE.Vector3(pt.x, pt.y, 0));
+      hint.style.display = "none";
     } else {
       const end = ffConstrainEnd(ffDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
       const len = ffDrawStart.distanceTo(end);
