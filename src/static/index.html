@@ -176,11 +176,25 @@
   .panel.open { display: flex; }
 
   /* Opening inspector floats next to the selected opening */
-  #openingInspector {
+  #openingInspector, #ffInspector {
     right: auto;
     top: auto;
     transform: none;
     pointer-events: auto;
+  }
+
+  /* Free-form wall hover hint */
+  .ff-hover-hint {
+    position: fixed;
+    pointer-events: none;
+    padding: 5px 10px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    font-size: 11px;
+    border-radius: 6px;
+    z-index: 20;
+    display: none;
+    white-space: nowrap;
   }
 
   .panel-title {
@@ -641,9 +655,9 @@
   </button>
   <div class="toolbar glass">
     <div class="steps">
-      <div class="step active" id="step0"><span class="step-num">1</span> Footprint</div>
+      <div class="step active" id="step0"><span class="step-num">1</span> Exterior Walls</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step1"><span class="step-num">2</span> Walls</div>
+      <div class="step" id="step1"><span class="step-num">2</span> Interior Walls</div>
       <span class="step-arrow">&#9656;</span>
       <div class="step" id="step2"><span class="step-num">3</span> Openings</div>
       <span class="step-arrow">&#9656;</span>
@@ -736,6 +750,9 @@
   <div class="f"><label>Length</label><div class="fr"><span class="u" id="ffLengthVal" style="font-size:14px;color:#fff">—</span></div></div>
   <button class="btn-delete" id="btnDeleteFF">Delete Wall</button>
 </div>
+
+<!-- Free-form wall hover hint -->
+<div class="ff-hover-hint" id="ffHoverHint">Right-click to edit</div>
 
 <!-- Opening inspector (shown when an opening is selected in step 1) -->
 <div class="panel glass" id="openingInspector">
@@ -1268,6 +1285,7 @@ let houseMode = 'box';
 
 // Free-form footprint state
 const footprintWalls = [];          // [{ x0, y0, x1, y1 }]
+let footprintWallsDrawn = [];       // [{ x0, y0, x1, y1 }] — corner-adjusted, populated by buildFreeFormRoom. Used by wallInfo so openings line up with rendered walls.
 let ffDrawStart = null;             // Vector3 of first click when drawing a wall
 let ffGhostMesh = null;             // preview mesh
 let ffPointerDown = null;           // {x,y} screen coords — click-vs-orbit
@@ -1578,6 +1596,8 @@ function rebuildScene() {
     roomGroup = buildFreeFormRoom(footprintWalls, +inH.value, +inT.value, wallMat, edgeMat);
     scene.add(roomGroup);
     rebuildFFEndpointMarkers();
+    rebuildOpenings();
+    rebuildInteriorWalls();
     return;
   }
 
@@ -1598,25 +1618,110 @@ function rebuildScene() {
 // as a solid corner. No miter, no insets — simplicity > pixel-perfect joinery.
 function buildFreeFormRoom(walls, h, t, wMat, eMat) {
   const g = new THREE.Group();
+  // Resolve corner overlaps: at each shared endpoint between two non-parallel walls,
+  // one wall runs through (extended by t/2) and the other butts against it (shortened by t/2).
+  // Rule: longer wall runs through; ties broken by lower index.
+  const drawn = walls.map(w => ({ x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 }));
+  const EPS = 1;                                    // mm
+  const key = (x, y) => Math.round(x / EPS) + "," + Math.round(y / EPS);
+  const corners = new Map();                        // key → [{wallIdx, end:0|1}]
   walls.forEach((w, i) => {
+    const k0 = key(w.x0, w.y0), k1 = key(w.x1, w.y1);
+    if (!corners.has(k0)) corners.set(k0, []);
+    if (!corners.has(k1)) corners.set(k1, []);
+    corners.get(k0).push({ wallIdx: i, end: 0 });
+    corners.get(k1).push({ wallIdx: i, end: 1 });
+  });
+  const lenOf = i => Math.hypot(walls[i].x1 - walls[i].x0, walls[i].y1 - walls[i].y0);
+  const adjustEnd = (i, end, sign) => {
+    // sign = +1 extends outward, -1 shortens inward (relative to wall midpoint)
+    const w = walls[i];
     const dx = w.x1 - w.x0, dy = w.y1 - w.y0;
+    const L = Math.hypot(dx, dy);
+    if (L < 1) return;
+    const ux = dx / L, uy = dy / L;                 // unit P0→P1
+    const s = (end === 0 ? -1 : 1) * sign * (t / 2);
+    if (end === 0) { drawn[i].x0 += ux * s; drawn[i].y0 += uy * s; }
+    else           { drawn[i].x1 += ux * s; drawn[i].y1 += uy * s; }
+  };
+  for (const entries of corners.values()) {
+    if (entries.length < 2) continue;
+    // Compute each wall's outgoing direction from this corner
+    const dirs = entries.map(e => {
+      const w = walls[e.wallIdx];
+      const L = lenOf(e.wallIdx);
+      const ux = (w.x1 - w.x0) / L, uy = (w.y1 - w.y0) / L;
+      // outgoing from corner: +u if corner is P0, -u if corner is P1
+      return { e, L, ox: e.end === 0 ? ux : -ux, oy: e.end === 0 ? uy : -uy };
+    });
+    // Group collinear walls (opposite outgoing directions) into pairs
+    const pairs = [];                                 // [[dirIdxA, dirIdxB]]
+    const paired = new Array(dirs.length).fill(false);
+    for (let i = 0; i < dirs.length; i++) {
+      if (paired[i]) continue;
+      for (let j = i + 1; j < dirs.length; j++) {
+        if (paired[j]) continue;
+        const cos = dirs[i].ox * dirs[j].ox + dirs[i].oy * dirs[j].oy;
+        if (cos < -0.99) { paired[i] = paired[j] = true; pairs.push([i, j]); break; }
+      }
+    }
+    const unpaired = dirs.filter((_, i) => !paired[i]);
+
+    if (entries.length === 2 && unpaired.length === 2) {
+      // L-corner: longer extends (through), shorter butts
+      const [u0, u1] = unpaired;
+      const throughFirst = (u0.L > u1.L) || (u0.L === u1.L && u0.e.wallIdx < u1.e.wallIdx);
+      const through = throughFirst ? u0 : u1;
+      const butt    = throughFirst ? u1 : u0;
+      adjustEnd(through.e.wallIdx, through.e.end, +1);
+      adjustEnd(butt.e.wallIdx,    butt.e.end,    -1);
+    } else if (pairs.length === 2 && unpaired.length === 0) {
+      // 4-wall cross: keep the longer parallel pair through; trim the other pair
+      const total = p => dirs[p[0]].L + dirs[p[1]].L;
+      const minIdx = p => Math.min(dirs[p[0]].e.wallIdx, dirs[p[1]].e.wallIdx);
+      const [p0, p1] = pairs;
+      const keepFirst = total(p0) > total(p1) || (total(p0) === total(p1) && minIdx(p0) < minIdx(p1));
+      const trimPair = keepFirst ? p1 : p0;
+      for (const dIdx of trimPair) {
+        const d = dirs[dIdx];
+        adjustEnd(d.e.wallIdx, d.e.end, -1);
+      }
+    } else {
+      // T or mixed: paired walls unchanged; unpaired walls butt
+      for (const u of unpaired) adjustEnd(u.e.wallIdx, u.e.end, -1);
+    }
+  }
+
+  // Publish the corner-adjusted endpoints so wallInfo/openingWorldPos match rendered walls.
+  footprintWallsDrawn = drawn.map(d => ({ x0: d.x0, y0: d.y0, x1: d.x1, y1: d.y1 }));
+
+  walls.forEach((w, i) => {
+    const d = drawn[i];
+    const dx = d.x1 - d.x0, dy = d.y1 - d.y0;
     const len = Math.hypot(dx, dy);
     if (len < 1) return;
+    const ux = dx / len, uy = dy / len;
+    const ox = -uy, oy = ux;                   // left-hand perpendicular (outward)
     const isSelected = (i === selectedFF);
     const mat = isSelected ? new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6 }) : wMat;
-    const geo = new THREE.BoxGeometry(len, t, h);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set((w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2, h / 2);
-    mesh.rotation.z = Math.atan2(dy, dx);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.userData.isFFWall = true;
-    mesh.userData.ffIdx = i;
-    g.add(mesh);
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
-    edges.position.copy(mesh.position);
-    edges.rotation.copy(mesh.rotation);
-    g.add(edges);
+    // Use buildWallMesh so openings punch real holes (Shape + holes + extrude).
+    const spec = {
+      idx: FF_WALL_OFFSET + i,
+      from: [d.x0 + ox * t / 2, d.y0 + oy * t / 2],   // outward-face endpoints
+      to:   [d.x1 + ox * t / 2, d.y1 + oy * t / 2],
+      outward: [ox, oy],
+      topPoints: [[0, h], [1, h]],                    // flat top
+    };
+    const items = buildWallMesh(spec, t, mat, eMat, openings);
+    for (const it of items) {
+      if (it.isMesh) {
+        it.userData.isFFWall = true;
+        it.userData.ffIdx = i;
+        // isWall / wallIdx are already set by buildWallMesh — the opening raycast
+        // in getWallMeshes() will now pick up free-form walls too.
+      }
+      g.add(it);
+    }
   });
   return g;
 }
@@ -1631,6 +1736,7 @@ function rebuildRoom() {
 /* ────────────────── openings ────────────────── */
 const WINDOW_W = 1000, WINDOW_H = 1000, WINDOW_SILL = 900;
 const DOOR_W = 900, DOOR_H = 2100;
+const FF_WALL_OFFSET = 1000;  // free-form wall indices: FF_WALL_OFFSET + i (segregates from box 0-3 and interior 4+)
 
 function defaultDims(type) {
   return type === "window"
@@ -1650,7 +1756,29 @@ function getWallMeshes() {
 function wallInfo(wallIdx) {
   // Returns { origin, along, outward, length, isInterior } for each wall.
   // Exterior walls occupy wallIdx 0..3; interior walls occupy 4..(4+N-1)
-  // where N = interiorWalls.length.
+  // where N = interiorWalls.length. Free-form walls occupy FF_WALL_OFFSET+i.
+  if (wallIdx >= FF_WALL_OFFSET) {
+    // Prefer the corner-adjusted drawn cache (matches the rendered geometry). Fall back to
+    // the raw wall if buildFreeFormRoom hasn't run yet (first opening placement, etc.).
+    const idx = wallIdx - FF_WALL_OFFSET;
+    const w = footprintWallsDrawn[idx] || footprintWalls[idx];
+    if (!w) return null;
+    const dx = w.x1 - w.x0, dy = w.y1 - w.y0;
+    const L = Math.hypot(dx, dy);
+    if (L < 1) return null;
+    const ux = dx / L, uy = dy / L;
+    const ox = -uy, oy = ux;                   // left-hand perpendicular
+    const tVal = +inT.value;
+    // Origin = outward-face start of the wall. makeOpeningGroup offsets inward by t/2
+    // so the opening ends up on the wall centerline — matching box-mode semantics.
+    return {
+      origin: new THREE.Vector3(w.x0 + ox * tVal / 2, w.y0 + oy * tVal / 2, 0),
+      along: new THREE.Vector3(ux, uy, 0),
+      outward: new THREE.Vector3(ox, oy, 0),
+      length: L,
+      isInterior: false,
+    };
+  }
   if (!c1 || !c2) return null;
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
@@ -1842,6 +1970,12 @@ function rebuildSingleOpening(idx) {
 
 function rebuildWalls() {
   // Rebuild only the room geometry with current openings (preserves opening meshes)
+  if (houseMode === 'free') {
+    if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
+    roomGroup = buildFreeFormRoom(footprintWalls, +inH.value, +inT.value, wallMat, edgeMat);
+    scene.add(roomGroup);
+    return;
+  }
   if (!c1 || !c2) return;
   if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
   roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat, openings);
@@ -2217,11 +2351,32 @@ function deleteSelectedIW() {
 }
 
 /* ────────────────── interior wall snap logic ────────────────── */
+// Bounding box of the current footprint — works for box mode (c1/c2) and free mode
+// (min/max of all footprint wall endpoints). Returns null when no footprint exists.
+function getFootprintBounds() {
+  if (houseMode === 'free') {
+    if (!footprintWalls.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const w of footprintWalls) {
+      x0 = Math.min(x0, w.x0, w.x1);
+      x1 = Math.max(x1, w.x0, w.x1);
+      y0 = Math.min(y0, w.y0, w.y1);
+      y1 = Math.max(y1, w.y0, w.y1);
+    }
+    return { x0, y0, x1, y1 };
+  }
+  if (!c1 || !c2) return null;
+  return {
+    x0: Math.min(c1.x, c2.x), x1: Math.max(c1.x, c2.x),
+    y0: Math.min(c1.y, c2.y), y1: Math.max(c1.y, c2.y),
+  };
+}
+
 function getInnerBounds() {
-  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
-  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const b = getFootprintBounds();
   const t = +inT.value;
-  return { ix0: x0 + t, iy0: y0 + t, ix1: x1 - t, iy1: y1 - t, t };
+  if (!b) return { ix0: 0, iy0: 0, ix1: 0, iy1: 0, t };
+  return { ix0: b.x0 + t, iy0: b.y0 + t, ix1: b.x1 - t, iy1: b.y1 - t, t };
 }
 
 // Snap a point to the nearest interior wall face or exterior wall inner face, then grid
@@ -2460,6 +2615,58 @@ function selectFFWall(idx) {
   $("ffLengthVal").textContent = (lenMm / 1000).toFixed(2) + " m";
   const inspector = $("ffInspector");
   inspector.style.display = "flex";
+  positionFFInspector();
+}
+
+function positionFFInspector() {
+  if (selectedFF < 0) return;
+  const w = footprintWalls[selectedFF];
+  if (!w) return;
+  const mid = new THREE.Vector3((w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2, (+inH.value) / 2);
+  mid.project(cam);
+  const r = renderer.domElement.getBoundingClientRect();
+  const sx = (mid.x * 0.5 + 0.5) * r.width + r.left;
+  const sy = (-mid.y * 0.5 + 0.5) * r.height + r.top;
+  const panel = $("ffInspector");
+  const pw = panel.offsetWidth || 220;
+  const ph = panel.offsetHeight || 150;
+  let px = sx + 28;
+  let py = sy - ph / 2;
+  if (px + pw > window.innerWidth - 10) px = sx - pw - 28;
+  px = Math.max(10, px);
+  py = Math.max(10, Math.min(py, window.innerHeight - ph - 10));
+  panel.style.left = px + "px";
+  panel.style.top = py + "px";
+}
+
+// Hover-to-tip state for free-form walls
+let ffHoverIdx = -1;
+let ffHoverTimer = null;
+let ffHoverPointer = { x: 0, y: 0 };
+const ffHoverHintEl = () => document.getElementById("ffHoverHint");
+function hideFFHoverHint() {
+  if (ffHoverTimer) { clearTimeout(ffHoverTimer); ffHoverTimer = null; }
+  ffHoverIdx = -1;
+  const el = ffHoverHintEl();
+  if (el) el.style.display = "none";
+}
+function showFFHoverHint() {
+  const el = ffHoverHintEl();
+  if (!el) return;
+  el.style.left = (ffHoverPointer.x + 14) + "px";
+  el.style.top = (ffHoverPointer.y + 14) + "px";
+  el.style.display = "block";
+}
+function ffWallAtEvent(e) {
+  if (!roomGroup) return -1;
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  rc.setFromCamera(ndc, cam);
+  const meshes = [];
+  roomGroup.traverse(c => { if (c.isMesh && c.userData.isFFWall) meshes.push(c); });
+  const hits = rc.intersectObjects(meshes);
+  return hits.length ? hits[0].object.userData.ffIdx : -1;
 }
 
 function deselectFFWall() {
@@ -2471,6 +2678,13 @@ function deselectFFWall() {
 
 function deleteSelectedFF() {
   if (selectedFF < 0) return;
+  const removedIdx = FF_WALL_OFFSET + selectedFF;
+  // Drop openings on the deleted wall; re-index openings on later walls (indices shift on splice).
+  for (let i = openings.length - 1; i >= 0; i--) {
+    const op = openings[i];
+    if (op.wallIdx === removedIdx) openings.splice(i, 1);
+    else if (op.wallIdx > removedIdx && op.wallIdx >= FF_WALL_OFFSET) op.wallIdx -= 1;
+  }
   footprintWalls.splice(selectedFF, 1);
   selectedFF = -1;
   $("ffInspector").style.display = "none";
@@ -2492,7 +2706,7 @@ function goToStep(n) {
   $("iwPanel").classList.remove("open");
   deselectOpening();
   deselectIW();
-  if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; }
+  if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; hideFFHoverHint(); }
   hideArrows();
   hideDot();
   hideSnapBars();
@@ -2554,7 +2768,12 @@ function goToStep(n) {
         $("rowW").style.display = "none";
         $("rowD").style.display = "none";
         hint.classList.add("small");
-        hint.innerHTML = "Click to start a wall, click again to finish it \u2022 Shift releases ortho";
+        if (footprintWalls.length || ffDrawStart) {
+          hint.style.display = "none";
+        } else {
+          hint.style.display = "";
+          hint.innerHTML = "Click to draw \u2022 Right-drag to pan \u2022 Wheel to zoom";
+        }
         orbit.enabled = true;   // allow pan/zoom; click-vs-drag is separated by ffPointerDown
         renderer.domElement.style.cursor = "crosshair";
         btnNext.textContent = NEXT_LABELS[0];
@@ -2684,9 +2903,9 @@ $("tileFree").addEventListener("click", () => {
   $("exampleLink").style.display = "none";
   hint.style.display = "";
   hint.classList.remove("small");
-  hint.innerHTML = "Click to start a wall, click again to finish it \u2022 hold Shift to release ortho";
+  hint.innerHTML = "Click to draw \u2022 Right-drag to pan \u2022 Wheel to zoom \u2022 Shift = no ortho";
   enableTopView();
-  orbit.enabled = false;
+  orbit.enabled = true;    // right-drag pans, wheel zooms (rotation is already locked)
   renderer.domElement.style.cursor = "crosshair";
   rebuildScene();  // shows endpoint markers (empty at first, but wires the group up)
 });
@@ -2881,17 +3100,18 @@ function hitArrow(e) {
   return hits.length ? hits[0].object : null;
 }
 
+// Right-click edit tracking for free-form walls (right-drag still pans via OrbitControls)
+let ffRightDown = null;
 renderer.domElement.addEventListener("contextmenu", (e) => {
   if (currentStep === 0 && houseMode === 'free') e.preventDefault();
 });
-
+renderer.domElement.addEventListener("pointerleave", () => hideFFHoverHint());
 renderer.domElement.addEventListener("pointerdown", (e) => {
-  // Right-click cancels an in-progress free-form draw
-  if (e.button === 2 && currentStep === 0 && houseMode === 'free' && ffDrawStart) {
-    cancelFFDraw();
+  if (e.button === 2 && currentStep === 0 && houseMode === 'free') {
+    ffRightDown = { x: e.clientX, y: e.clientY };
     return;
   }
-  if (e.button !== 0) return;
+  if (e.button !== 0) return;   // middle reserved for OrbitControls dolly
   if (!houseTypePicked) return;
 
   // ── Free-form footprint step: record mouse down position (handled on pointerup) ──
@@ -3027,7 +3247,7 @@ document.addEventListener("pointerup", (e) => {
 });
 
 renderer.domElement.addEventListener("pointermove", (e) => {
-  // Free-form footprint: snap dot + ghost preview while drawing
+  // Free-form footprint: snap dot + ghost preview while drawing; hover hint when idle
   if (currentStep === 0 && houseMode === 'free') {
     const pt = groundHit(e);
     if (pt) {
@@ -3036,9 +3256,24 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         ffHoverEnd = end;
         showFFGhost(ffDrawStart, end);
         moveDot(end);
+        hideFFHoverHint();
       } else {
         const snapped = ffSnapPoint(new THREE.Vector3(pt.x, pt.y, 0));
         moveDot(snapped);
+        // Hover hint: over a wall (but not in its endpoint-snap zone)
+        const hovered = snapped.snapped ? -1 : ffWallAtEvent(e);
+        ffHoverPointer.x = e.clientX; ffHoverPointer.y = e.clientY;
+        if (hovered >= 0) {
+          if (hovered !== ffHoverIdx) {
+            hideFFHoverHint();
+            ffHoverIdx = hovered;
+            ffHoverTimer = setTimeout(showFFHoverHint, 500);
+          } else if (ffHoverHintEl().style.display === "block") {
+            showFFHoverHint();  // follow cursor
+          }
+        } else {
+          hideFFHoverHint();
+        }
       }
     }
     return;
@@ -3224,30 +3459,29 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     renderer.domElement.style.cursor = "";
   }
 
-  // ── Free-form footprint: click = select/draw, drag = orbit ──
+  // ── Free-form footprint right-click: select/toggle wall inspector ──
+  if (e.button === 2 && currentStep === 0 && houseMode === 'free' && ffRightDown) {
+    const dx = e.clientX - ffRightDown.x;
+    const dy = e.clientY - ffRightDown.y;
+    ffRightDown = null;
+    if (dx * dx + dy * dy > 25) return;   // it was a pan, not a click
+    const idx = ffWallAtEvent(e);
+    if (idx >= 0) {
+      if (selectedFF === idx) deselectFFWall();
+      else selectFFWall(idx);
+    } else {
+      deselectFFWall();
+    }
+    hideFFHoverHint();
+    return;
+  }
+
+  // ── Free-form footprint left-click: draw only (never select) ──
   if (currentStep === 0 && houseMode === 'free' && ffPointerDown) {
     const dx = e.clientX - ffPointerDown.x;
     const dy = e.clientY - ffPointerDown.y;
     ffPointerDown = null;
     if (dx * dx + dy * dy > 25) return;
-
-    // First: did we click an existing wall? (select for edit)
-    const r = renderer.domElement.getBoundingClientRect();
-    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-    rc.setFromCamera(ndc, cam);
-    if (roomGroup) {
-      const ffMeshes = [];
-      roomGroup.traverse(c => { if (c.isMesh && c.userData.isFFWall) ffMeshes.push(c); });
-      const hits = rc.intersectObjects(ffMeshes);
-      if (hits.length) {
-        // Clicking a wall while mid-draw ignores the selection (second click goes to drawing).
-        if (!ffDrawStart) {
-          selectFFWall(hits[0].object.userData.ffIdx);
-          return;
-        }
-      }
-    }
 
     const pt = groundHit(e);
     if (!pt) return;
@@ -3255,6 +3489,8 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     if (!ffDrawStart) {
       deselectFFWall();
       ffDrawStart = ffSnapPoint(new THREE.Vector3(pt.x, pt.y, 0));
+      hint.style.display = "none";
+      hideFFHoverHint();
     } else {
       const end = ffConstrainEnd(ffDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
       const len = ffDrawStart.distanceTo(end);
@@ -3610,6 +3846,7 @@ onResize();
   requestAnimationFrame(loop);
   orbit.update();
   updateInspectorPosition();
+  positionFFInspector();
   renderer.render(scene, cam);
 })();
 </script>
