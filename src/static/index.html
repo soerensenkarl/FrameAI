@@ -144,60 +144,6 @@
   .dev-opt input[type="checkbox"] {
     accent-color: #F9BC06;
   }
-  .light-panel {
-    position: fixed;
-    top: 16px;
-    right: 16px;
-    width: 240px;
-    padding: 14px 16px;
-    display: none;
-    flex-direction: column;
-    gap: 10px;
-    z-index: 100;
-    font-size: 12px;
-    color: rgba(255,255,255,0.85);
-  }
-  .light-panel .panel-title {
-    font-size: 11px;
-    color: rgba(255,255,255,0.55);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-bottom: 2px;
-  }
-  .light-panel select {
-    background: rgba(20,20,24,0.8);
-    color: #fff;
-    border: 1px solid rgba(255,255,255,0.12);
-    border-radius: 6px;
-    padding: 4px 6px;
-    font-size: 12px;
-    outline: none;
-  }
-  .light-panel .lrow {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .light-panel .lrow label {
-    flex: 0 0 54px;
-    color: rgba(255,255,255,0.7);
-  }
-  .light-panel .lrow input[type="range"] {
-    flex: 1;
-    accent-color: #F9BC06;
-  }
-  .light-panel .lrow .lval {
-    flex: 0 0 40px;
-    text-align: right;
-    color: rgba(255,255,255,0.55);
-    font-variant-numeric: tabular-nums;
-  }
-  .light-panel .lhint {
-    font-size: 10px;
-    color: rgba(255,255,255,0.45);
-    margin-top: 4px;
-  }
-
   .btn-next {
     padding: 7px 22px;
     background: #F9BC06;
@@ -832,20 +778,6 @@
   <label class="dev-opt"><input type="checkbox" id="devSimpleCb"> Use test_simple.gh</label>
 </div>
 
-<!-- Light debug panel (only on frame view) -->
-<div class="light-panel glass" id="lightPanel">
-  <span class="panel-title">Lighting</span>
-  <div class="lrow">
-    <label>Env</label>
-    <select id="lightEnv"></select>
-  </div>
-  <div class="lrow"><label>Ambient</label><input type="range" id="lsAmbient" min="0" max="2" step="0.01"><span class="lval" id="lvAmbient">—</span></div>
-  <div class="lrow"><label>Env map</label><input type="range" id="lsEnv"     min="0" max="2" step="0.01"><span class="lval" id="lvEnv">—</span></div>
-  <div class="lrow"><label>Sun</label>    <input type="range" id="lsSun"     min="0" max="3" step="0.01"><span class="lval" id="lvSun">—</span></div>
-  <div class="lrow"><label>Fill</label>   <input type="range" id="lsFill"    min="0" max="2" step="0.01"><span class="lval" id="lvFill">—</span></div>
-  <div class="lhint">Keys 1-4 solo · 0 resets</div>
-</div>
-
 <!-- Cursor tooltip -->
 <div class="tip" id="tip"></div>
 
@@ -873,8 +805,6 @@ const vp = document.getElementById("viewport");
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setClearColor(0x0a0a0a);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.0;
 vp.appendChild(renderer.domElement);
@@ -892,192 +822,18 @@ orbit.target.set(0, 0, 0);
 orbit.maxPolarAngle = Math.PI / 2.05;
 
 /* ────────────────── lights ────────────────── */
-scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-
-const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-sun.position.set(7000, -5000, 5500);   // lower elevation → lateral shadows between members
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = sun.shadow.camera.bottom = -8000;
-sun.shadow.camera.right = sun.shadow.camera.top = 8000;
-sun.shadow.camera.near = 100;
-sun.shadow.camera.far = 25000;
-sun.shadow.bias = -0.00005;
-sun.shadow.normalBias = 0.2;
-sun.shadow.radius = 3;
-scene.add(sun);
-
-const fill = new THREE.DirectionalLight(0xffffff, 0.25);
-fill.position.set(-4000, 5000, 3000);
-scene.add(fill);
-
-// Pre-generate environment maps (once). Palette order: [ceiling, floor, +X, -X, +Z, -Z].
+// Only a studio IBL — no direct lights, no shadows. Scene lighting is fully image-based.
 const pmrem = new THREE.PMREMGenerator(renderer);
-
-function _envFromPalette(p) {
-  const s = new THREE.Scene();
-  const add = (w, h, d, color, x, y, z) => {
-    const m = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      new THREE.MeshBasicMaterial({ color, side: THREE.BackSide, toneMapped: false }),
-    );
-    m.position.set(x, y, z);
-    s.add(m);
-  };
-  add(40, 0.01, 40, p[0],  0,  10,  0);
-  add(40, 0.01, 40, p[1],  0, -10,  0);
-  add(0.01, 20, 40, p[2], 20,   0,  0);
-  add(0.01, 20, 40, p[3],-20,   0,  0);
-  add(40, 20, 0.01, p[4],  0,   0, 20);
-  add(40, 20, 0.01, p[5],  0,   0,-20);
-  return s;
-}
-
-const ENVIRONMENTS = {
-  studio:      { label: 'Studio (neutral)', map: pmrem.fromScene(new RoomEnvironment()).texture },
-  goldenHour:  { label: 'Golden hour',      map: pmrem.fromScene(_envFromPalette([0xffe2a8, 0x1a1410, 0xffb060, 0x405870, 0xd8c8b0, 0x607888])).texture },
-  overcast:    { label: 'Overcast',         map: pmrem.fromScene(_envFromPalette([0xf0f0f4, 0x505054, 0xb8b8bc, 0xb8b8bc, 0xc0c0c4, 0xc0c0c4])).texture },
-  sunset:      { label: 'Sunset',           map: pmrem.fromScene(_envFromPalette([0xff8858, 0x180810, 0xff4028, 0x402058, 0xa84050, 0x302048])).texture },
-  blueHour:    { label: 'Blue hour',        map: pmrem.fromScene(_envFromPalette([0x6888c0, 0x0c1420, 0x4060a0, 0x304878, 0x405878, 0x303860])).texture },
-  noonSun:     { label: 'Noon sun',         map: pmrem.fromScene(_envFromPalette([0xfff8ec, 0x2a3030, 0xfff8e0, 0x88a8c8, 0xd0d8e0, 0xd0d8e0])).texture },
-  interior:    { label: 'Interior (warm)',  map: pmrem.fromScene(_envFromPalette([0xffd090, 0x382818, 0xffa860, 0xffb878, 0xd8a870, 0xb08858])).texture },
-  night:       { label: 'Night (moonlit)',  map: pmrem.fromScene(_envFromPalette([0x18243c, 0x040608, 0x304878, 0x0a0e18, 0x18243c, 0x0a0e18])).texture },
-  showroom:    { label: 'Showroom',         map: pmrem.fromScene(_envFromPalette([0xffffff, 0xe8e8e8, 0xf0f0f0, 0xf0f0f0, 0xf0f0f0, 0xf0f0f0])).texture },
-};
-
+const studioEnvMap = pmrem.fromScene(new RoomEnvironment()).texture;
 pmrem.dispose();
-
-const studioEnvMap = ENVIRONMENTS.studio.map;  // backward-compat
-let activeEnvKey = 'studio';
-let activeEnvMap = ENVIRONMENTS[activeEnvKey].map;
-
-function enableStudioLights() {
-  scene.environment = activeEnvMap;
-  renderer.toneMappingExposure = 0.8;
-  sun.intensity = 0.4;
-  fill.intensity = 0.1;
-  shadowMat.opacity = 0.12;
-  sun.shadow.normalBias = 0.1;  // small push; acne handled by shadowSide=BackSide on frameMat
-}
-
-function disableStudioLights() {
-  scene.environment = null;
-  renderer.toneMappingExposure = 1.0;
-  sun.intensity = 1.1;
-  fill.intensity = 0.25;
-  shadowMat.opacity = 0.18;
-  sun.shadow.normalBias = 0.2;
-}
-
-/* ────────────────── light debug panel ────────────────── */
-// envMapIntensity lives on each material, not on the env map itself — walk the scene
-// so a single slider controls the IBL contribution uniformly.
-function _setEnvIntensity(v) {
-  scene.traverse(obj => {
-    if (obj.isMesh && obj.material && 'envMapIntensity' in obj.material) {
-      obj.material.envMapIntensity = v;
-    }
-  });
-}
-
-function setActiveEnv(key) {
-  if (!ENVIRONMENTS[key]) return;
-  activeEnvKey = key;
-  activeEnvMap = ENVIRONMENTS[key].map;
-  if (currentStep >= 4) scene.environment = activeEnvMap;
-}
-
-const _ambientLight = scene.children.find(c => c.isAmbientLight);
-
-function _syncLightSlidersFromScene() {
-  if (!_lightCtrls) return;
-  const setV = (el, lab, v) => { if (el) el.value = v; if (lab) lab.textContent = v.toFixed(2); };
-  setV(_lightCtrls.ambient, _lightCtrls.ambientVal, _ambientLight ? _ambientLight.intensity : 0);
-  setV(_lightCtrls.env,     _lightCtrls.envVal,     frameMat.envMapIntensity ?? 1.0);
-  setV(_lightCtrls.sun,     _lightCtrls.sunVal,     sun.intensity);
-  setV(_lightCtrls.fill,    _lightCtrls.fillVal,    fill.intensity);
-}
-
-function soloLight(which) {
-  if (_ambientLight) _ambientLight.intensity = 0;
-  _setEnvIntensity(0);
-  sun.intensity = 0;
-  fill.intensity = 0;
-  if (which === 1 && _ambientLight) _ambientLight.intensity = 0.45;
-  if (which === 2) _setEnvIntensity(1.0);
-  if (which === 3) sun.intensity = 1.1;
-  if (which === 4) fill.intensity = 0.5;
-  _syncLightSlidersFromScene();
-}
-
-function resetLights() {
-  if (currentStep >= 4) enableStudioLights(); else disableStudioLights();
-  _setEnvIntensity(1.0);
-  if (_ambientLight) _ambientLight.intensity = 0.45;
-  _syncLightSlidersFromScene();
-}
-
-let _lightCtrls = null;
-
-function _initLightPanel() {
-  const panelEl = document.getElementById('lightPanel');
-  if (!panelEl) return;
-  const envSel = document.getElementById('lightEnv');
-  for (const [key, val] of Object.entries(ENVIRONMENTS)) {
-    const opt = document.createElement('option');
-    opt.value = key; opt.textContent = val.label;
-    envSel.appendChild(opt);
-  }
-  envSel.value = activeEnvKey;
-  envSel.addEventListener('change', () => setActiveEnv(envSel.value));
-
-  _lightCtrls = {
-    ambient:    document.getElementById('lsAmbient'),
-    ambientVal: document.getElementById('lvAmbient'),
-    env:        document.getElementById('lsEnv'),
-    envVal:     document.getElementById('lvEnv'),
-    sun:        document.getElementById('lsSun'),
-    sunVal:     document.getElementById('lvSun'),
-    fill:       document.getElementById('lsFill'),
-    fillVal:    document.getElementById('lvFill'),
-  };
-
-  const bind = (slider, label, onChange) => {
-    slider.addEventListener('input', () => {
-      const v = parseFloat(slider.value);
-      label.textContent = v.toFixed(2);
-      onChange(v);
-    });
-  };
-  bind(_lightCtrls.ambient, _lightCtrls.ambientVal, v => { if (_ambientLight) _ambientLight.intensity = v; });
-  bind(_lightCtrls.env,     _lightCtrls.envVal,     v => _setEnvIntensity(v));
-  bind(_lightCtrls.sun,     _lightCtrls.sunVal,     v => { sun.intensity = v; });
-  bind(_lightCtrls.fill,    _lightCtrls.fillVal,    v => { fill.intensity = v; });
-
-  _syncLightSlidersFromScene();
-}
-
-window.addEventListener('keydown', (e) => {
-  if (currentStep < 4) return;
-  const tag = (document.activeElement && document.activeElement.tagName) || '';
-  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-  if (e.key >= '1' && e.key <= '4') { soloLight(parseInt(e.key, 10)); e.preventDefault(); }
-  else if (e.key === '0') { resetLights(); e.preventDefault(); }
-});
+scene.environment = studioEnvMap;
+renderer.toneMappingExposure = 0.8;
 
 /* ────────────────── ground ────────────────── */
 const GRID = 30000;
 const grid = new THREE.GridHelper(GRID, 60, 0x1a1a1a, 0x141414);
 grid.rotation.x = Math.PI / 2;
 scene.add(grid);
-
-const shadowMat = new THREE.ShadowMaterial({ opacity: 0.18 });
-shadowMat.polygonOffset = true;
-shadowMat.polygonOffsetFactor = 1;
-shadowMat.polygonOffsetUnits = 1;
-const shadowGround = new THREE.Mesh(new THREE.PlaneGeometry(GRID, GRID), shadowMat);
-shadowGround.receiveShadow = true;
-scene.add(shadowGround);
 
 /* ────────────────── snap cursor (orange circle) ────────────────── */
 const dot = new THREE.Mesh(
@@ -1133,9 +889,6 @@ frameTex.colorSpace = THREE.SRGBColorSpace;
 frameTex.anisotropy = 4;
 
 const frameMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, metalness: 0.0, side: THREE.DoubleSide });
-// Render back faces into the shadow map so front faces always pass the depth test.
-// Eliminates self-shadow acne/banding on thin members without needing large biases.
-frameMat.shadowSide = THREE.BackSide;
 frameMat.userData.uniforms = {
   tWood:      { value: frameTex },
   uTileScale: { value: 1.0 / 600.0 },
@@ -1202,9 +955,6 @@ frameMat.onBeforeCompile = (shader) => {
       totalEmissiveRadiance += vec3(1.0, 0.92, 0.78) * bevel * 0.4;`
     );
 };
-
-// Initialize the light panel now that `frameMat` exists (the sync reads `frameMat.envMapIntensity`).
-_initLightPanel();
 
 const windowMat = new THREE.MeshStandardMaterial({ color: 0x7ebadb, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.3, side: THREE.DoubleSide });
 const windowFrameMat = new THREE.LineBasicMaterial({ color: 0x4499bb });
@@ -1287,6 +1037,9 @@ function positionArrows() {
   arrows[2].position.set(x0 - off, my, 10);  // west
   arrows[3].position.set(x1 + off, my, 10);  // east
   for (const a of arrows) a.visible = true;
+
+  heightArrow.position.set(mx, my, (+inH.value) + off);
+  heightArrow.visible = true;
 }
 
 function hideArrows() {
@@ -1294,6 +1047,7 @@ function hideArrows() {
   ridgeArrow.visible = false;
   slopeArrows[0].visible = false;
   slopeArrows[1].visible = false;
+  heightArrow.visible = false;
   setArrowHover(null);
 }
 
@@ -1315,6 +1069,10 @@ ridgeArrow.userData.isRidge = true;
 const slopeArrows = [makeUpArrow(), makeUpArrow()];
 slopeArrows[0].userData.slopeEdge = 0;
 slopeArrows[1].userData.slopeEdge = 1;
+
+// Footprint height arrow (drag to change wall height in step 0)
+const heightArrow = makeUpArrow();
+heightArrow.userData.isHeight = true;
 
 let customRidgeH = null;
 let flatSlopeH = [0, 0];  // [edge0, edge1] height offsets for flat roof slope
@@ -1366,6 +1124,7 @@ function positionRoofArrows() {
 let dragging = null;  // { idx, axis, sign }
 let draggingRidge = false;
 let draggingSlopeEdge = -1;  // 0 or 1 when dragging a flat roof slope arrow
+let draggingHeight = false;
 
 /* ────────────────── dimension lines ────────────────── */
 let dimGroup = null;
@@ -2457,12 +2216,6 @@ function goToStep(n) {
   document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
   dimEdit.style.display = "none"; editingAxis = null;
 
-  // Studio lighting for frame view
-  if (n >= 4) enableStudioLights(); else disableStudioLights();
-  const _lp = document.getElementById('lightPanel');
-  if (_lp) _lp.style.display = (n >= 4) ? 'flex' : 'none';
-  if (n >= 4) _syncLightSlidersFromScene();
-
   // Top-view button in steps 0, 1, and 2; exit top view when leaving the Walls step
   if (n !== 1 && isTopView) disableTopView();
   $("btnTopView").style.display = (n <= 2) ? "flex" : "none";
@@ -2869,6 +2622,20 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
 
   // Arrow drag start (footprint step)
   if (currentStep === 0 && mode === M.SET) {
+    // Height arrow first (it stands above the box so takes precedence on overlap)
+    if (heightArrow.visible) {
+      const r = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      rc.setFromCamera(ndc, cam);
+      const hh = rc.intersectObjects([heightArrow]);
+      if (hh.length) {
+        draggingHeight = true;
+        orbit.enabled = false;
+        renderer.domElement.style.cursor = "grabbing";
+        return;
+      }
+    }
     const hit = hitArrow(e);
     if (hit) {
       const idx = hit.userData.idx;
