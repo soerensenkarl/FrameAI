@@ -993,7 +993,7 @@ function positionRoofArrows() {
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
   const h = +inH.value;
   const w = x1 - x0, d = y1 - y0;
-  const roofT = roofType === "flat" ? 295 : 120;
+  const roofT = 295;
   const ridgeAlongX = w >= d;
 
   if (roofType === "gable") {
@@ -1766,7 +1766,7 @@ function buildRoof() {
   const h = +inH.value;
   const w = x1 - x0, d = y1 - y0;
   const overhang = 200;
-  const roofT = roofType === "flat" ? 295 : 120;
+  const roofT = 295;
 
   roofGroup = new THREE.Group();
 
@@ -1786,34 +1786,40 @@ function buildRoof() {
       edges.position.copy(mesh.position);
       roofGroup.add(edges);
     } else {
-      // Sloped flat roof — tilted slab with thickness
-      // Top surface at h + roofT + slope, bottom surface at h + slope
+      // Sloped flat roof — tilted slab with thickness.
+      // Slope is anchored at the wall footprint (y0/y1 or x0/x1) so the roof
+      // bottom meets the wall top exactly. Overhang heights extrapolate the
+      // same slope outward past the footprint.
       let top, bot;
       if (ridgeAlongX) {
+        const mY = (b - f) / d;                    // slope per unit Y
+        const fOH = f - mY * oh, bOH = b + mY * oh;  // overhang edge offsets
         top = [
-          x0 - oh, y0 - oh, h + roofT + f,
-          x1 + oh, y0 - oh, h + roofT + f,
-          x1 + oh, y1 + oh, h + roofT + b,
-          x0 - oh, y1 + oh, h + roofT + b,
+          x0 - oh, y0 - oh, h + roofT + fOH,
+          x1 + oh, y0 - oh, h + roofT + fOH,
+          x1 + oh, y1 + oh, h + roofT + bOH,
+          x0 - oh, y1 + oh, h + roofT + bOH,
         ];
         bot = [
-          x0 - oh, y0 - oh, h + f,
-          x1 + oh, y0 - oh, h + f,
-          x1 + oh, y1 + oh, h + b,
-          x0 - oh, y1 + oh, h + b,
+          x0 - oh, y0 - oh, h + fOH,
+          x1 + oh, y0 - oh, h + fOH,
+          x1 + oh, y1 + oh, h + bOH,
+          x0 - oh, y1 + oh, h + bOH,
         ];
       } else {
+        const mX = (b - f) / w;
+        const fOH = f - mX * oh, bOH = b + mX * oh;
         top = [
-          x0 - oh, y0 - oh, h + roofT + f,
-          x0 - oh, y1 + oh, h + roofT + f,
-          x1 + oh, y1 + oh, h + roofT + b,
-          x1 + oh, y0 - oh, h + roofT + b,
+          x0 - oh, y0 - oh, h + roofT + fOH,
+          x0 - oh, y1 + oh, h + roofT + fOH,
+          x1 + oh, y1 + oh, h + roofT + bOH,
+          x1 + oh, y0 - oh, h + roofT + bOH,
         ];
         bot = [
-          x0 - oh, y0 - oh, h + f,
-          x0 - oh, y1 + oh, h + f,
-          x1 + oh, y1 + oh, h + b,
-          x1 + oh, y0 - oh, h + b,
+          x0 - oh, y0 - oh, h + fOH,
+          x0 - oh, y1 + oh, h + fOH,
+          x1 + oh, y1 + oh, h + bOH,
+          x1 + oh, y0 - oh, h + bOH,
         ];
       }
       const verts = new Float32Array([...top, ...bot]);

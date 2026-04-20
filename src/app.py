@@ -133,8 +133,51 @@ def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type):
     return box.ToBrep()
 
 
+def _planar_face(pts):
+    """Build a single-face planar Brep from an ordered point loop."""
+    closed = list(pts) + [pts[0]]
+    curve = rg.PolylineCurve(System.Array[rg.Point3d](closed))
+    faces = rg.Brep.CreatePlanarBreps(curve, 1.0)
+    return faces[0] if faces and len(faces) > 0 else None
+
+
+def _solid_from_profile(profile_pts, direction):
+    """Sweep a 4-point planar profile along `direction` and return a closed solid
+    Brep with 6 distinct planar faces (2 caps + 4 sides)."""
+    p0, p1, p2, p3 = profile_pts
+    q0 = rg.Point3d(p0.X + direction.X, p0.Y + direction.Y, p0.Z + direction.Z)
+    q1 = rg.Point3d(p1.X + direction.X, p1.Y + direction.Y, p1.Z + direction.Z)
+    q2 = rg.Point3d(p2.X + direction.X, p2.Y + direction.Y, p2.Z + direction.Z)
+    q3 = rg.Point3d(p3.X + direction.X, p3.Y + direction.Y, p3.Z + direction.Z)
+    # 6 faces — start cap, end cap, and 4 side quads. Winding is not critical
+    # for JoinBreps; it rebuilds orientation.
+    face_loops = [
+        [p0, p1, p2, p3],          # start cap (profile)
+        [q0, q1, q2, q3],          # end cap
+        [p0, p1, q1, q0],          # side 0→1
+        [p1, p2, q2, q1],          # side 1→2
+        [p2, p3, q3, q2],          # side 2→3
+        [p3, p0, q0, q3],          # side 3→0
+    ]
+    face_breps = []
+    for loop in face_loops:
+        fb = _planar_face(loop)
+        if fb is not None:
+            face_breps.append(fb)
+    if len(face_breps) != 6:
+        return None
+    joined = rg.Brep.JoinBreps(System.Array[rg.Brep](face_breps), 1.0)
+    if joined and len(joined) > 0:
+        return joined[0]
+    return None
+
+
 def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None):
-    """Create roof Brep(s) matching the frontend roof visualization."""
+    """Create roof as closed-solid Brep(s) matching the frontend visualization.
+
+    Each returned Brep has 6 planar faces so the Grasshopper definition can
+    treat the roof as solid geometry.
+    """
     w = x1 - x0
     d = y1 - y0
     overhang = 200
@@ -144,47 +187,55 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
     if roof_type == "gable":
         if ridge_h is None:
             ridge_h = min(w, d) * 0.35
-        faces = []
-        if w >= d:
-            # Ridge along X; two faces: south slope, north slope
-            mid_y = (y0 + y1) / 2
-            faces.append([
-                rg.Point3d(x0 - overhang, y0 - overhang, h),
-                rg.Point3d(x1 + overhang, y0 - overhang, h),
-                rg.Point3d(x1 + overhang, mid_y, h + ridge_h),
-                rg.Point3d(x0 - overhang, mid_y, h + ridge_h),
-            ])
-            faces.append([
-                rg.Point3d(x0 - overhang, mid_y, h + ridge_h),
-                rg.Point3d(x1 + overhang, mid_y, h + ridge_h),
-                rg.Point3d(x1 + overhang, y1 + overhang, h),
-                rg.Point3d(x0 - overhang, y1 + overhang, h),
-            ])
-        else:
-            # Ridge along Y; two faces: west slope, east slope
-            mid_x = (x0 + x1) / 2
-            faces.append([
-                rg.Point3d(x0 - overhang, y0 - overhang, h),
-                rg.Point3d(x0 - overhang, y1 + overhang, h),
-                rg.Point3d(mid_x, y1 + overhang, h + ridge_h),
-                rg.Point3d(mid_x, y0 - overhang, h + ridge_h),
-            ])
-            faces.append([
-                rg.Point3d(mid_x, y0 - overhang, h + ridge_h),
-                rg.Point3d(mid_x, y1 + overhang, h + ridge_h),
-                rg.Point3d(x1 + overhang, y1 + overhang, h),
-                rg.Point3d(x1 + overhang, y0 - overhang, h),
-            ])
+        slab = 295
         breps = []
-        for pts in faces:
-            pts_closed = pts + [pts[0]]
-            curve = rg.PolylineCurve(System.Array[rg.Point3d](pts_closed))
-            brep = rg.Brep.CreatePlanarBreps(curve, 1.0)
-            if brep and len(brep) > 0:
-                breps.append(brep[0])
+        if w >= d:
+            # Ridge along X. Each wedge's cross-section is a parallelogram in the YZ plane,
+            # extruded along X by (w + 2*overhang).
+            mid_y = (y0 + y1) / 2
+            ext = rg.Vector3d(w + 2 * overhang, 0, 0)
+            x_ref = x0 - overhang
+            # South wedge: eave at y0, ridge at midY
+            south_profile = [
+                rg.Point3d(x_ref, y0 - overhang, h),              # eave top
+                rg.Point3d(x_ref, mid_y,        h + ridge_h),     # ridge top
+                rg.Point3d(x_ref, mid_y,        h + ridge_h - slab),  # ridge bot
+                rg.Point3d(x_ref, y0 - overhang, h - slab),       # eave bot
+            ]
+            north_profile = [
+                rg.Point3d(x_ref, mid_y,        h + ridge_h),
+                rg.Point3d(x_ref, y1 + overhang, h),
+                rg.Point3d(x_ref, y1 + overhang, h - slab),
+                rg.Point3d(x_ref, mid_y,        h + ridge_h - slab),
+            ]
+            for prof in (south_profile, north_profile):
+                solid = _solid_from_profile(prof, ext)
+                if solid:
+                    breps.append(solid)
+        else:
+            # Ridge along Y. Cross-section in XZ plane, extruded along Y.
+            mid_x = (x0 + x1) / 2
+            ext = rg.Vector3d(0, d + 2 * overhang, 0)
+            y_ref = y0 - overhang
+            west_profile = [
+                rg.Point3d(x0 - overhang, y_ref, h),
+                rg.Point3d(mid_x,        y_ref, h + ridge_h),
+                rg.Point3d(mid_x,        y_ref, h + ridge_h - slab),
+                rg.Point3d(x0 - overhang, y_ref, h - slab),
+            ]
+            east_profile = [
+                rg.Point3d(mid_x,        y_ref, h + ridge_h),
+                rg.Point3d(x1 + overhang, y_ref, h),
+                rg.Point3d(x1 + overhang, y_ref, h - slab),
+                rg.Point3d(mid_x,        y_ref, h + ridge_h - slab),
+            ]
+            for prof in (west_profile, east_profile):
+                solid = _solid_from_profile(prof, ext)
+                if solid:
+                    breps.append(solid)
         return breps
 
-    # Default: flat roof (possibly sloped)
+    # Flat roof (possibly sloped)
     slab = 295
     f, b = flat_slope[0], flat_slope[1]
     if f == 0 and b == 0:
@@ -193,27 +244,37 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
                      rg.Interval(y0 - overhang, y1 + overhang),
                      rg.Interval(h, h + slab))
         return [box.ToBrep()]
-    # Sloped single surface
+
+    # Sloped flat roof: tilted slab. Slope is anchored at the wall footprint
+    # (y0/y1 or x0/x1); overhang edges extrapolate outward so the roof bottom
+    # meets the wall tops exactly. Cross-section is a parallelogram extruded
+    # along the non-slope axis to get a closed 6-face solid.
     if w >= d:
-        pts = [
-            rg.Point3d(x0 - overhang, y0 - overhang, h + slab + f),
-            rg.Point3d(x1 + overhang, y0 - overhang, h + slab + f),
-            rg.Point3d(x1 + overhang, y1 + overhang, h + slab + b),
-            rg.Point3d(x0 - overhang, y1 + overhang, h + slab + b),
+        # Slope along Y.
+        m = (b - f) / d
+        f_oh = f - m * overhang
+        b_oh = b + m * overhang
+        profile = [
+            rg.Point3d(x0 - overhang, y0 - overhang, h + f_oh),
+            rg.Point3d(x0 - overhang, y0 - overhang, h + slab + f_oh),
+            rg.Point3d(x0 - overhang, y1 + overhang, h + slab + b_oh),
+            rg.Point3d(x0 - overhang, y1 + overhang, h + b_oh),
         ]
+        ext = rg.Vector3d(w + 2 * overhang, 0, 0)
     else:
-        pts = [
-            rg.Point3d(x0 - overhang, y0 - overhang, h + slab + f),
-            rg.Point3d(x0 - overhang, y1 + overhang, h + slab + f),
-            rg.Point3d(x1 + overhang, y1 + overhang, h + slab + b),
-            rg.Point3d(x1 + overhang, y0 - overhang, h + slab + b),
+        # Slope along X.
+        m = (b - f) / w
+        f_oh = f - m * overhang
+        b_oh = b + m * overhang
+        profile = [
+            rg.Point3d(x0 - overhang, y0 - overhang, h + f_oh),
+            rg.Point3d(x0 - overhang, y0 - overhang, h + slab + f_oh),
+            rg.Point3d(x1 + overhang, y0 - overhang, h + slab + b_oh),
+            rg.Point3d(x1 + overhang, y0 - overhang, h + b_oh),
         ]
-    pts_closed = pts + [pts[0]]
-    curve = rg.PolylineCurve(System.Array[rg.Point3d](pts_closed))
-    brep = rg.Brep.CreatePlanarBreps(curve, 1.0)
-    if brep and len(brep) > 0:
-        return [brep[0]]
-    return []
+        ext = rg.Vector3d(0, d + 2 * overhang, 0)
+    solid = _solid_from_profile(profile, ext)
+    return [solid] if solid else []
 
 
 # ── routes ──
@@ -291,22 +352,34 @@ def generate_frame():
         h = float(data.get("height", 2400))
         t = float(data.get("thickness", 150))
 
-        # Build 4 wall box Breps matching the room layout
-        # South/north run full width, west/east fill between them
         w = x1 - x0
         d = y1 - y0
-        wall_specs = [
-            # (origin_x, origin_y, length_x, length_y)  — all at z=0, height h
-            (x0, y0,       w,         t),          # south
-            (x0, y1 - t,   w,         t),          # north
-            (x0, y0 + t,   t,         d - 2 * t),  # west
-            (x1 - t, y0 + t, t,       d - 2 * t),  # east
-        ]
 
         roof_type = data.get("roofType", "flat")
         default_ridge = min(w, d) * 0.35
         ridge_h = float(data.get("ridgeH", default_ridge)) if roof_type == "gable" else 0
         ridge_along_x = w >= d
+
+        # Wall layout must match frontend buildRoom (index.html):
+        # perp walls (perpendicular to the ridge) own the corners and run full
+        # length; parallel walls are inset by t on each end. This keeps gable
+        # profiles and sloped-flat trapezoids attached to the corners.
+        if ridge_along_x:
+            # perp = W/E (full depth); long = S/N (inset)
+            wall_specs = [
+                (x0 + t, y0,       w - 2 * t, t),  # south
+                (x0 + t, y1 - t,   w - 2 * t, t),  # north
+                (x0,     y0,       t,         d),  # west
+                (x1 - t, y0,       t,         d),  # east
+            ]
+        else:
+            # perp = S/N (full width); long = W/E (inset)
+            wall_specs = [
+                (x0,     y0,       w,         t),          # south
+                (x0,     y1 - t,   w,         t),          # north
+                (x0,     y0 + t,   t,         d - 2 * t),  # west
+                (x1 - t, y0 + t,   t,         d - 2 * t),  # east
+            ]
 
         flat_slope = data.get("flatSlopeH", [0, 0])
         is_flat_sloped = roof_type == "flat" and (flat_slope[0] != 0 or flat_slope[1] != 0)
