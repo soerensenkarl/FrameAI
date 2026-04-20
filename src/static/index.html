@@ -1285,6 +1285,7 @@ let houseMode = 'box';
 
 // Free-form footprint state
 const footprintWalls = [];          // [{ x0, y0, x1, y1 }]
+let footprintWallsDrawn = [];       // [{ x0, y0, x1, y1 }] — corner-adjusted, populated by buildFreeFormRoom. Used by wallInfo so openings line up with rendered walls.
 let ffDrawStart = null;             // Vector3 of first click when drawing a wall
 let ffGhostMesh = null;             // preview mesh
 let ffPointerDown = null;           // {x,y} screen coords — click-vs-orbit
@@ -1595,6 +1596,8 @@ function rebuildScene() {
     roomGroup = buildFreeFormRoom(footprintWalls, +inH.value, +inT.value, wallMat, edgeMat);
     scene.add(roomGroup);
     rebuildFFEndpointMarkers();
+    rebuildOpenings();
+    rebuildInteriorWalls();
     return;
   }
 
@@ -1689,26 +1692,36 @@ function buildFreeFormRoom(walls, h, t, wMat, eMat) {
     }
   }
 
+  // Publish the corner-adjusted endpoints so wallInfo/openingWorldPos match rendered walls.
+  footprintWallsDrawn = drawn.map(d => ({ x0: d.x0, y0: d.y0, x1: d.x1, y1: d.y1 }));
+
   walls.forEach((w, i) => {
     const d = drawn[i];
     const dx = d.x1 - d.x0, dy = d.y1 - d.y0;
     const len = Math.hypot(dx, dy);
     if (len < 1) return;
+    const ux = dx / len, uy = dy / len;
+    const ox = -uy, oy = ux;                   // left-hand perpendicular (outward)
     const isSelected = (i === selectedFF);
     const mat = isSelected ? new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6 }) : wMat;
-    const geo = new THREE.BoxGeometry(len, t, h);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set((d.x0 + d.x1) / 2, (d.y0 + d.y1) / 2, h / 2);
-    mesh.rotation.z = Math.atan2(dy, dx);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.userData.isFFWall = true;
-    mesh.userData.ffIdx = i;
-    g.add(mesh);
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
-    edges.position.copy(mesh.position);
-    edges.rotation.copy(mesh.rotation);
-    g.add(edges);
+    // Use buildWallMesh so openings punch real holes (Shape + holes + extrude).
+    const spec = {
+      idx: FF_WALL_OFFSET + i,
+      from: [d.x0 + ox * t / 2, d.y0 + oy * t / 2],   // outward-face endpoints
+      to:   [d.x1 + ox * t / 2, d.y1 + oy * t / 2],
+      outward: [ox, oy],
+      topPoints: [[0, h], [1, h]],                    // flat top
+    };
+    const items = buildWallMesh(spec, t, mat, eMat, openings);
+    for (const it of items) {
+      if (it.isMesh) {
+        it.userData.isFFWall = true;
+        it.userData.ffIdx = i;
+        // isWall / wallIdx are already set by buildWallMesh — the opening raycast
+        // in getWallMeshes() will now pick up free-form walls too.
+      }
+      g.add(it);
+    }
   });
   return g;
 }
@@ -1723,6 +1736,7 @@ function rebuildRoom() {
 /* ────────────────── openings ────────────────── */
 const WINDOW_W = 1000, WINDOW_H = 1000, WINDOW_SILL = 900;
 const DOOR_W = 900, DOOR_H = 2100;
+const FF_WALL_OFFSET = 1000;  // free-form wall indices: FF_WALL_OFFSET + i (segregates from box 0-3 and interior 4+)
 
 function defaultDims(type) {
   return type === "window"
@@ -1742,7 +1756,29 @@ function getWallMeshes() {
 function wallInfo(wallIdx) {
   // Returns { origin, along, outward, length, isInterior } for each wall.
   // Exterior walls occupy wallIdx 0..3; interior walls occupy 4..(4+N-1)
-  // where N = interiorWalls.length.
+  // where N = interiorWalls.length. Free-form walls occupy FF_WALL_OFFSET+i.
+  if (wallIdx >= FF_WALL_OFFSET) {
+    // Prefer the corner-adjusted drawn cache (matches the rendered geometry). Fall back to
+    // the raw wall if buildFreeFormRoom hasn't run yet (first opening placement, etc.).
+    const idx = wallIdx - FF_WALL_OFFSET;
+    const w = footprintWallsDrawn[idx] || footprintWalls[idx];
+    if (!w) return null;
+    const dx = w.x1 - w.x0, dy = w.y1 - w.y0;
+    const L = Math.hypot(dx, dy);
+    if (L < 1) return null;
+    const ux = dx / L, uy = dy / L;
+    const ox = -uy, oy = ux;                   // left-hand perpendicular
+    const tVal = +inT.value;
+    // Origin = outward-face start of the wall. makeOpeningGroup offsets inward by t/2
+    // so the opening ends up on the wall centerline — matching box-mode semantics.
+    return {
+      origin: new THREE.Vector3(w.x0 + ox * tVal / 2, w.y0 + oy * tVal / 2, 0),
+      along: new THREE.Vector3(ux, uy, 0),
+      outward: new THREE.Vector3(ox, oy, 0),
+      length: L,
+      isInterior: false,
+    };
+  }
   if (!c1 || !c2) return null;
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
@@ -1934,6 +1970,12 @@ function rebuildSingleOpening(idx) {
 
 function rebuildWalls() {
   // Rebuild only the room geometry with current openings (preserves opening meshes)
+  if (houseMode === 'free') {
+    if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
+    roomGroup = buildFreeFormRoom(footprintWalls, +inH.value, +inT.value, wallMat, edgeMat);
+    scene.add(roomGroup);
+    return;
+  }
   if (!c1 || !c2) return;
   if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
   roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat, openings);
@@ -2309,11 +2351,32 @@ function deleteSelectedIW() {
 }
 
 /* ────────────────── interior wall snap logic ────────────────── */
+// Bounding box of the current footprint — works for box mode (c1/c2) and free mode
+// (min/max of all footprint wall endpoints). Returns null when no footprint exists.
+function getFootprintBounds() {
+  if (houseMode === 'free') {
+    if (!footprintWalls.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const w of footprintWalls) {
+      x0 = Math.min(x0, w.x0, w.x1);
+      x1 = Math.max(x1, w.x0, w.x1);
+      y0 = Math.min(y0, w.y0, w.y1);
+      y1 = Math.max(y1, w.y0, w.y1);
+    }
+    return { x0, y0, x1, y1 };
+  }
+  if (!c1 || !c2) return null;
+  return {
+    x0: Math.min(c1.x, c2.x), x1: Math.max(c1.x, c2.x),
+    y0: Math.min(c1.y, c2.y), y1: Math.max(c1.y, c2.y),
+  };
+}
+
 function getInnerBounds() {
-  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
-  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const b = getFootprintBounds();
   const t = +inT.value;
-  return { ix0: x0 + t, iy0: y0 + t, ix1: x1 - t, iy1: y1 - t, t };
+  if (!b) return { ix0: 0, iy0: 0, ix1: 0, iy1: 0, t };
+  return { ix0: b.x0 + t, iy0: b.y0 + t, ix1: b.x1 - t, iy1: b.y1 - t, t };
 }
 
 // Snap a point to the nearest interior wall face or exterior wall inner face, then grid
@@ -2615,6 +2678,13 @@ function deselectFFWall() {
 
 function deleteSelectedFF() {
   if (selectedFF < 0) return;
+  const removedIdx = FF_WALL_OFFSET + selectedFF;
+  // Drop openings on the deleted wall; re-index openings on later walls (indices shift on splice).
+  for (let i = openings.length - 1; i >= 0; i--) {
+    const op = openings[i];
+    if (op.wallIdx === removedIdx) openings.splice(i, 1);
+    else if (op.wallIdx > removedIdx && op.wallIdx >= FF_WALL_OFFSET) op.wallIdx -= 1;
+  }
   footprintWalls.splice(selectedFF, 1);
   selectedFF = -1;
   $("ffInspector").style.display = "none";
