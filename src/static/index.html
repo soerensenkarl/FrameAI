@@ -176,11 +176,25 @@
   .panel.open { display: flex; }
 
   /* Opening inspector floats next to the selected opening */
-  #openingInspector {
+  #openingInspector, #ffInspector {
     right: auto;
     top: auto;
     transform: none;
     pointer-events: auto;
+  }
+
+  /* Free-form wall hover hint */
+  .ff-hover-hint {
+    position: fixed;
+    pointer-events: none;
+    padding: 5px 10px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    font-size: 11px;
+    border-radius: 6px;
+    z-index: 20;
+    display: none;
+    white-space: nowrap;
   }
 
   .panel-title {
@@ -641,9 +655,9 @@
   </button>
   <div class="toolbar glass">
     <div class="steps">
-      <div class="step active" id="step0"><span class="step-num">1</span> Footprint</div>
+      <div class="step active" id="step0"><span class="step-num">1</span> Exterior Walls</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step1"><span class="step-num">2</span> Walls</div>
+      <div class="step" id="step1"><span class="step-num">2</span> Interior Walls</div>
       <span class="step-arrow">&#9656;</span>
       <div class="step" id="step2"><span class="step-num">3</span> Openings</div>
       <span class="step-arrow">&#9656;</span>
@@ -736,6 +750,9 @@
   <div class="f"><label>Length</label><div class="fr"><span class="u" id="ffLengthVal" style="font-size:14px;color:#fff">—</span></div></div>
   <button class="btn-delete" id="btnDeleteFF">Delete Wall</button>
 </div>
+
+<!-- Free-form wall hover hint -->
+<div class="ff-hover-hint" id="ffHoverHint">Right-click to edit</div>
 
 <!-- Opening inspector (shown when an opening is selected in step 1) -->
 <div class="panel glass" id="openingInspector">
@@ -2535,6 +2552,58 @@ function selectFFWall(idx) {
   $("ffLengthVal").textContent = (lenMm / 1000).toFixed(2) + " m";
   const inspector = $("ffInspector");
   inspector.style.display = "flex";
+  positionFFInspector();
+}
+
+function positionFFInspector() {
+  if (selectedFF < 0) return;
+  const w = footprintWalls[selectedFF];
+  if (!w) return;
+  const mid = new THREE.Vector3((w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2, (+inH.value) / 2);
+  mid.project(cam);
+  const r = renderer.domElement.getBoundingClientRect();
+  const sx = (mid.x * 0.5 + 0.5) * r.width + r.left;
+  const sy = (-mid.y * 0.5 + 0.5) * r.height + r.top;
+  const panel = $("ffInspector");
+  const pw = panel.offsetWidth || 220;
+  const ph = panel.offsetHeight || 150;
+  let px = sx + 28;
+  let py = sy - ph / 2;
+  if (px + pw > window.innerWidth - 10) px = sx - pw - 28;
+  px = Math.max(10, px);
+  py = Math.max(10, Math.min(py, window.innerHeight - ph - 10));
+  panel.style.left = px + "px";
+  panel.style.top = py + "px";
+}
+
+// Hover-to-tip state for free-form walls
+let ffHoverIdx = -1;
+let ffHoverTimer = null;
+let ffHoverPointer = { x: 0, y: 0 };
+const ffHoverHintEl = () => document.getElementById("ffHoverHint");
+function hideFFHoverHint() {
+  if (ffHoverTimer) { clearTimeout(ffHoverTimer); ffHoverTimer = null; }
+  ffHoverIdx = -1;
+  const el = ffHoverHintEl();
+  if (el) el.style.display = "none";
+}
+function showFFHoverHint() {
+  const el = ffHoverHintEl();
+  if (!el) return;
+  el.style.left = (ffHoverPointer.x + 14) + "px";
+  el.style.top = (ffHoverPointer.y + 14) + "px";
+  el.style.display = "block";
+}
+function ffWallAtEvent(e) {
+  if (!roomGroup) return -1;
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  rc.setFromCamera(ndc, cam);
+  const meshes = [];
+  roomGroup.traverse(c => { if (c.isMesh && c.userData.isFFWall) meshes.push(c); });
+  const hits = rc.intersectObjects(meshes);
+  return hits.length ? hits[0].object.userData.ffIdx : -1;
 }
 
 function deselectFFWall() {
@@ -2567,7 +2636,7 @@ function goToStep(n) {
   $("iwPanel").classList.remove("open");
   deselectOpening();
   deselectIW();
-  if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; }
+  if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; hideFFHoverHint(); }
   hideArrows();
   hideDot();
   hideSnapBars();
@@ -2961,8 +3030,18 @@ function hitArrow(e) {
   return hits.length ? hits[0].object : null;
 }
 
+// Right-click edit tracking for free-form walls (right-drag still pans via OrbitControls)
+let ffRightDown = null;
+renderer.domElement.addEventListener("contextmenu", (e) => {
+  if (currentStep === 0 && houseMode === 'free') e.preventDefault();
+});
+renderer.domElement.addEventListener("pointerleave", () => hideFFHoverHint());
 renderer.domElement.addEventListener("pointerdown", (e) => {
-  if (e.button !== 0) return;   // right/middle reserved for OrbitControls pan/dolly
+  if (e.button === 2 && currentStep === 0 && houseMode === 'free') {
+    ffRightDown = { x: e.clientX, y: e.clientY };
+    return;
+  }
+  if (e.button !== 0) return;   // middle reserved for OrbitControls dolly
   if (!houseTypePicked) return;
 
   // ── Free-form footprint step: record mouse down position (handled on pointerup) ──
@@ -3098,7 +3177,7 @@ document.addEventListener("pointerup", (e) => {
 });
 
 renderer.domElement.addEventListener("pointermove", (e) => {
-  // Free-form footprint: snap dot + ghost preview while drawing
+  // Free-form footprint: snap dot + ghost preview while drawing; hover hint when idle
   if (currentStep === 0 && houseMode === 'free') {
     const pt = groundHit(e);
     if (pt) {
@@ -3107,9 +3186,24 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         ffHoverEnd = end;
         showFFGhost(ffDrawStart, end);
         moveDot(end);
+        hideFFHoverHint();
       } else {
         const snapped = ffSnapPoint(new THREE.Vector3(pt.x, pt.y, 0));
         moveDot(snapped);
+        // Hover hint: over a wall (but not in its endpoint-snap zone)
+        const hovered = snapped.snapped ? -1 : ffWallAtEvent(e);
+        ffHoverPointer.x = e.clientX; ffHoverPointer.y = e.clientY;
+        if (hovered >= 0) {
+          if (hovered !== ffHoverIdx) {
+            hideFFHoverHint();
+            ffHoverIdx = hovered;
+            ffHoverTimer = setTimeout(showFFHoverHint, 500);
+          } else if (ffHoverHintEl().style.display === "block") {
+            showFFHoverHint();  // follow cursor
+          }
+        } else {
+          hideFFHoverHint();
+        }
       }
     }
     return;
@@ -3295,30 +3389,29 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     renderer.domElement.style.cursor = "";
   }
 
-  // ── Free-form footprint: click = select/draw, drag = orbit ──
+  // ── Free-form footprint right-click: select/toggle wall inspector ──
+  if (e.button === 2 && currentStep === 0 && houseMode === 'free' && ffRightDown) {
+    const dx = e.clientX - ffRightDown.x;
+    const dy = e.clientY - ffRightDown.y;
+    ffRightDown = null;
+    if (dx * dx + dy * dy > 25) return;   // it was a pan, not a click
+    const idx = ffWallAtEvent(e);
+    if (idx >= 0) {
+      if (selectedFF === idx) deselectFFWall();
+      else selectFFWall(idx);
+    } else {
+      deselectFFWall();
+    }
+    hideFFHoverHint();
+    return;
+  }
+
+  // ── Free-form footprint left-click: draw only (never select) ──
   if (currentStep === 0 && houseMode === 'free' && ffPointerDown) {
     const dx = e.clientX - ffPointerDown.x;
     const dy = e.clientY - ffPointerDown.y;
     ffPointerDown = null;
     if (dx * dx + dy * dy > 25) return;
-
-    // First: did we click an existing wall? (select for edit)
-    const r = renderer.domElement.getBoundingClientRect();
-    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-    rc.setFromCamera(ndc, cam);
-    if (roomGroup) {
-      const ffMeshes = [];
-      roomGroup.traverse(c => { if (c.isMesh && c.userData.isFFWall) ffMeshes.push(c); });
-      const hits = rc.intersectObjects(ffMeshes);
-      if (hits.length) {
-        // Clicking a wall while mid-draw ignores the selection (second click goes to drawing).
-        if (!ffDrawStart) {
-          selectFFWall(hits[0].object.userData.ffIdx);
-          return;
-        }
-      }
-    }
 
     const pt = groundHit(e);
     if (!pt) return;
@@ -3327,6 +3420,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
       deselectFFWall();
       ffDrawStart = ffSnapPoint(new THREE.Vector3(pt.x, pt.y, 0));
       hint.style.display = "none";
+      hideFFHoverHint();
     } else {
       const end = ffConstrainEnd(ffDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
       const len = ffDrawStart.distanceTo(end);
@@ -3682,6 +3776,7 @@ onResize();
   requestAnimationFrame(loop);
   orbit.update();
   updateInspectorPosition();
+  positionFFInspector();
   renderer.render(scene, cam);
 })();
 </script>
