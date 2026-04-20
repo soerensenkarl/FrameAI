@@ -660,8 +660,8 @@
 <!-- Dimension panel -->
 <div class="panel glass" id="panel">
   <span class="panel-title">Dimensions</span>
-  <div class="f"><label>Width</label>  <div class="fr"><input type="number" id="inW" value="4000" min="500" step="10"><span class="u">mm</span></div></div>
-  <div class="f"><label>Depth</label>  <div class="fr"><input type="number" id="inD" value="3000" min="500" step="10"><span class="u">mm</span></div></div>
+  <div class="f" id="rowW"><label>Width</label>  <div class="fr"><input type="number" id="inW" value="4000" min="500" step="10"><span class="u">mm</span></div></div>
+  <div class="f" id="rowD"><label>Depth</label>  <div class="fr"><input type="number" id="inD" value="3000" min="500" step="10"><span class="u">mm</span></div></div>
   <div class="f"><label>Wall Height</label>    <div class="fr"><input type="number" id="inH" value="2400" min="500" step="10"><span class="u">mm</span></div></div>
   <div class="f"><label>Thickness</label> <div class="fr"><select id="inT"><option value="95">95</option><option value="120">120</option><option value="145">145</option><option value="195" selected>195</option><option value="245">245</option><option value="295">295</option></select><span class="u">mm</span></div></div>
 </div>
@@ -728,6 +728,13 @@
   </div>
 
   <button class="btn-buy" id="btnBuy">Buy Frame</button>
+</div>
+
+<!-- Free-form wall inspector (shown when a wall is selected in step 0 free mode) -->
+<div class="panel glass" id="ffInspector" style="display:none">
+  <span class="panel-title">Wall</span>
+  <div class="f"><label>Length</label><div class="fr"><span class="u" id="ffLengthVal" style="font-size:14px;color:#fff">—</span></div></div>
+  <button class="btn-delete" id="btnDeleteFF">Delete Wall</button>
 </div>
 
 <!-- Opening inspector (shown when an opening is selected in step 1) -->
@@ -847,6 +854,8 @@ scene.add(dot);
 
 function moveDot(snapped) {
   dot.position.set(snapped.x, snapped.y, 2);
+  const s = snapped.snapped ? 2.2 : 1;   // grow when locked onto an endpoint
+  dot.scale.set(s, s, 1);
   dot.visible = true;
 }
 
@@ -1026,6 +1035,7 @@ for (let i = 0; i < 4; i++) {
 }
 
 function positionArrows() {
+  if (houseMode === 'free') return;
   if (!c1 || !c2) return;
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
@@ -1158,6 +1168,7 @@ function makeTextSprite(text) {
 function updateDims(a, b) {
   if (dimGroup) { scene.remove(dimGroup); dimGroup = null; }
   dimLabels.length = 0;
+  if (houseMode === 'free') return;
   const pa = a || c1, pb = b || c2;
   if (!pa || !pb) return;
 
@@ -1251,6 +1262,18 @@ let signX = 1, signY = 1;   // draw direction for input rebuild
 let ghostGroup = null;
 let roomGroup  = null;
 let frameGroup = null;
+
+// Footprint mode: 'box' (two-corner rectangle) or 'free' (per-wall drawing)
+let houseMode = 'box';
+
+// Free-form footprint state
+const footprintWalls = [];          // [{ x0, y0, x1, y1 }]
+let ffDrawStart = null;             // Vector3 of first click when drawing a wall
+let ffGhostMesh = null;             // preview mesh
+let ffPointerDown = null;           // {x,y} screen coords — click-vs-orbit
+let selectedFF = -1;                // selected wall index
+let ffShiftHeld = false;            // Shift = release ortho constraint
+let ffHoverEnd = null;              // last computed end-point (for snap dot)
 
 /* ────────────────── DOM ────────────────── */
 const $ = id => document.getElementById(id);
@@ -1549,8 +1572,16 @@ function placeRoom() {
 
 /* ── Central rebuild: single source of truth for all geometry updates ── */
 function rebuildScene() {
-  if (!c1 || !c2) return;
   if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
+
+  if (houseMode === 'free') {
+    roomGroup = buildFreeFormRoom(footprintWalls, +inH.value, +inT.value, wallMat, edgeMat);
+    scene.add(roomGroup);
+    rebuildFFEndpointMarkers();
+    return;
+  }
+
+  if (!c1 || !c2) return;
   roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat, openings);
   scene.add(roomGroup);
   if (currentStep >= 3) buildRoof();
@@ -1562,7 +1593,36 @@ function rebuildScene() {
   rebuildInteriorWalls();
 }
 
+/* ────────────────── free-form footprint rendering ────────────────── */
+// Each wall is a simple oriented box. Overlap at corners is acceptable — it reads
+// as a solid corner. No miter, no insets — simplicity > pixel-perfect joinery.
+function buildFreeFormRoom(walls, h, t, wMat, eMat) {
+  const g = new THREE.Group();
+  walls.forEach((w, i) => {
+    const dx = w.x1 - w.x0, dy = w.y1 - w.y0;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return;
+    const isSelected = (i === selectedFF);
+    const mat = isSelected ? new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6 }) : wMat;
+    const geo = new THREE.BoxGeometry(len, t, h);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set((w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2, h / 2);
+    mesh.rotation.z = Math.atan2(dy, dx);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.userData.isFFWall = true;
+    mesh.userData.ffIdx = i;
+    g.add(mesh);
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), eMat);
+    edges.position.copy(mesh.position);
+    edges.rotation.copy(mesh.rotation);
+    g.add(edges);
+  });
+  return g;
+}
+
 function rebuildRoom() {
+  if (houseMode === 'free') { rebuildScene(); return; }
   if (mode !== M.SET || !c1) return;
   c2 = new THREE.Vector3(c1.x + (+inW.value) * signX, c1.y + (+inD.value) * signY, 0);
   rebuildScene();
@@ -1581,21 +1641,36 @@ function defaultDims(type) {
 let selectedOpening = -1;
 
 function getWallMeshes() {
-  if (!roomGroup) return [];
-  return roomGroup.children.filter(c => c.userData && c.userData.isWall);
+  const out = [];
+  if (roomGroup) for (const c of roomGroup.children) if (c.userData && c.userData.isWall) out.push(c);
+  for (const c of iwGroup.children) if (c.userData && c.userData.isWall) out.push(c);
+  return out;
 }
 
 function wallInfo(wallIdx) {
-  // Returns { origin, along, outward, length } for each wall
+  // Returns { origin, along, outward, length, isInterior } for each wall.
+  // Exterior walls occupy wallIdx 0..3; interior walls occupy 4..(4+N-1)
+  // where N = interiorWalls.length.
   if (!c1 || !c2) return null;
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
   const t = +inT.value;
   switch (wallIdx) {
-    case 0: return { origin: new THREE.Vector3(x0, y0, 0), along: new THREE.Vector3(1,0,0), outward: new THREE.Vector3(0,-1,0), length: x1-x0 }; // south
-    case 1: return { origin: new THREE.Vector3(x0, y1, 0), along: new THREE.Vector3(1,0,0), outward: new THREE.Vector3(0,1,0), length: x1-x0 };  // north
-    case 2: return { origin: new THREE.Vector3(x0, y0+t, 0), along: new THREE.Vector3(0,1,0), outward: new THREE.Vector3(-1,0,0), length: y1-y0-2*t }; // west
-    case 3: return { origin: new THREE.Vector3(x1, y0+t, 0), along: new THREE.Vector3(0,1,0), outward: new THREE.Vector3(1,0,0), length: y1-y0-2*t };  // east
+    case 0: return { origin: new THREE.Vector3(x0, y0, 0), along: new THREE.Vector3(1,0,0), outward: new THREE.Vector3(0,-1,0), length: x1-x0, isInterior: false }; // south
+    case 1: return { origin: new THREE.Vector3(x0, y1, 0), along: new THREE.Vector3(1,0,0), outward: new THREE.Vector3(0,1,0), length: x1-x0, isInterior: false };  // north
+    case 2: return { origin: new THREE.Vector3(x0, y0+t, 0), along: new THREE.Vector3(0,1,0), outward: new THREE.Vector3(-1,0,0), length: y1-y0-2*t, isInterior: false }; // west
+    case 3: return { origin: new THREE.Vector3(x1, y0+t, 0), along: new THREE.Vector3(0,1,0), outward: new THREE.Vector3(1,0,0), length: y1-y0-2*t, isInterior: false };  // east
+  }
+  // Interior wall — centerline from (min, min) → (max, max) along the wall's one axis.
+  const iw = interiorWalls[wallIdx - 4];
+  if (!iw) return null;
+  const isHoriz = Math.abs(iw.y1 - iw.y0) < 1;
+  if (isHoriz) {
+    const xMin = Math.min(iw.x0, iw.x1), xMax = Math.max(iw.x0, iw.x1);
+    return { origin: new THREE.Vector3(xMin, iw.y0, 0), along: new THREE.Vector3(1,0,0), outward: new THREE.Vector3(0,1,0), length: xMax - xMin, isInterior: true };
+  } else {
+    const yMin = Math.min(iw.y0, iw.y1), yMax = Math.max(iw.y0, iw.y1);
+    return { origin: new THREE.Vector3(iw.x0, yMin, 0), along: new THREE.Vector3(0,1,0), outward: new THREE.Vector3(1,0,0), length: yMax - yMin, isInterior: true };
   }
 }
 
@@ -1608,18 +1683,21 @@ function makeOpeningGroup(wallIdx, posAlong, type, dims) {
   const oz = (type === "window" ? dims.sill : 0) + oh / 2;
 
   const half = ow / 2;
-  posAlong = Math.max(half + t, Math.min(info.length - half - t, posAlong));
+  const edgePad = info.isInterior ? half : (half + t);
+  posAlong = Math.max(edgePad, Math.min(info.length - edgePad, posAlong));
 
-  const cx = info.origin.x + info.along.x * posAlong - info.outward.x * (t / 2);
-  const cy = info.origin.y + info.along.y * posAlong - info.outward.y * (t / 2);
+  const outwardOffset = info.isInterior ? 0 : (t / 2);
+  const cx = info.origin.x + info.along.x * posAlong - info.outward.x * outwardOffset;
+  const cy = info.origin.y + info.along.y * posAlong - info.outward.y * outwardOffset;
 
   const oMat = type === "window" ? windowMat : doorMat;
   const oEdgeMat = type === "window" ? windowFrameMat : doorFrameMat;
   // Thin pane sits inside the wall opening
   const paneDepth = type === "window" ? 20 : 40;
+  const isAlongX = Math.abs(info.along.x) > Math.abs(info.along.y);
   const geo = new THREE.BoxGeometry(
-    wallIdx <= 1 ? ow : paneDepth,
-    wallIdx <= 1 ? paneDepth : ow,
+    isAlongX ? ow : paneDepth,
+    isAlongX ? paneDepth : ow,
     oh
   );
   const g = new THREE.Group();
@@ -1759,6 +1837,7 @@ function rebuildSingleOpening(idx) {
   o.mesh = g;
   if (selectedOpening === idx) applySelectionHighlight(idx);
   rebuildWalls();
+  rebuildInteriorWalls();
 }
 
 function rebuildWalls() {
@@ -1781,13 +1860,16 @@ function buildGhostOpening(wallIdx, posAlong, type) {
   const oh = type === "window" ? WINDOW_H : DOOR_H;
   const oz = type === "window" ? WINDOW_SILL + WINDOW_H / 2 : DOOR_H / 2;
   const half = ow / 2;
-  posAlong = Math.max(half + t, Math.min(info.length - half - t, posAlong));
-  const cx = info.origin.x + info.along.x * posAlong - info.outward.x * (t / 2);
-  const cy = info.origin.y + info.along.y * posAlong - info.outward.y * (t / 2);
+  const edgePad = info.isInterior ? half : (half + t);
+  posAlong = Math.max(edgePad, Math.min(info.length - edgePad, posAlong));
+  const outwardOffset = info.isInterior ? 0 : (t / 2);
+  const cx = info.origin.x + info.along.x * posAlong - info.outward.x * outwardOffset;
+  const cy = info.origin.y + info.along.y * posAlong - info.outward.y * outwardOffset;
   const paneDepth = type === "window" ? 20 : 40;
+  const isAlongX = Math.abs(info.along.x) > Math.abs(info.along.y);
   const geo = new THREE.BoxGeometry(
-    wallIdx <= 1 ? ow : paneDepth,
-    wallIdx <= 1 ? paneDepth : ow,
+    isAlongX ? ow : paneDepth,
+    isAlongX ? paneDepth : ow,
     oh
   );
   const g = new THREE.Group();
@@ -2046,21 +2128,66 @@ function rebuildInteriorWalls() {
   const h = +inH.value, t = +inT.value;
   interiorWalls.forEach((iw, i) => {
     const isHoriz = Math.abs(iw.y1 - iw.y0) < 1;
-    const len = isHoriz ? Math.abs(iw.x1 - iw.x0) : Math.abs(iw.y1 - iw.y0);
+    const wallIdx = 4 + i;
+    const xMin = Math.min(iw.x0, iw.x1), xMax = Math.max(iw.x0, iw.x1);
+    const yMin = Math.min(iw.y0, iw.y1), yMax = Math.max(iw.y0, iw.y1);
+    const len = isHoriz ? (xMax - xMin) : (yMax - yMin);
     if (len < 1) return;
-    const geo = isHoriz
-      ? new THREE.BoxGeometry(len, t, h)
-      : new THREE.BoxGeometry(t, len, h);
+
+    // Face shape in local (along, up) plane, extruded by thickness t.
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0);
+    shape.lineTo(len, 0);
+    shape.lineTo(len, h);
+    shape.lineTo(0, h);
+    shape.closePath();
+
+    for (const op of openings) {
+      if (op.wallIdx !== wallIdx) continue;
+      const halfW = op.width / 2;
+      const left = op.posAlong - halfW;
+      const right = op.posAlong + halfW;
+      if (right <= 0 || left >= len) continue;
+      const bot = op.type === "window" ? op.sill : 0;
+      const top = Math.min(bot + op.height, h - 50);
+      if (top <= bot) continue;
+      const cLeft = Math.max(0, left);
+      const cRight = Math.min(len, right);
+      const hole = new THREE.Path();
+      hole.moveTo(cLeft, bot);
+      hole.lineTo(cRight, bot);
+      hole.lineTo(cRight, top);
+      hole.lineTo(cLeft, top);
+      hole.closePath();
+      shape.holes.push(hole);
+    }
+
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: t, bevelEnabled: false, steps: 1 });
+    // Orient local (along, up, perpendicular) → world. Translate so extrusion
+    // centers on the interior-wall centerline.
+    const along = isHoriz ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+    const up = new THREE.Vector3(0, 0, 1);
+    const perp = isHoriz ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const origin = isHoriz
+      ? new THREE.Vector3(xMin, iw.y0 - t / 2, 0)
+      : new THREE.Vector3(iw.x0 - t / 2, yMin, 0);
+    const m = new THREE.Matrix4().makeBasis(along, up, perp);
+    m.setPosition(origin);
+
     const mat = (i === selectedIW) ? iwSelectedMat : wallMat;
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set((iw.x0 + iw.x1) / 2, (iw.y0 + iw.y1) / 2, h / 2);
+    mesh.applyMatrix4(m);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     mesh.userData.isInteriorWall = true;
     mesh.userData.iwIdx = i;
+    // Tagged as a generic wall too so the openings raycast treats it like any
+    // other wall. Interior walls live at wallIdx 4..N (exterior walls own 0..3).
+    mesh.userData.isWall = true;
+    mesh.userData.wallIdx = wallIdx;
     iwGroup.add(mesh);
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat);
-    edges.position.copy(mesh.position);
+    edges.applyMatrix4(m);
     iwGroup.add(edges);
   });
 }
@@ -2194,6 +2321,163 @@ function cancelIWDraw() {
   if (iwGhostMesh) { scene.remove(iwGhostMesh); iwGhostMesh = null; }
 }
 
+/* ────────────────── free-form draw helpers ────────────────── */
+// Must be > grid SNAP so endpoint snap wins over grid rounding.
+const FF_ENDPOINT_SNAP = 900;
+
+function ffSnapPoint(pt) {
+  // Priority: endpoint of an existing wall > grid snap
+  let best = null, bestD = FF_ENDPOINT_SNAP;
+  for (const w of footprintWalls) {
+    for (const p of [[w.x0, w.y0], [w.x1, w.y1]]) {
+      const d = Math.hypot(pt.x - p[0], pt.y - p[1]);
+      if (d < bestD) { bestD = d; best = p; }
+    }
+  }
+  if (best) {
+    const v = new THREE.Vector3(best[0], best[1], 0);
+    v.snapped = true;
+    return v;
+  }
+  const v = new THREE.Vector3(snap(pt.x), snap(pt.y), 0);
+  v.snapped = false;
+  return v;
+}
+
+// Visible markers for all existing wall endpoints so the user can see targets.
+// Rebuilt on every rebuildScene (cheap — a handful of circles).
+const ffEndpointMat = new THREE.MeshBasicMaterial({ color: 0xF9BC06, depthTest: false, transparent: true, opacity: 0.8 });
+const ffEndpointGroup = new THREE.Group();
+ffEndpointGroup.renderOrder = 997;
+scene.add(ffEndpointGroup);
+
+function rebuildFFEndpointMarkers() {
+  while (ffEndpointGroup.children.length) ffEndpointGroup.remove(ffEndpointGroup.children[0]);
+  if (houseMode !== 'free' || currentStep !== 0) { ffEndpointGroup.visible = false; return; }
+  ffEndpointGroup.visible = true;
+  const seen = new Set();
+  const add = (x, y) => {
+    const key = x + ',' + y;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const m = new THREE.Mesh(new THREE.CircleGeometry(80, 20), ffEndpointMat);
+    m.position.set(x, y, 3);
+    ffEndpointGroup.add(m);
+  };
+  for (const w of footprintWalls) { add(w.x0, w.y0); add(w.x1, w.y1); }
+}
+
+// From a starting vertex, constrain end to ortho (horizontal/vertical) unless Shift is held.
+// Endpoint snap still wins over ortho when within range.
+function ffConstrainEnd(start, pt) {
+  const endpointSnap = ffSnapPoint(pt);
+  if (endpointSnap.snapped) return endpointSnap;
+  if (ffShiftHeld) {
+    const v = new THREE.Vector3(snap(pt.x), snap(pt.y), 0);
+    v.snapped = false;
+    return v;
+  }
+  const dx = Math.abs(pt.x - start.x);
+  const dy = Math.abs(pt.y - start.y);
+  const v = (dx >= dy)
+    ? new THREE.Vector3(snap(pt.x), start.y, 0)
+    : new THREE.Vector3(start.x, snap(pt.y), 0);
+  v.snapped = false;
+  return v;
+}
+
+function showFFGhost(start, end) {
+  if (ffGhostMesh) { scene.remove(ffGhostMesh); ffGhostMesh = null; }
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 10) { hideFFDim(); return; }
+  const h = +inH.value, t = +inT.value;
+  const geo = new THREE.BoxGeometry(len, t, h);
+  ffGhostMesh = new THREE.Mesh(geo, ghostOpeningMat);
+  ffGhostMesh.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, h / 2);
+  ffGhostMesh.rotation.z = Math.atan2(dy, dx);
+  ffGhostMesh.renderOrder = 998;
+  scene.add(ffGhostMesh);
+  showFFDim(start, end, len);
+}
+
+// Live dimension: line offset to the right of the wall + label, like box-drag
+let ffDimGroup = null;
+function showFFDim(start, end, len) {
+  hideFFDim();
+  const dx = end.x - start.x, dy = end.y - start.y;
+  const L = len || Math.hypot(dx, dy);
+  if (L < 10) return;
+  const ux = dx / L, uy = dy / L;
+  // right-hand perpendicular (relative to wall direction)
+  const nx = uy, ny = -ux;
+  const gap = 900;
+  const tick = 150;
+  const z = 3;
+  const ox = nx * gap, oy = ny * gap;
+  const tx = nx * tick, ty = ny * tick;
+
+  const sOff = new THREE.Vector3(start.x + ox, start.y + oy, z);
+  const eOff = new THREE.Vector3(end.x + ox, end.y + oy, z);
+  const pts = [
+    new THREE.Vector3(sOff.x - tx, sOff.y - ty, z), new THREE.Vector3(sOff.x + tx, sOff.y + ty, z),
+    sOff, eOff,
+    new THREE.Vector3(eOff.x - tx, eOff.y - ty, z), new THREE.Vector3(eOff.x + tx, eOff.y + ty, z),
+  ];
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const line = new THREE.LineSegments(geo, dimLineMat);
+  line.renderOrder = 999;
+  ffDimGroup = new THREE.Group();
+  ffDimGroup.add(line);
+
+  const label = makeTextSprite((L / 1000).toFixed(2) + " m");
+  const midX = (start.x + end.x) / 2 + nx * (gap + 250);
+  const midY = (start.y + end.y) / 2 + ny * (gap + 250);
+  label.position.set(midX, midY, z);
+  ffDimGroup.add(label);
+  scene.add(ffDimGroup);
+}
+function hideFFDim() {
+  if (ffDimGroup) { scene.remove(ffDimGroup); ffDimGroup = null; }
+}
+
+function cancelFFDraw() {
+  ffDrawStart = null;
+  ffPointerDown = null;
+  ffHoverEnd = null;
+  if (ffGhostMesh) { scene.remove(ffGhostMesh); ffGhostMesh = null; }
+  hideFFDim();
+  hideDot();
+  hideSnapBars();
+}
+
+function selectFFWall(idx) {
+  if (idx < 0 || idx >= footprintWalls.length) return;
+  selectedFF = idx;
+  rebuildScene();
+  const w = footprintWalls[idx];
+  const lenMm = Math.round(Math.hypot(w.x1 - w.x0, w.y1 - w.y0));
+  $("ffLengthVal").textContent = (lenMm / 1000).toFixed(2) + " m";
+  const inspector = $("ffInspector");
+  inspector.style.display = "flex";
+}
+
+function deselectFFWall() {
+  if (selectedFF < 0) return;
+  selectedFF = -1;
+  $("ffInspector").style.display = "none";
+  rebuildScene();
+}
+
+function deleteSelectedFF() {
+  if (selectedFF < 0) return;
+  footprintWalls.splice(selectedFF, 1);
+  selectedFF = -1;
+  $("ffInspector").style.display = "none";
+  rebuildScene();
+  if (footprintWalls.length === 0) btnNext.style.display = "none";
+}
+
 /* ────────────────── step navigation ────────────────── */
 function goToStep(n) {
   if (n < 0 || n > 5) return;
@@ -2208,6 +2492,7 @@ function goToStep(n) {
   $("iwPanel").classList.remove("open");
   deselectOpening();
   deselectIW();
+  if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; }
   hideArrows();
   hideDot();
   hideSnapBars();
@@ -2216,8 +2501,9 @@ function goToStep(n) {
   document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
   dimEdit.style.display = "none"; editingAxis = null;
 
-  // Top-view button in steps 0, 1, and 2; exit top view when leaving the Walls step
-  if (n !== 1 && isTopView) disableTopView();
+  // Top-view button in steps 0, 1, and 2; stay in top view for Walls step and free-form footprint
+  const keepTop = (n === 1) || (n === 0 && houseMode === 'free');
+  if (!keepTop && isTopView) disableTopView();
   $("btnTopView").style.display = (n <= 2) ? "flex" : "none";
 
   // Common visibility
@@ -2262,7 +2548,18 @@ function goToStep(n) {
 
   switch (n) {
     case 0: // Footprint
-      if (mode === M.SET) {
+      if (houseMode === 'free') {
+        if (!isTopView) enableTopView();
+        panel.classList.add("open");
+        $("rowW").style.display = "none";
+        $("rowD").style.display = "none";
+        hint.classList.add("small");
+        hint.innerHTML = "Click to start a wall, click again to finish it \u2022 Shift releases ortho";
+        orbit.enabled = true;   // allow pan/zoom; click-vs-drag is separated by ffPointerDown
+        renderer.domElement.style.cursor = "crosshair";
+        btnNext.textContent = NEXT_LABELS[0];
+        btnNext.style.display = footprintWalls.length ? "" : "none";
+      } else if (mode === M.SET) {
         panel.classList.add("open");
         positionArrows();
         updateDims();
@@ -2319,6 +2616,12 @@ function goToStep(n) {
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
       roofPanel.classList.add("open");
+      // Gable assumes a rectangular footprint — hide it for free-form and force flat.
+      {
+        const gableTile = document.querySelector('.roof-option[data-roof="gable"]');
+        if (gableTile) gableTile.style.display = (houseMode === 'free') ? 'none' : '';
+        if (houseMode === 'free' && roofType === 'gable') roofType = 'flat';
+      }
       rebuildScene();
       document.querySelectorAll(".roof-option").forEach(o => {
         o.classList.toggle("active", o.dataset.roof === roofType);
@@ -2364,13 +2667,28 @@ $("btnTopView").style.display = "flex";
 let houseTypePicked = false;
 const housePicker = $("housePicker");
 $("tileBox").addEventListener("click", () => {
+  houseMode = 'box';
   houseTypePicked = true;
   housePicker.style.display = "none";
   hint.style.display = "";
   $("exampleLink").style.display = "";
 });
 $("tileFree").addEventListener("click", () => {
-  alert("Free form footprints coming soon — try Box House for now.");
+  houseMode = 'free';
+  houseTypePicked = true;
+  housePicker.style.display = "none";
+  // Show dimensions panel with only H + T rows (W/D don't apply to free-form)
+  $("rowW").style.display = "none";
+  $("rowD").style.display = "none";
+  panel.classList.add("open");
+  $("exampleLink").style.display = "none";
+  hint.style.display = "";
+  hint.classList.remove("small");
+  hint.innerHTML = "Click to start a wall, click again to finish it \u2022 hold Shift to release ortho";
+  enableTopView();
+  orbit.enabled = false;
+  renderer.domElement.style.cursor = "crosshair";
+  rebuildScene();  // shows endpoint markers (empty at first, but wires the group up)
 });
 
 /* ────────────────── top view toggle ────────────────── */
@@ -2384,6 +2702,8 @@ function enableTopView() {
   orbit.target.set(cx, cy, 0);
   cam.position.set(cx, cy, 18000);
   orbit.enableRotate = false;
+  orbit.minPolarAngle = 0;
+  orbit.maxPolarAngle = 0.0001;
   orbit.update();
 }
 
@@ -2396,6 +2716,7 @@ function disableTopView() {
     savedCamState = null;
   }
   orbit.enableRotate = true;
+  orbit.minPolarAngle = 0;
   orbit.maxPolarAngle = Math.PI / 2.05;
   orbit.update();
 }
@@ -2555,13 +2876,28 @@ function hitArrow(e) {
   ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
   ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
   rc.setFromCamera(ndc, cam);
-  const hits = rc.intersectObjects(arrows);
+  const pool = heightArrow.visible ? [...arrows, heightArrow] : arrows;
+  const hits = rc.intersectObjects(pool);
   return hits.length ? hits[0].object : null;
 }
 
+renderer.domElement.addEventListener("contextmenu", (e) => {
+  if (currentStep === 0 && houseMode === 'free') e.preventDefault();
+});
+
 renderer.domElement.addEventListener("pointerdown", (e) => {
+  // Right-click cancels an in-progress free-form draw
+  if (e.button === 2 && currentStep === 0 && houseMode === 'free' && ffDrawStart) {
+    cancelFFDraw();
+    return;
+  }
   if (e.button !== 0) return;
   if (!houseTypePicked) return;
+
+  // ── Free-form footprint step: record mouse down position (handled on pointerup) ──
+  if (currentStep === 0 && houseMode === 'free') {
+    ffPointerDown = { x: e.clientX, y: e.clientY };
+  }
 
   // ── Interior Walls step: record mouse down position (handled on pointerup) ──
   if (currentStep === 1) {
@@ -2620,8 +2956,8 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
     }
   }
 
-  // Arrow drag start (footprint step)
-  if (currentStep === 0 && mode === M.SET) {
+  // Arrow drag start (footprint step) — box mode only
+  if (currentStep === 0 && houseMode === 'box' && mode === M.SET) {
     // Height arrow first (it stands above the box so takes precedence on overlap)
     if (heightArrow.visible) {
       const r = renderer.domElement.getBoundingClientRect();
@@ -2647,6 +2983,8 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   }
 
   if (currentStep !== 0) return;
+  // Free-form footprint: commit handled in pointerup, do not fall through to box drawing
+  if (houseMode === 'free') return;
 
   const pt = groundHit(e);
   if (!pt) return;
@@ -2689,6 +3027,23 @@ document.addEventListener("pointerup", (e) => {
 });
 
 renderer.domElement.addEventListener("pointermove", (e) => {
+  // Free-form footprint: snap dot + ghost preview while drawing
+  if (currentStep === 0 && houseMode === 'free') {
+    const pt = groundHit(e);
+    if (pt) {
+      if (ffDrawStart) {
+        const end = ffConstrainEnd(ffDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
+        ffHoverEnd = end;
+        showFFGhost(ffDrawStart, end);
+        moveDot(end);
+      } else {
+        const snapped = ffSnapPoint(new THREE.Vector3(pt.x, pt.y, 0));
+        moveDot(snapped);
+      }
+    }
+    return;
+  }
+
   // Interior wall snap dot + ghost preview
   if (currentStep === 1) {
     const pt = groundHit(e);
@@ -2722,6 +3077,25 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       const h = +inH.value;
       const roofT = 295;
       flatSlopeH[draggingSlopeEdge] = Math.max(0, snap(hitPt.z - h - roofT));
+      rebuildScene();
+    }
+    return;
+  }
+
+  // Height arrow dragging — project mouse to vertical plane through box center
+  if (draggingHeight) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const centerPos = heightArrow.position.clone();
+    const camDir = cam.getWorldDirection(new THREE.Vector3());
+    const vertPlane = new THREE.Plane(new THREE.Vector3(-camDir.x, -camDir.y, 0).normalize(), 0);
+    vertPlane.constant = -vertPlane.normal.dot(centerPos);
+    const hitPt = new THREE.Vector3();
+    if (rc.ray.intersectPlane(vertPlane, hitPt)) {
+      const newH = Math.max(500, snap(hitPt.z - 350));  // subtract the arrow's 350mm offset
+      inH.value = Math.round(newH);
       rebuildScene();
     }
     return;
@@ -2844,6 +3218,56 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
   }
+  if (draggingHeight) {
+    draggingHeight = false;
+    orbit.enabled = true;
+    renderer.domElement.style.cursor = "";
+  }
+
+  // ── Free-form footprint: click = select/draw, drag = orbit ──
+  if (currentStep === 0 && houseMode === 'free' && ffPointerDown) {
+    const dx = e.clientX - ffPointerDown.x;
+    const dy = e.clientY - ffPointerDown.y;
+    ffPointerDown = null;
+    if (dx * dx + dy * dy > 25) return;
+
+    // First: did we click an existing wall? (select for edit)
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    if (roomGroup) {
+      const ffMeshes = [];
+      roomGroup.traverse(c => { if (c.isMesh && c.userData.isFFWall) ffMeshes.push(c); });
+      const hits = rc.intersectObjects(ffMeshes);
+      if (hits.length) {
+        // Clicking a wall while mid-draw ignores the selection (second click goes to drawing).
+        if (!ffDrawStart) {
+          selectFFWall(hits[0].object.userData.ffIdx);
+          return;
+        }
+      }
+    }
+
+    const pt = groundHit(e);
+    if (!pt) return;
+
+    if (!ffDrawStart) {
+      deselectFFWall();
+      ffDrawStart = ffSnapPoint(new THREE.Vector3(pt.x, pt.y, 0));
+    } else {
+      const end = ffConstrainEnd(ffDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
+      const len = ffDrawStart.distanceTo(end);
+      if (len >= 500) {
+        footprintWalls.push({ x0: ffDrawStart.x, y0: ffDrawStart.y, x1: end.x, y1: end.y });
+        rebuildScene();
+        btnNext.textContent = NEXT_LABELS[0];
+        btnNext.style.display = "";
+      }
+      cancelFFDraw();
+    }
+    return;
+  }
 
   // ── Interior Walls step: only act on click (not drag/orbit) ──
   if (currentStep === 1 && iwPointerDown) {
@@ -2954,14 +3378,25 @@ dimEdit.addEventListener("keydown", (e) => {
 dimEdit.addEventListener("blur", applyDimEdit);
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Shift" && currentStep === 0 && houseMode === 'free') ffShiftHeld = true;
   if (e.key === "Escape") {
     if (selectedOpening >= 0) { deselectOpening(); return; }
+    // Free-form: Esc cancels in-progress draw without wiping the house
+    if (currentStep === 0 && houseMode === 'free' && ffDrawStart) {
+      cancelFFDraw();
+      return;
+    }
+    if (currentStep === 0 && houseMode === 'free' && selectedFF >= 0) {
+      deselectFFWall();
+      return;
+    }
     startDrawing();
   }
   if (e.key === "Delete" && currentStep === 2 && selectedOpening >= 0) {
     const idx = selectedOpening;
     deselectOpening();
     removeOpeningByIdx(idx);
+    rebuildScene();
   }
   // Interior wall: Escape to cancel draw, Delete to remove selected
   if (e.key === "Escape" && currentStep === 1 && iwDrawStart) {
@@ -2972,9 +3407,17 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Delete" && currentStep === 1 && selectedIW >= 0) {
     deleteSelectedIW();
   }
+  if (e.key === "Delete" && currentStep === 0 && houseMode === 'free' && selectedFF >= 0) {
+    deleteSelectedFF();
+  }
+});
+
+document.addEventListener("keyup", (e) => {
+  if (e.key === "Shift") ffShiftHeld = false;
 });
 
 $("btnDeleteIW").addEventListener("click", deleteSelectedIW);
+$("btnDeleteFF").addEventListener("click", deleteSelectedFF);
 
 for (const inp of [inW, inD, inH]) inp.addEventListener("input", rebuildRoom);
 inT.addEventListener("change", rebuildRoom);
@@ -3116,6 +3559,16 @@ function startDrawing() {
   while (iwGroup.children.length) iwGroup.remove(iwGroup.children[0]);
   cancelIWDraw();
   selectedIW = -1;
+  // Free-form reset
+  footprintWalls.length = 0;
+  cancelFFDraw();
+  selectedFF = -1;
+  $("ffInspector").style.display = "none";
+  houseMode = 'box';
+  houseTypePicked = false;
+  housePicker.style.display = "";  // re-show picker to let user choose again
+  $("rowW").style.display = "";
+  $("rowD").style.display = "";
   hideArrows();
   hideDims();
   dimEdit.style.display = "none"; editingAxis = null;
@@ -3140,8 +3593,7 @@ function startDrawing() {
   orbit.enabled = false;
   renderer.domElement.style.cursor = "crosshair";
   hint.classList.remove("small");
-  hint.innerHTML = "Click to place your house";
-  $("exampleLink").style.display = "";
+  hint.innerHTML = "";
 }
 
 /* ────────────────── resize / loop ────────────────── */
