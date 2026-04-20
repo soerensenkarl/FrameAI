@@ -144,7 +144,6 @@
   .dev-opt input[type="checkbox"] {
     accent-color: #F9BC06;
   }
-
   .btn-next {
     padding: 7px 22px;
     background: #F9BC06;
@@ -293,6 +292,54 @@
     cursor: pointer;
   }
   .example-link a:hover { text-decoration: underline; }
+
+  /* ── House type picker ── */
+  .house-picker {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    gap: 20px;
+    z-index: 11;
+  }
+  .house-tile {
+    width: 200px;
+    height: 200px;
+    background: rgba(251, 250, 249, 0.06);
+    border: 1px solid rgba(251, 250, 249, 0.2);
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    cursor: pointer;
+    color: rgba(251, 250, 249, 0.9);
+    font-family: inherit;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    padding: 0;
+  }
+  .house-tile:hover {
+    border-color: #F9BC06;
+    color: #F9BC06;
+    background: rgba(249, 188, 6, 0.08);
+  }
+  .house-tile svg {
+    width: 72px;
+    height: 72px;
+    stroke: #F9BC06;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .house-tile .label {
+    font-size: 15px;
+    font-weight: 500;
+  }
 
   /* ── Loading overlay ── */
   .loading-overlay {
@@ -692,9 +739,30 @@
   <button class="btn-delete" id="btnDeleteOpening">Delete</button>
 </div>
 
+<!-- House type picker (shown at start) -->
+<div class="house-picker" id="housePicker">
+  <button type="button" class="house-tile" id="tileBox">
+    <svg viewBox="0 0 64 64">
+      <!-- isometric cube (rotated 180°) -->
+      <g transform="rotate(180 32 32)">
+        <path d="M32 10 L52 22 L52 46 L32 58 L12 46 L12 22 Z"/>
+        <path d="M32 10 L32 34 M12 46 L32 34 M52 46 L32 34"/>
+      </g>
+    </svg>
+    <span class="label">Box House</span>
+  </button>
+  <button type="button" class="house-tile" id="tileFree">
+    <svg viewBox="0 0 64 64">
+      <!-- L-shaped footprint polyline -->
+      <path d="M12 12 L38 12 L38 34 L52 34 L52 52 L12 52 Z"/>
+    </svg>
+    <span class="label">Free Form</span>
+  </button>
+</div>
+
 <!-- Hint bar -->
-<div class="hint" id="hint">Click to place your house</div>
-<div class="example-link" id="exampleLink">or <a href="#" id="loadExample">load example</a></div>
+<div class="hint" id="hint" style="display:none">Click to place your house</div>
+<div class="example-link" id="exampleLink" style="display:none">or <a href="#" id="loadExample">load example</a></div>
 
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner"></div>
@@ -737,8 +805,6 @@ const vp = document.getElementById("viewport");
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setClearColor(0x0a0a0a);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.0;
 vp.appendChild(renderer.domElement);
@@ -756,58 +822,18 @@ orbit.target.set(0, 0, 0);
 orbit.maxPolarAngle = Math.PI / 2.05;
 
 /* ────────────────── lights ────────────────── */
-scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-
-const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-sun.position.set(6000, -4000, 9000);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = sun.shadow.camera.bottom = -15000;
-sun.shadow.camera.right = sun.shadow.camera.top = 15000;
-sun.shadow.bias = -0.0005;
-sun.shadow.normalBias = 2;
-scene.add(sun);
-
-const fill = new THREE.DirectionalLight(0xffffff, 0.25);
-fill.position.set(-4000, 5000, 3000);
-scene.add(fill);
-
-// Pre-generate studio environment map (once)
+// Only a studio IBL — no direct lights, no shadows. Scene lighting is fully image-based.
 const pmrem = new THREE.PMREMGenerator(renderer);
 const studioEnvMap = pmrem.fromScene(new RoomEnvironment()).texture;
 pmrem.dispose();
-
-function enableStudioLights() {
-  scene.environment = studioEnvMap;
-  renderer.toneMappingExposure = 0.8;
-  sun.intensity = 0.4;
-  fill.intensity = 0.1;
-  shadowMat.opacity = 0.12;
-  sun.shadow.normalBias = 0.02;
-}
-
-function disableStudioLights() {
-  scene.environment = null;
-  renderer.toneMappingExposure = 1.0;
-  sun.intensity = 1.1;
-  fill.intensity = 0.25;
-  shadowMat.opacity = 0.18;
-  sun.shadow.normalBias = 0;
-}
+scene.environment = studioEnvMap;
+renderer.toneMappingExposure = 0.8;
 
 /* ────────────────── ground ────────────────── */
 const GRID = 30000;
 const grid = new THREE.GridHelper(GRID, 60, 0x1a1a1a, 0x141414);
 grid.rotation.x = Math.PI / 2;
 scene.add(grid);
-
-const shadowMat = new THREE.ShadowMaterial({ opacity: 0.18 });
-shadowMat.polygonOffset = true;
-shadowMat.polygonOffsetFactor = 1;
-shadowMat.polygonOffsetUnits = 1;
-const shadowGround = new THREE.Mesh(new THREE.PlaneGeometry(GRID, GRID), shadowMat);
-shadowGround.receiveShadow = true;
-scene.add(shadowGround);
 
 /* ────────────────── snap cursor (orange circle) ────────────────── */
 const dot = new THREE.Mesh(
@@ -857,18 +883,77 @@ const ghostEdge = new THREE.LineBasicMaterial({ color: 0x666666, transparent: tr
 const floorMat = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.95, metalness: 0 });
 const ghostFloor = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.95, metalness: 0, transparent: true, opacity: 0.35 });
 
-const frameMat = new THREE.MeshStandardMaterial({ color: 0xc8b080, roughness: 0.7, metalness: 0.0, side: THREE.DoubleSide });
+const frameTex = new THREE.TextureLoader().load('/static/assets/pine.jpg');
+frameTex.wrapS = frameTex.wrapT = THREE.RepeatWrapping;
+frameTex.colorSpace = THREE.SRGBColorSpace;
+frameTex.anisotropy = 4;
+
+const frameMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, metalness: 0.0, side: THREE.DoubleSide });
+frameMat.userData.uniforms = {
+  tWood:      { value: frameTex },
+  uTileScale: { value: 1.0 / 600.0 },
+};
 frameMat.onBeforeCompile = (shader) => {
-  shader.fragmentShader = shader.fragmentShader.replace(
-    '#include <emissivemap_fragment>',
-    `#include <emissivemap_fragment>
-    // Fake bevel: highlight geometric edges using screen-space derivatives of the normal.
-    // Inside a flat face fwidth(normal) ~ 0; at a crease between two faces it spikes,
-    // producing a thin bright line that reads as a chamfered edge catching light.
-    float edgeAmt = length(fwidth(normal));
-    float bevel = smoothstep(0.25, 1.0, edgeAmt);
-    totalEmissiveRadiance += vec3(1.0, 0.92, 0.78) * bevel * 0.55;`
-  );
+  shader.uniforms.tWood      = frameMat.userData.uniforms.tWood;
+  shader.uniforms.uTileScale = frameMat.userData.uniforms.uTileScale;
+
+  shader.vertexShader = shader.vertexShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+      attribute vec3 aMemberTangent;
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+      varying vec3 vWorldTangent;`
+    )
+    .replace(
+      '#include <beginnormal_vertex>',
+      `#include <beginnormal_vertex>
+      vWorldNormal  = normalize(mat3(modelMatrix) * objectNormal);
+      vWorldTangent = normalize(mat3(modelMatrix) * aMemberTangent);`
+    )
+    .replace(
+      '#include <project_vertex>',
+      `#include <project_vertex>
+      vWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+    );
+
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+      uniform sampler2D tWood;
+      uniform float uTileScale;
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+      varying vec3 vWorldTangent;`
+    )
+    .replace(
+      '#include <map_fragment>',
+      `#include <map_fragment>
+      // Tangent frame aligned to each member's long axis so grain flows down its length.
+      vec3 N = normalize(vWorldNormal);
+      vec3 T = normalize(vWorldTangent);
+      vec3 B = cross(N, T);
+      float bLen = length(B);
+      if (bLen < 0.1) {
+        T = abs(N.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+        B = cross(N, T);
+        bLen = length(B);
+      }
+      B /= bLen;
+      T = normalize(cross(B, N));
+      vec2 woodUv = vec2(dot(vWorldPos, T), dot(vWorldPos, B)) * uTileScale;
+      diffuseColor.rgb *= texture2D(tWood, woodUv).rgb;`
+    )
+    .replace(
+      '#include <emissivemap_fragment>',
+      `#include <emissivemap_fragment>
+      // Fake bevel: screen-space derivative of the world normal spikes at creases between faces.
+      float edgeAmt = length(fwidth(vWorldNormal));
+      float bevel = smoothstep(0.25, 1.0, edgeAmt);
+      totalEmissiveRadiance += vec3(1.0, 0.92, 0.78) * bevel * 0.4;`
+    );
 };
 
 const windowMat = new THREE.MeshStandardMaterial({ color: 0x7ebadb, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.3, side: THREE.DoubleSide });
@@ -952,6 +1037,9 @@ function positionArrows() {
   arrows[2].position.set(x0 - off, my, 10);  // west
   arrows[3].position.set(x1 + off, my, 10);  // east
   for (const a of arrows) a.visible = true;
+
+  heightArrow.position.set(mx, my, (+inH.value) + off);
+  heightArrow.visible = true;
 }
 
 function hideArrows() {
@@ -959,6 +1047,7 @@ function hideArrows() {
   ridgeArrow.visible = false;
   slopeArrows[0].visible = false;
   slopeArrows[1].visible = false;
+  heightArrow.visible = false;
   setArrowHover(null);
 }
 
@@ -980,6 +1069,10 @@ ridgeArrow.userData.isRidge = true;
 const slopeArrows = [makeUpArrow(), makeUpArrow()];
 slopeArrows[0].userData.slopeEdge = 0;
 slopeArrows[1].userData.slopeEdge = 1;
+
+// Footprint height arrow (drag to change wall height in step 0)
+const heightArrow = makeUpArrow();
+heightArrow.userData.isHeight = true;
 
 let customRidgeH = null;
 let flatSlopeH = [0, 0];  // [edge0, edge1] height offsets for flat roof slope
@@ -1031,6 +1124,7 @@ function positionRoofArrows() {
 let dragging = null;  // { idx, axis, sign }
 let draggingRidge = false;
 let draggingSlopeEdge = -1;  // 0 or 1 when dragging a flat roof slope arrow
+let draggingHeight = false;
 
 /* ────────────────── dimension lines ────────────────── */
 let dimGroup = null;
@@ -2122,9 +2216,6 @@ function goToStep(n) {
   document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
   dimEdit.style.display = "none"; editingAxis = null;
 
-  // Studio lighting for frame view
-  if (n >= 4) enableStudioLights(); else disableStudioLights();
-
   // Top-view button in steps 0, 1, and 2; exit top view when leaving the Walls step
   if (n !== 1 && isTopView) disableTopView();
   $("btnTopView").style.display = (n <= 2) ? "flex" : "none";
@@ -2269,6 +2360,19 @@ orbit.enabled = false;
 renderer.domElement.style.cursor = "crosshair";
 $("btnTopView").style.display = "flex";
 
+// House type picker — shown first, dismisses to reveal the footprint flow
+let houseTypePicked = false;
+const housePicker = $("housePicker");
+$("tileBox").addEventListener("click", () => {
+  houseTypePicked = true;
+  housePicker.style.display = "none";
+  hint.style.display = "";
+  $("exampleLink").style.display = "";
+});
+$("tileFree").addEventListener("click", () => {
+  alert("Free form footprints coming soon — try Box House for now.");
+});
+
 /* ────────────────── top view toggle ────────────────── */
 function enableTopView() {
   isTopView = true;
@@ -2378,6 +2482,22 @@ async function generateFrame() {
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     geo.setAttribute("normal",   new THREE.BufferAttribute(nrm, 3));
 
+    // Per-member long-axis tangent (fallback to Z if server didn't emit)
+    const tan = new Float32Array(nVerts * 3);
+    const hasTangents = Array.isArray(json.tangents) && json.tangents.length === nVerts;
+    for (let i = 0; i < nVerts; i++) {
+      if (hasTangents) {
+        tan[i * 3]     = json.tangents[i][0];
+        tan[i * 3 + 1] = json.tangents[i][1];
+        tan[i * 3 + 2] = json.tangents[i][2];
+      } else {
+        tan[i * 3]     = 0;
+        tan[i * 3 + 1] = 0;
+        tan[i * 3 + 2] = 1;
+      }
+    }
+    geo.setAttribute("aMemberTangent", new THREE.BufferAttribute(tan, 3));
+
     const idx = [];
     for (const f of json.faces) idx.push(f[0], f[1], f[2]);
     geo.setIndex(idx);
@@ -2441,6 +2561,7 @@ function hitArrow(e) {
 
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
+  if (!houseTypePicked) return;
 
   // ── Interior Walls step: record mouse down position (handled on pointerup) ──
   if (currentStep === 1) {
@@ -2501,6 +2622,20 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
 
   // Arrow drag start (footprint step)
   if (currentStep === 0 && mode === M.SET) {
+    // Height arrow first (it stands above the box so takes precedence on overlap)
+    if (heightArrow.visible) {
+      const r = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      rc.setFromCamera(ndc, cam);
+      const hh = rc.intersectObjects([heightArrow]);
+      if (hh.length) {
+        draggingHeight = true;
+        orbit.enabled = false;
+        renderer.domElement.style.cursor = "grabbing";
+        return;
+      }
+    }
     const hit = hitArrow(e);
     if (hit) {
       const idx = hit.userData.idx;
