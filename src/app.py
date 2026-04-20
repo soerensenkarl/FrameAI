@@ -159,7 +159,7 @@ def _save_breps_3dm(breps, filename):
     return _write_3dm(model, filename)
 
 
-def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type):
+def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type, interior_walls=None):
     """Create a box Brep representing a door or window opening in a wall."""
     ow = WINDOW_W if opening_type == "window" else DOOR_W
     oh = WINDOW_H if opening_type == "window" else DOOR_H
@@ -190,7 +190,30 @@ def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type):
                      rg.Interval(cy - ow / 2, cy + ow / 2),
                      rg.Interval(z_base, z_base + oh))
     else:
-        return None
+        # Interior wall: wall_idx 4+ indexes into interior_walls list
+        if not interior_walls:
+            return None
+        idx = wall_idx - 4
+        if idx < 0 or idx >= len(interior_walls):
+            return None
+        iw = interior_walls[idx]
+        ix0, iy0 = float(iw["x0"]), float(iw["y0"])
+        ix1, iy1 = float(iw["x1"]), float(iw["y1"])
+        is_horiz = abs(iy1 - iy0) < 1
+        if is_horiz:
+            xMin = min(ix0, ix1)
+            cx = xMin + pos_along
+            box = rg.Box(rg.Plane.WorldXY,
+                         rg.Interval(cx - ow / 2, cx + ow / 2),
+                         rg.Interval(iy0 - t / 2, iy0 + t / 2),
+                         rg.Interval(z_base, z_base + oh))
+        else:
+            yMin = min(iy0, iy1)
+            cy = yMin + pos_along
+            box = rg.Box(rg.Plane.WorldXY,
+                         rg.Interval(ix0 - t / 2, ix0 + t / 2),
+                         rg.Interval(cy - ow / 2, cy + ow / 2),
+                         rg.Interval(z_base, z_base + oh))
     return box.ToBrep()
 
 
@@ -568,10 +591,12 @@ def generate_frame():
         # Build opening Breps from frontend placement data
         door_breps = []
         window_breps = []
+        interior_walls = data.get("interiorWalls", [])
         for op in data.get("openings", []):
             brep = _build_opening_brep(
                 x0, y0, x1, y1, t,
                 int(op["wallIdx"]), float(op["posAlong"]), op["type"],
+                interior_walls=interior_walls,
             )
             if brep:
                 (door_breps if op["type"] == "door" else window_breps).append(brep)
