@@ -275,21 +275,24 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
         breps = []
         if w >= d:
             # Ridge along X. Each wedge's cross-section is a parallelogram in the YZ plane,
-            # extruded along X by (w + 2*overhang).
+            # extruded along X by (w + 2*overhang). Eave Z is dropped so the top plane is
+            # colinear with the gable-end wall's pentagon top edge.
             mid_y = (y0 + y1) / 2
+            eave_drop = ridge_h * overhang / (d / 2)
+            eave_z = h - eave_drop
             ext = rg.Vector3d(w + 2 * overhang, 0, 0)
             x_ref = x0 - overhang
             # South wedge: eave at y0, ridge at midY
             south_profile = [
-                rg.Point3d(x_ref, y0 - overhang, h),              # eave top
-                rg.Point3d(x_ref, mid_y,        h + ridge_h),     # ridge top
-                rg.Point3d(x_ref, mid_y,        h + ridge_h - slab),  # ridge bot
-                rg.Point3d(x_ref, y0 - overhang, h - slab),       # eave bot
+                rg.Point3d(x_ref, y0 - overhang, eave_z),              # eave top
+                rg.Point3d(x_ref, mid_y,        h + ridge_h),          # ridge top
+                rg.Point3d(x_ref, mid_y,        h + ridge_h - slab),   # ridge bot
+                rg.Point3d(x_ref, y0 - overhang, eave_z - slab),       # eave bot
             ]
             north_profile = [
                 rg.Point3d(x_ref, mid_y,        h + ridge_h),
-                rg.Point3d(x_ref, y1 + overhang, h),
-                rg.Point3d(x_ref, y1 + overhang, h - slab),
+                rg.Point3d(x_ref, y1 + overhang, eave_z),
+                rg.Point3d(x_ref, y1 + overhang, eave_z - slab),
                 rg.Point3d(x_ref, mid_y,        h + ridge_h - slab),
             ]
             for prof in (south_profile, north_profile):
@@ -299,18 +302,20 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
         else:
             # Ridge along Y. Cross-section in XZ plane, extruded along Y.
             mid_x = (x0 + x1) / 2
+            eave_drop = ridge_h * overhang / (w / 2)
+            eave_z = h - eave_drop
             ext = rg.Vector3d(0, d + 2 * overhang, 0)
             y_ref = y0 - overhang
             west_profile = [
-                rg.Point3d(x0 - overhang, y_ref, h),
+                rg.Point3d(x0 - overhang, y_ref, eave_z),
                 rg.Point3d(mid_x,        y_ref, h + ridge_h),
                 rg.Point3d(mid_x,        y_ref, h + ridge_h - slab),
-                rg.Point3d(x0 - overhang, y_ref, h - slab),
+                rg.Point3d(x0 - overhang, y_ref, eave_z - slab),
             ]
             east_profile = [
                 rg.Point3d(mid_x,        y_ref, h + ridge_h),
-                rg.Point3d(x1 + overhang, y_ref, h),
-                rg.Point3d(x1 + overhang, y_ref, h - slab),
+                rg.Point3d(x1 + overhang, y_ref, eave_z),
+                rg.Point3d(x1 + overhang, y_ref, eave_z - slab),
                 rg.Point3d(mid_x,        y_ref, h + ridge_h - slab),
             ]
             for prof in (west_profile, east_profile):
