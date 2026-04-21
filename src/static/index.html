@@ -749,8 +749,9 @@
   <button class="btn-delete" id="btnDeleteIW" style="display:none">Delete Wall</button>
 </div>
 
-<!-- Roof panel -->
-<div class="roof-panel glass" id="roofPanel">
+<!-- Roof tool panel (left — tiles) -->
+<div class="left-panel glass" id="roofToolPanel">
+  <span class="panel-title">Roof</span>
   <div class="roof-option" data-roof="flat">
     <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="16" width="28" height="18" rx="1"/><line x1="4" y1="16" x2="36" y2="16" stroke-width="2.2"/></svg>
     Flat
@@ -759,7 +760,12 @@
     <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="20" width="28" height="14" rx="1"/><polyline points="4,20 20,6 36,20" stroke-width="2.2"/></svg>
     Gable
   </div>
-  <div class="f" style="width:100%"><label>Thickness</label> <div class="fr"><select id="inTR"><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option></select><span class="u">mm</span></div></div>
+</div>
+
+<!-- Roof settings panel (right — thickness) -->
+<div class="panel glass" id="roofPanel">
+  <span class="panel-title">Roof</span>
+  <div class="f"><label>Thickness</label> <div class="fr"><select id="inTR"><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option></select><span class="u">mm</span></div></div>
 </div>
 
 <!-- Frame info panel (shown after generation) -->
@@ -2895,6 +2901,7 @@ function goToStep(n) {
   panel.classList.remove("open");
   leftPanel.classList.remove("open");
   roofPanel.classList.remove("open");
+  $("roofToolPanel").classList.remove("open");
   infoPanel.classList.remove("open");
   $("iwPanel").classList.remove("open");
   deselectOpening();
@@ -3028,6 +3035,7 @@ function goToStep(n) {
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
       roofPanel.classList.add("open");
+      $("roofToolPanel").classList.add("open");
       // Gable assumes a rectangular footprint — hide it for free-form and force flat.
       {
         const gableTile = document.querySelector('.roof-option[data-roof="gable"]');
@@ -3157,6 +3165,7 @@ async function generateFrame() {
   leftPanel.classList.remove("open");
   infoPanel.classList.remove("open");
   roofPanel.classList.remove("open");
+  $("roofToolPanel").classList.remove("open");
   $("iwPanel").classList.remove("open");
   hint.style.display = "none";
 
@@ -4109,6 +4118,7 @@ function startDrawing() {
   panel.classList.remove("open");
   leftPanel.classList.remove("open");
   roofPanel.classList.remove("open");
+  $("roofToolPanel").classList.remove("open");
   $("iwPanel").classList.remove("open");
   btnClear.style.display = "none";
   btnNext.style.display = "none";
