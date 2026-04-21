@@ -103,6 +103,8 @@
   .btn-icon svg { width: 16px; height: 16px; }
   .btn-icon.active { color: #F9BC06; border: 1.5px solid rgba(249,188,6,0.35); }
   .btn-icon.active:hover { color: #F9BC06; }
+  .btn-icon:disabled { color: rgba(255, 255, 255, 0.15); cursor: default; }
+  .btn-icon:disabled:hover { color: rgba(255, 255, 255, 0.15); }
 
   /* Top-view toggle — fixed top-left */
   #btnTopView {
@@ -146,6 +148,41 @@
   }
   .dev-opt input[type="checkbox"] {
     accent-color: #F9BC06;
+  }
+  /* iOS-style slide toggle (pill with sliding circle) */
+  input[type="checkbox"].ios-toggle {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    width: 38px;
+    height: 22px;
+    background: rgba(255,255,255,0.22);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .18s ease;
+    outline: none;
+    border: none;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+  }
+  input[type="checkbox"].ios-toggle::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform .18s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+  }
+  input[type="checkbox"].ios-toggle:checked {
+    background: #F9BC06;
+  }
+  input[type="checkbox"].ios-toggle:checked::before {
+    transform: translateX(16px);
   }
   .dev-opt input[type="range"] {
     accent-color: #F9BC06;
@@ -239,6 +276,21 @@
     z-index: 20;
   }
   #distributePanel.open { display: block; }
+
+  #scaleWorkerPill {
+    position: fixed;
+    display: none;
+    width: auto;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    pointer-events: auto;
+    z-index: 20;
+  }
+  #scaleWorkerPill.open { display: block; }
   #distributePanel .btn-distribute {
     width: auto;
     padding: 8px 18px;
@@ -710,9 +762,18 @@
     color: rgba(255, 255, 255, 0.9);
     font-weight: 500;
   }
+  .cut-count {
+    color: rgba(255, 255, 255, 0.55);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+    margin-right: 10px;
+    min-width: 44px;
+    text-align: right;
+  }
   .cut-len {
     color: rgba(255, 255, 255, 0.45);
     text-align: right;
+    min-width: 60px;
   }
 </style>
 </head>
@@ -731,8 +792,11 @@
 
 <!-- Top bar row -->
 <div class="toprow" id="toprow">
-  <button class="btn-icon glass" id="btnClear" style="display:none" title="Start over">
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2.5v4h4"/><path d="M2.9 10a5.5 5.5 0 1 0 1-3.4L2.5 6.5"/></svg>
+  <button class="btn-icon glass" id="btnUndo" style="display:none" title="Undo (Ctrl+Z)">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4 3 7l3 3"/><path d="M3 7h7a3 3 0 0 1 0 6H8"/></svg>
+  </button>
+  <button class="btn-icon glass" id="btnRedo" style="display:none" title="Redo (Ctrl+Shift+Z)">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4l3 3-3 3"/><path d="M13 7H6a3 3 0 0 0 0 6h2"/></svg>
   </button>
   <div class="toolbar glass">
     <div class="steps">
@@ -784,6 +848,10 @@
     Click start point on a wall,<br>then click end point.
   </p>
   <div class="f"><label>Thickness</label> <div class="fr"><select id="inTI"><option value="70">70</option><option value="95">95</option><option value="120" selected>120</option><option value="145">145</option><option value="195">195</option></select><span class="u">mm</span></div></div>
+  <div class="f" style="gap:8px" title="Extend interior walls up to the underside of the roof (gable only)">
+    <label style="flex:1">To ridge</label>
+    <input type="checkbox" id="inIwToRidge" class="ios-toggle">
+  </div>
   <button class="btn-delete" id="btnDeleteIW" style="display:none">Delete Wall</button>
 </div>
 
@@ -804,6 +872,10 @@
 <div class="panel glass" id="roofPanel">
   <span class="panel-title">Roof</span>
   <div class="f"><label>Thickness</label> <div class="fr"><select id="inTR"><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option></select><span class="u">mm</span></div></div>
+  <div class="f" id="roofIwToRidgeRow" style="gap:8px; display:none" title="Extend interior walls up to the underside of the roof">
+    <label style="flex:1">Interior walls to ridge</label>
+    <input type="checkbox" id="inIwToRidgeRoof">
+  </div>
 </div>
 
 <!-- Frame info panel (shown after generation) -->
@@ -812,7 +884,7 @@
 
   <div class="info-section">
     <div class="info-row"><span class="info-label">Elements</span><span class="info-value" id="infoMembers">—</span></div>
-    <div class="info-row"><span class="info-label">Waste</span><span class="info-value" id="infoWaste">—</span></div>
+    <div class="info-row"><span class="info-label">Total length</span><span class="info-value" id="infoTotalLength">—</span></div>
     <div class="info-row"><span class="info-label">Weight</span><span class="info-value" id="infoWeight">—</span></div>
     <div class="info-row"><span class="info-label">Est. Build Time</span><span class="info-value" id="infoBuildTime">—</span></div>
   </div>
@@ -850,6 +922,10 @@
 <!-- Multi-select distribute panel (shift-click 2+ openings in step 2) -->
 <div id="distributePanel">
   <button class="btn-distribute" id="btnDistributeOpenings">Distribute evenly</button>
+</div>
+<!-- Scale worker dismiss pill (appears when the scale figure is clicked) -->
+<div id="scaleWorkerPill">
+  <button class="btn-distribute" id="btnDismissScaleWorker">Go away</button>
 </div>
 <!-- Hidden shims so existing input listeners keep binding without error -->
 <input type="hidden" id="oInspW"><input type="hidden" id="oInspH"><input type="hidden" id="oInspSill">
@@ -1610,7 +1686,8 @@ const $ = id => document.getElementById(id);
 const hint   = $("hint");
 const panel  = $("panel");
 const tip    = $("tip");
-const btnClear = $("btnClear");
+const btnUndo = $("btnUndo");
+const btnRedo = $("btnRedo");
 const btnNext  = $("btnNext");
 const leftPanel = $("leftPanel");
 const roofPanel = $("roofPanel");
@@ -1679,8 +1756,124 @@ let openingsGroup = new THREE.Group();
 scene.add(openingsGroup);
 let roofGroup = null;
 
+// Scale-reference figure standing to the east of the house (1.8 m tall,
+// billboarded around world Z so he always stays upright and yaws to face the camera).
+let scaleWorker = null;        // parent Group — positioned and z-rotated each frame
+let scaleWorkerMesh = null;    // child Plane mesh — raycast target
+let scaleWorkerDismissed = false;
+let scaleWorkerWalking = null; // { t0, duration, fromX, fromY, dx, dy } while walking off-screen
+let scaleWorkerDesired = null; // {x,y} target corner position, updated when dimensions change
+let scaleWorkerRestage = null; // { phase: 'fadeOut'|'fadeIn', t0, toX?, toY? } — cross-fade between positions
+const WORKER_BASE_OPACITY = 0.85;
+const WORKER_RESTAGE_MS = 280;
+(function makeScaleWorker() {
+  const tex = new THREE.TextureLoader().load('/static/assets/scale_worker.png');
+  if ('SRGBColorSpace' in THREE) tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex, transparent: true, alphaTest: 0.5, opacity: 0.85, side: THREE.DoubleSide,
+  });
+  const H = 1800;                        // 1.8 m in mm
+  const W = H * (1792 / 2358);           // preserve PNG aspect
+  const geo = new THREE.PlaneGeometry(W, H);
+  geo.translate(0, H / 2, 0);            // origin at bottom-center → feet on group's ground plane
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.rotation.x = Math.PI / 2;         // stand plane upright: local +Y → world +Z
+  mesh.userData.isScaleWorker = true;
+  const group = new THREE.Group();
+  group.add(mesh);
+  group.visible = false;
+  scene.add(group);
+  scaleWorker = group;
+  scaleWorkerMesh = mesh;
+})();
+
+function scaleWorkerShouldShow() {
+  if (scaleWorkerWalking) return true;   // keep him visible during the walk-off
+  if (scaleWorkerDismissed) return false;
+  if (houseMode === 'box') return !!(c1 && c2);
+  if (houseMode === 'free') return footprintWalls.length > 0;
+  return false;
+}
+
+function positionScaleWorker() {
+  if (!scaleWorker) return;
+  if (scaleWorkerWalking) return;        // don't clobber the walk-off tween
+  // Stand at the front-right (max-X, min-Y) corner, offset ~1.5 m diagonally
+  // outward so he clears the wall thickness / any roof overhang.
+  const gap = 1500;
+  if (houseMode === 'box' && c1 && c2) {
+    const xMax = Math.max(c1.x, c2.x);
+    const yMin = Math.min(c1.y, c2.y);
+    scaleWorker.position.set(xMax + gap, yMin - gap, 0);
+  } else if (houseMode === 'free' && footprintWalls.length) {
+    let xMax = -Infinity, yMin = Infinity;
+    for (const w of footprintWalls) {
+      xMax = Math.max(xMax, w.x0, w.x1);
+      yMin = Math.min(yMin, w.y0, w.y1);
+    }
+    scaleWorker.position.set(xMax + gap, yMin - gap, 0);
+  }
+}
+
+function updateScaleWorkerPill() {
+  const pill = document.getElementById('scaleWorkerPill');
+  if (!pill) return;
+  if (!pill.classList.contains('open') || !scaleWorker || !scaleWorker.visible) {
+    pill.classList.remove('open');
+    return;
+  }
+  // Anchor ~0.2 m above head (H = 1800, mesh origin at bottom).
+  const wp = new THREE.Vector3(scaleWorker.position.x, scaleWorker.position.y, 2000);
+  wp.project(cam);
+  const r = renderer.domElement.getBoundingClientRect();
+  const sx = (wp.x * 0.5 + 0.5) * r.width + r.left;
+  const sy = (-wp.y * 0.5 + 0.5) * r.height + r.top;
+  const pw = pill.offsetWidth || 120;
+  const ph = pill.offsetHeight || 36;
+  let px = sx - pw / 2;
+  let py = sy - ph - 8;
+  px = Math.max(10, Math.min(px, window.innerWidth - pw - 10));
+  py = Math.max(10, Math.min(py, window.innerHeight - ph - 10));
+  pill.style.left = px + 'px';
+  pill.style.top = py + 'px';
+}
+
+function dismissScaleWorker() {
+  if (!scaleWorker || scaleWorkerWalking) return;
+  const pill = document.getElementById('scaleWorkerPill');
+  if (pill) pill.classList.remove('open');
+  // Walk off toward the camera's right on the ground plane until he's out of view.
+  const look = new THREE.Vector3();
+  cam.getWorldDirection(look);
+  const right = new THREE.Vector3(look.y, -look.x, 0);
+  if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
+  right.normalize();
+  const dist = 30000;                    // 30 m — safely off-screen at any zoom
+  scaleWorkerWalking = {
+    t0: performance.now(),
+    duration: 1800,
+    fromX: scaleWorker.position.x,
+    fromY: scaleWorker.position.y,
+    dx: right.x * dist,
+    dy: right.y * dist,
+  };
+}
+
+function tickScaleWorkerWalk() {
+  if (!scaleWorkerWalking || !scaleWorker) return;
+  const w = scaleWorkerWalking;
+  const t = Math.min(1, (performance.now() - w.t0) / w.duration);
+  scaleWorker.position.x = w.fromX + w.dx * t;
+  scaleWorker.position.y = w.fromY + w.dy * t;
+  if (t >= 1) {
+    scaleWorkerWalking = null;
+    scaleWorkerDismissed = true;
+  }
+}
+
 // Interior walls
 const interiorWalls = [];    // { x0, y0, x1, y1 } — centerline endpoints, orthogonal
+let iwToRidge = false;       // true = interior walls extend to underside of gable roof
 const iwGroup = new THREE.Group();
 scene.add(iwGroup);
 let iwDrawStart = null;      // Vector3 — first click point
@@ -1930,6 +2123,7 @@ function placeRoom() {
   scene.add(roomGroup);
   positionArrows();
   updateDims();
+  positionScaleWorker();
 
   // Sync dimension inputs
   inW.value = Math.round(Math.abs(c2.x - c1.x));
@@ -1946,6 +2140,7 @@ function rebuildScene() {
     rebuildFFEndpointMarkers();
     rebuildOpenings();
     rebuildInteriorWalls();
+    positionScaleWorker();
     return;
   }
 
@@ -1961,10 +2156,29 @@ function rebuildScene() {
   else hideDims();
   rebuildOpenings();
   rebuildInteriorWalls();
-  if (currentStep === 0) maybeFitExtents();
+  positionScaleWorker();
 }
 
-// If the house AABB is getting cut off (or near the edge) in step 0, zoom-to-fit.
+let fitTweenRAF = 0;
+function tweenCamera(toPos, toTarget, durationMs) {
+  if (fitTweenRAF) cancelAnimationFrame(fitTweenRAF);
+  const fromPos = cam.position.clone();
+  const fromTarget = orbit.target.clone();
+  const t0 = performance.now();
+  const ease = (x) => x < 0.5 ? 2*x*x : 1 - Math.pow(-2*x + 2, 2) / 2;  // easeInOutQuad
+  const step = () => {
+    const t = Math.min(1, (performance.now() - t0) / durationMs);
+    const k = ease(t);
+    cam.position.lerpVectors(fromPos, toPos, k);
+    orbit.target.lerpVectors(fromTarget, toTarget, k);
+    orbit.update();
+    if (t < 1) fitTweenRAF = requestAnimationFrame(step);
+    else fitTweenRAF = 0;
+  };
+  fitTweenRAF = requestAnimationFrame(step);
+}
+
+// If the house AABB isn't comfortably framed in step 0, zoom-to-fit smoothly.
 function maybeFitExtents() {
   const bb = new THREE.Box3();
   const h = +inH.value;
@@ -1996,21 +2210,51 @@ function maybeFitExtents() {
     new THREE.Vector3(bb.min.x, bb.max.y, bb.max.z),
     new THREE.Vector3(bb.max.x, bb.max.y, bb.max.z),
   ];
+  // Effective canvas area inside visible UI panels (step bar + open side panels).
+  const cRect = renderer.domElement.getBoundingClientRect();
+  let eLeft = cRect.left, eRight = cRect.right;
+  let eTop = cRect.top, eBottom = cRect.bottom;
+  const midX = (cRect.left + cRect.right) / 2;
+  for (const el of document.querySelectorAll('.panel.open, .left-panel.open')) {
+    const pr = el.getBoundingClientRect();
+    if (pr.width < 10 || pr.height < 10) continue;
+    if ((pr.left + pr.right) / 2 < midX) eLeft = Math.max(eLeft, pr.right);
+    else eRight = Math.min(eRight, pr.left);
+  }
+  const toprow = document.getElementById('toprow');
+  if (toprow) {
+    const hr = toprow.getBoundingClientRect();
+    if (hr.bottom > cRect.top) eTop = Math.max(eTop, hr.bottom);
+  }
+  const W = cRect.width, H = cRect.height;
+  if (W < 10 || H < 10) return;
+  // Map effective-rect center to NDC, and effective half-extents as a fraction of canvas.
+  const ndcCx = ((eLeft + eRight) / 2 - cRect.left) / W * 2 - 1;
+  const ndcCy = -(((eTop + eBottom) / 2 - cRect.top) / H * 2 - 1);
+  const hx = Math.max(0.1, (eRight - eLeft) / W);
+  const hy = Math.max(0.1, (eBottom - eTop) / H);
+
+  // Ensure matrixWorldInverse reflects any cam.position.copy() that happened
+  // synchronously before this call (e.g. disableTopView) — otherwise project()
+  // uses a stale matrix and produces a bogus zoom.
+  cam.updateMatrixWorld(true);
+
   let maxAbs = 0;
   for (const c of corners) {
     const p = c.clone().project(cam);
-    maxAbs = Math.max(maxAbs, Math.abs(p.x), Math.abs(p.y));
+    const dx = (p.x - ndcCx) / hx;
+    const dy = (p.y - ndcCy) / hy;
+    maxAbs = Math.max(maxAbs, Math.abs(dx), Math.abs(dy));
   }
-  if (maxAbs < 0.92) return;  // still comfortably in-frame
+  if (maxAbs > 0.70 && maxAbs < 0.95) return;  // already well-framed within effective area
 
-  const targetRatio = 0.72;
+  const targetRatio = 0.88;
   const scale = maxAbs / targetRatio;
   const center = bb.getCenter(new THREE.Vector3());
-  const offset = cam.position.clone().sub(orbit.target);
-  offset.multiplyScalar(scale);
-  orbit.target.copy(center);
-  cam.position.copy(center).add(offset);
-  orbit.update();
+  const offset = cam.position.clone().sub(orbit.target).multiplyScalar(scale);
+  const toTarget = center.clone();
+  const toPos = center.clone().add(offset);
+  tweenCamera(toPos, toTarget, 500);
 }
 
 /* ────────────────── free-form footprint rendering ────────────────── */
@@ -2524,6 +2768,79 @@ function snapPosAlongToMid(posAlong, wallLen) {
   return Math.abs(posAlong - mid) < thresh ? mid : posAlong;
 }
 
+// Push an opening out of collision with other openings on the same wall.
+// Builds free intervals on [lo, hi] excluding the ranges blocked by existing
+// openings, then returns the nearest free center to `proposedPos`.
+// `excludeIdx` lets the caller ignore the opening currently being moved.
+function resolveOpeningCollision(wallIdx, proposedPos, width, excludeIdx) {
+  const info = wallInfo(wallIdx);
+  if (!info) return proposedPos;
+  const tVal = +inT.value;
+  const half = width / 2;
+  const edgePad = info.isInterior ? half : (half + tVal);
+  const lo = edgePad;
+  const hi = info.length - edgePad;
+  if (hi <= lo) return proposedPos;
+
+  const blocks = [];
+  for (let i = 0; i < openings.length; i++) {
+    if (i === excludeIdx) continue;
+    const o = openings[i];
+    if (o.wallIdx !== wallIdx) continue;
+    blocks.push([o.posAlong - half - o.width / 2, o.posAlong + half + o.width / 2]);
+  }
+  blocks.sort((a, b) => a[0] - b[0]);
+
+  const free = [];
+  let cursor = lo;
+  for (const [ba, bb] of blocks) {
+    if (bb <= cursor) continue;
+    if (ba > cursor) free.push([cursor, Math.min(hi, ba)]);
+    cursor = Math.max(cursor, bb);
+    if (cursor >= hi) break;
+  }
+  if (cursor < hi) free.push([cursor, hi]);
+
+  if (!free.length) return proposedPos;
+
+  const p = Math.max(lo, Math.min(hi, proposedPos));
+  for (const [a, b] of free) if (p >= a && p <= b) return p;
+
+  let best = free[0], bestDist = Infinity;
+  for (const fi of free) {
+    const d = p < fi[0] ? (fi[0] - p) : (p - fi[1]);
+    if (d < bestDist) { bestDist = d; best = fi; }
+  }
+  return p < best[0] ? best[0] : best[1];
+}
+
+// Largest width that still fits at `center` without overlapping other openings
+// on the same wall or pushing past the wall-edge padding.
+function maxAllowedWidth(wallIdx, center, excludeIdx) {
+  const info = wallInfo(wallIdx);
+  if (!info) return Infinity;
+  const tVal = +inT.value;
+  // Wall-edge half-width budget (edgePad = half + t for exterior walls)
+  const edgeHalf = info.isInterior
+    ? Math.min(center, info.length - center)
+    : Math.min(center - tVal, info.length - center - tVal);
+
+  let leftEdge = 0;
+  let rightEdge = info.length;
+  for (let i = 0; i < openings.length; i++) {
+    if (i === excludeIdx) continue;
+    const o = openings[i];
+    if (o.wallIdx !== wallIdx) continue;
+    const oLeft = o.posAlong - o.width / 2;
+    const oRight = o.posAlong + o.width / 2;
+    if (oRight <= center) { if (oRight > leftEdge) leftEdge = oRight; }
+    else if (oLeft >= center) { if (oLeft < rightEdge) rightEdge = oLeft; }
+    else return 0;  // center sits inside another opening — refuse to widen
+  }
+  const neighbourHalf = Math.min(center - leftEdge, rightEdge - center);
+  return 2 * Math.max(0, Math.min(edgeHalf, neighbourHalf));
+}
+
 function hideOpeningDims() {
   if (openingDimGroup) { scene.remove(openingDimGroup); openingDimGroup = null; }
 }
@@ -2666,7 +2983,9 @@ function updateGhostOpening(e) {
     const info = wallInfo(wi);
     if (info) {
       const rel = new THREE.Vector3().subVectors(hp, info.origin);
-      const posAlong = snapPosAlongToMid(rel.dot(info.along), info.length);
+      let posAlong = snapPosAlongToMid(rel.dot(info.along), info.length);
+      const newW = defaultDims(draggingOpening.type).width;
+      posAlong = resolveOpeningCollision(wi, posAlong, newW, -1);
       ghostOpening = buildGhostOpening(wi, posAlong, draggingOpening.type);
       if (ghostOpening) scene.add(ghostOpening);
       showOpeningDims(info, posAlong, draggingOpening.type);
@@ -2690,11 +3009,13 @@ function finishOpeningDrag(e) {
     const info = wallInfo(wi);
     if (info) {
       const rel = new THREE.Vector3().subVectors(hp, info.origin);
-      const posAlong = snapPosAlongToMid(rel.dot(info.along), info.length);
+      let posAlong = snapPosAlongToMid(rel.dot(info.along), info.length);
       const dims = defaultDims(draggingOpening.type);
+      posAlong = resolveOpeningCollision(wi, posAlong, dims.width, -1);
       openings.push({ type: draggingOpening.type, wallIdx: wi, posAlong, mesh: null,
                        width: dims.width, height: dims.height, sill: dims.sill });
       rebuildScene();
+      pushHistory();
     }
   }
 
@@ -2896,6 +3217,32 @@ const iwSelectedMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughnes
 function rebuildInteriorWalls() {
   while (iwGroup.children.length) iwGroup.remove(iwGroup.children[0]);
   const h = +inH.value, t = +inTI.value;
+
+  // Gable-roof parameters (only used when iwToRidge && roofType === 'gable').
+  const useGable = iwToRidge && roofType === "gable" && c1 && c2 && houseMode !== "free";
+  let gable = null;
+  if (useGable) {
+    const x0g = Math.min(c1.x, c2.x), x1g = Math.max(c1.x, c2.x);
+    const y0g = Math.min(c1.y, c2.y), y1g = Math.max(c1.y, c2.y);
+    const w = x1g - x0g, d = y1g - y0g;
+    const ridgeAlongX = w >= d;
+    const halfSpan = ridgeAlongX ? d / 2 : w / 2;
+    const ridgeH = getRidgeH();
+    const eaveLift = (+inTR.value) - ridgeH * (+inT.value) / halfSpan;
+    gable = {
+      ridgeAlongX, halfSpan, ridgeH,
+      centerCoord: ridgeAlongX ? (y0g + y1g) / 2 : (x0g + x1g) / 2,
+      hEave: h + eaveLift,
+      hApex: h + ridgeH + eaveLift,
+    };
+  }
+  const undersideAt = (xw, yw) => {
+    if (!gable) return h;
+    const coord = gable.ridgeAlongX ? yw : xw;
+    const dist = Math.min(gable.halfSpan, Math.abs(coord - gable.centerCoord));
+    return gable.hEave + gable.ridgeH * (1 - dist / gable.halfSpan);
+  };
+
   interiorWalls.forEach((iw, i) => {
     const isHoriz = Math.abs(iw.y1 - iw.y0) < 1;
     const wallIdx = 4 + i;
@@ -2904,12 +3251,32 @@ function rebuildInteriorWalls() {
     const len = isHoriz ? (xMax - xMin) : (yMax - yMin);
     if (len < 1) return;
 
+    // Top edge: flat at h, or follows the gable-roof underside when iwToRidge.
+    // Local along coord → world (x, y). Start of along corresponds to xMin/yMin.
+    const worldAt = (along) => isHoriz
+      ? { x: xMin + along, y: iw.y0 }
+      : { x: iw.x0,         y: yMin + along };
+    const zStart = useGable ? undersideAt(worldAt(0).x, worldAt(0).y) : h;
+    const zEnd   = useGable ? undersideAt(worldAt(len).x, worldAt(len).y) : h;
+    // Peak occurs where the wall crosses the ridge line; only for walls whose
+    // along-axis is perpendicular to the ridge.
+    let peakAlong = -1, zPeak = 0;
+    if (useGable) {
+      const perpToRidge = gable.ridgeAlongX ? !isHoriz : isHoriz;
+      if (perpToRidge) {
+        const startCoord = gable.ridgeAlongX ? yMin : xMin;
+        const p = gable.centerCoord - startCoord;
+        if (p > 1 && p < len - 1) { peakAlong = p; zPeak = gable.hApex; }
+      }
+    }
+
     // Face shape in local (along, up) plane, extruded by thickness t.
     const shape = new THREE.Shape();
     shape.moveTo(0, 0);
     shape.lineTo(len, 0);
-    shape.lineTo(len, h);
-    shape.lineTo(0, h);
+    shape.lineTo(len, zEnd);
+    if (peakAlong > 0) shape.lineTo(peakAlong, zPeak);
+    shape.lineTo(0, zStart);
     shape.closePath();
 
     for (const op of openings) {
@@ -2996,6 +3363,7 @@ function deleteSelectedIW() {
   selectedIW = -1;
   $("btnDeleteIW").style.display = "none";
   rebuildInteriorWalls();
+  pushHistory();
 }
 
 /* ────────────────── interior wall snap logic ────────────────── */
@@ -3237,7 +3605,9 @@ function showFFDim(start, end, len, opts) {
   ffDimGroup = new THREE.Group();
   ffDimGroup.add(line);
 
-  const label = makeTextSprite((L / 1000).toFixed(2) + " m", labelColor);
+  const label = labelColor
+    ? makeTextSprite((L / 1000).toFixed(2) + " m", labelColor, 44, "rgba(40,40,40,0.82)")
+    : makeTextSprite((L / 1000).toFixed(2) + " m");
   const midX = (start.x + end.x) / 2 + nx * (gap + 250);
   const midY = (start.y + end.y) / 2 + ny * (gap + 250);
   label.position.set(midX, midY, z);
@@ -3343,6 +3713,7 @@ function deleteSelectedFF() {
   $("ffInspector").style.display = "none";
   rebuildScene();
   if (footprintWalls.length === 0) btnNext.style.display = "none";
+  pushHistory();
 }
 
 /* ────────────────── step navigation ────────────────── */
@@ -3433,6 +3804,7 @@ function goToStep(n) {
         renderer.domElement.style.cursor = "crosshair";
         btnNext.textContent = NEXT_LABELS[0];
         btnNext.style.display = footprintWalls.length ? "" : "none";
+        if (footprintWalls.length) maybeFitExtents(true);
       } else if (mode === M.SET) {
         panel.classList.add("open");
         positionArrows();
@@ -3441,6 +3813,7 @@ function goToStep(n) {
         btnNext.style.display = "";
         hint.classList.add("small");
         hint.innerHTML = "Drag arrows or edit dimensions";
+        maybeFitExtents(true);
       } else {
         btnNext.style.display = "none";
         if (firstVisit) {
@@ -3501,6 +3874,7 @@ function goToStep(n) {
       document.querySelectorAll(".roof-option").forEach(o => {
         o.classList.toggle("active", o.dataset.roof === roofType);
       });
+      $("roofIwToRidgeRow").style.display = roofType === "gable" ? "" : "none";
       btnNext.textContent = NEXT_LABELS[3];
       btnNext.style.display = "";
       if (firstVisit) {
@@ -3622,7 +3996,96 @@ $("btnTopView").addEventListener("click", () => {
   if (isTopView) disableTopView(); else enableTopView();
 });
 
-btnClear.addEventListener("click", startDrawing);
+/* ────────────────── undo / redo ────────────────── */
+const undoStack = [];
+let histIdx = -1;
+let applyingHistory = false;
+
+function captureState() {
+  return {
+    houseMode,
+    c1: c1 ? { x: c1.x, y: c1.y, z: c1.z } : null,
+    c2: c2 ? { x: c2.x, y: c2.y, z: c2.z } : null,
+    signX, signY,
+    interiorWalls: interiorWalls.map(w => ({ ...w })),
+    iwToRidge,
+    openings: openings.map(o => ({ type: o.type, wallIdx: o.wallIdx, posAlong: o.posAlong, width: o.width, height: o.height, sill: o.sill })),
+    footprintWalls: footprintWalls.map(w => ({ ...w })),
+    roofType,
+    flatSlopeH: [...flatSlopeH],
+    customRidgeH,
+    inH: inH.value, inW: inW.value, inD: inD.value,
+    inT: inT.value, inTI: inTI.value, inTR: inTR.value,
+  };
+}
+
+function applyState(s) {
+  applyingHistory = true;
+  houseMode = s.houseMode;
+  c1 = s.c1 ? new THREE.Vector3(s.c1.x, s.c1.y, s.c1.z) : null;
+  c2 = s.c2 ? new THREE.Vector3(s.c2.x, s.c2.y, s.c2.z) : null;
+  signX = s.signX; signY = s.signY;
+  interiorWalls.length = 0;
+  for (const w of s.interiorWalls) interiorWalls.push({ ...w });
+  setIwToRidge(!!s.iwToRidge);
+  footprintWalls.length = 0;
+  for (const w of s.footprintWalls) footprintWalls.push({ ...w });
+  roofType = s.roofType;
+  flatSlopeH = [...s.flatSlopeH];
+  customRidgeH = s.customRidgeH;
+  inH.value = s.inH; inW.value = s.inW; inD.value = s.inD;
+  inT.value = s.inT; inTI.value = s.inTI; inTR.value = s.inTR;
+  // Rebuild openings from scratch
+  clearOpenings();
+  for (const o of s.openings) {
+    placeOpening(o.wallIdx, o.posAlong, o.type, { width: o.width, height: o.height, sill: o.sill });
+  }
+  deselectOpening();
+  clearMultiSelection && clearMultiSelection();
+  deselectIW && deselectIW();
+  markFrameStale();
+  rebuildScene();
+  applyingHistory = false;
+}
+
+function pushHistory() {
+  if (applyingHistory) return;
+  undoStack.length = histIdx + 1;
+  undoStack.push(captureState());
+  histIdx = undoStack.length - 1;
+  if (undoStack.length > 50) { undoStack.shift(); histIdx--; }
+  updateUndoRedoButtons();
+}
+
+function undo() {
+  if (histIdx <= 0) return;
+  histIdx--;
+  applyState(undoStack[histIdx]);
+  updateUndoRedoButtons();
+}
+
+function redo() {
+  if (histIdx >= undoStack.length - 1) return;
+  histIdx++;
+  applyState(undoStack[histIdx]);
+  updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+  btnUndo.disabled = histIdx <= 0;
+  btnRedo.disabled = histIdx >= undoStack.length - 1;
+}
+
+btnUndo.addEventListener("click", undo);
+btnRedo.addEventListener("click", redo);
+window.addEventListener("keydown", (e) => {
+  if (btnUndo.style.display === "none") return;  // only when toolbar is showing
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;  // let fields handle it
+  const k = e.key.toLowerCase();
+  if ((e.ctrlKey || e.metaKey) && k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if ((e.ctrlKey || e.metaKey) && (k === "y" || (k === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
+});
 btnNext.addEventListener("click", () => goToStep(currentStep + 1));
 $("btnBuy").addEventListener("click", () => {
   alert("Thank you for your order! We will contact you at the email on file to arrange delivery and payment.");
@@ -3674,6 +4137,7 @@ async function generateFrame() {
           sill: o.sill,
         })),
         interiorWalls: interiorWalls.map(iw => ({ x0: iw.x0, y0: iw.y0, x1: iw.x1, y1: iw.y1 })),
+        iwToRidge: iwToRidge,
         roofType: roofType,
         ridgeH: getRidgeH(),
         flatSlopeH: flatSlopeH,
@@ -3740,21 +4204,26 @@ async function generateFrame() {
       const fmt = (n) => n.toLocaleString("en", { maximumFractionDigits: 1 });
       const eur = (n) => n.toLocaleString("da-DK", { maximumFractionDigits: 0 }) + " kr";
 
+      const totalMeters = (s.part_list || []).reduce((a, it) => a + (+it.meters || 0), 0);
+
       $("infoMembers").textContent = s.member_count + " pcs.";
-      $("infoWaste").textContent = s.waste_pct + " %";
+      $("infoTotalLength").textContent = fmt(totalMeters) + " m";
       $("infoWeight").textContent = fmt(s.weight_kg) + " kg";
       $("infoBuildTime").textContent = s.build_time;
       $("infoCostTimber").textContent = eur(s.timber_cost);
       $("infoCostFab").textContent = eur(s.price - s.timber_cost);
       $("infoPriceTotal").textContent = eur(s.price);
 
-      // Build part list rows
+      // Build part list rows: section · count · meters
       const cl = $("infoCutList");
       cl.innerHTML = "";
       for (const item of s.part_list) {
         const row = document.createElement("div");
         row.className = "cut-row";
+        const countSpan = item.count != null
+          ? `<span class="cut-count">${item.count} pcs</span>` : "";
         row.innerHTML = `<span class="cut-sec">${item.section}</span>`
+          + countSpan
           + `<span class="cut-len">${item.meters} m</span>`;
         cl.appendChild(row);
       }
@@ -3804,6 +4273,26 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   }
   if (e.button !== 0) return;   // middle reserved for OrbitControls dolly
   if (!houseTypePicked) return;
+
+  // Scale-worker hit-test takes precedence over step-specific handlers.
+  if (scaleWorker && scaleWorker.visible && scaleWorkerMesh) {
+    const r0 = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r0.left) / r0.width) * 2 - 1;
+    ndc.y = -((e.clientY - r0.top) / r0.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    if (rc.intersectObject(scaleWorkerMesh).length) {
+      const pill = document.getElementById('scaleWorkerPill');
+      if (pill) pill.classList.toggle('open');
+      updateScaleWorkerPill();
+      e.stopPropagation();
+      return;
+    }
+  }
+  // Any other pointerdown on the canvas dismisses an open pill (keeps the worker).
+  {
+    const pill = document.getElementById('scaleWorkerPill');
+    if (pill && pill.classList.contains('open')) pill.classList.remove('open');
+  }
 
   // ── Free-form footprint step: record mouse down position (handled on pointerup) ──
   if (currentStep === 0 && houseMode === 'free') {
@@ -4162,6 +4651,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     const half = o.width / 2;
     const edgePad = info.isInterior ? half : (half + tVal);
     p = clamp(Math.round(p / 100) * 100, edgePad, info.length - edgePad);
+    p = resolveOpeningCollision(o.wallIdx, p, o.width, draggingSlide);
     if (p !== o.posAlong) {
       o.posAlong = p;
       rebuildSingleOpening(draggingSlide);
@@ -4246,31 +4736,38 @@ renderer.domElement.addEventListener("pointermove", (e) => {
 });
 
 renderer.domElement.addEventListener("pointerup", (e) => {
+  let step0DragEnded = false;
   if (dragging) {
     dragging = null;
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
+    step0DragEnded = true;
   }
   if (draggingRidge) {
     draggingRidge = false;
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
+    pushHistory();
   }
   if (draggingSlopeEdge >= 0) {
     draggingSlopeEdge = -1;
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
+    pushHistory();
   }
   if (draggingHeight) {
     draggingHeight = false;
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
+    step0DragEnded = true;
   }
+  if (step0DragEnded && currentStep === 0) { pushHistory(); maybeFitExtents(true); }
   if (draggingSlide >= 0) {
     draggingSlide = -1;
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
     setSlideHandleHover(false);
+    pushHistory();
   }
 
   // ── Free-form footprint right-click: select/toggle wall inspector ──
@@ -4314,6 +4811,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
         rebuildScene();
         btnNext.textContent = NEXT_LABELS[0];
         btnNext.style.display = "";
+        pushHistory();
       }
       cancelFFDraw();
     }
@@ -4380,6 +4878,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
         markFrameStale();
         interiorWalls.push({ x0: iwDrawStart.x, y0: iwDrawStart.y, x1: end.x, y1: end.y });
         rebuildInteriorWalls();
+        pushHistory();
       }
       cancelIWDraw();
     }
@@ -4607,6 +5106,7 @@ document.addEventListener("keydown", (e) => {
     deselectOpening();
     removeOpeningByIdx(idx);
     rebuildScene();
+    pushHistory();
   }
   // Interior wall: Escape to cancel draw, Delete to remove selected
   if (e.key === "Escape" && currentStep === 1 && iwDrawStart) {
@@ -4629,23 +5129,40 @@ document.addEventListener("keyup", (e) => {
 $("btnDeleteIW").addEventListener("click", deleteSelectedIW);
 $("btnDeleteFF").addEventListener("click", deleteSelectedFF);
 $("btnDistributeOpenings").addEventListener("click", distributeSelectedOpenings);
+$("btnDismissScaleWorker").addEventListener("click", dismissScaleWorker);
+
+function setIwToRidge(v) {
+  iwToRidge = !!v;
+  $("inIwToRidge").checked = iwToRidge;
+  $("inIwToRidgeRoof").checked = iwToRidge;
+  markFrameStale();
+  rebuildInteriorWalls();
+}
+$("inIwToRidge").addEventListener("change", e => { setIwToRidge(e.target.checked); pushHistory(); });
+$("inIwToRidgeRoof").addEventListener("change", e => { setIwToRidge(e.target.checked); pushHistory(); });
 
 for (const inp of [inW, inD, inH]) inp.addEventListener("input", rebuildRoom);
 // Clamp direct typing on blur/change so HTML max caps are enforced in code.
-inW.addEventListener("change", () => { inW.value = Math.round(clamp(+inW.value || LIM.W_MIN, LIM.W_MIN, LIM.W_MAX)); rebuildRoom(); });
-inD.addEventListener("change", () => { inD.value = Math.round(clamp(+inD.value || LIM.D_MIN, LIM.D_MIN, LIM.D_MAX)); rebuildRoom(); });
-inH.addEventListener("change", () => { inH.value = Math.round(clamp(+inH.value || LIM.H_MIN, LIM.H_MIN, LIM.H_MAX)); rebuildRoom(); });
-inT.addEventListener("change", rebuildRoom);
-inTI.addEventListener("change", () => { markFrameStale(); rebuildInteriorWalls(); if (selectedIW >= 0) { const prev = selectedIW; deselectIW(); selectIW(prev); } });
-inTR.addEventListener("change", () => { rebuildRoom(); if (roofGroup) { buildRoof(); positionRoofArrows(); } });
+inW.addEventListener("change", () => { inW.value = Math.round(clamp(+inW.value || LIM.W_MIN, LIM.W_MIN, LIM.W_MAX)); rebuildRoom(); pushHistory(); });
+inD.addEventListener("change", () => { inD.value = Math.round(clamp(+inD.value || LIM.D_MIN, LIM.D_MIN, LIM.D_MAX)); rebuildRoom(); pushHistory(); });
+inH.addEventListener("change", () => { inH.value = Math.round(clamp(+inH.value || LIM.H_MIN, LIM.H_MIN, LIM.H_MAX)); rebuildRoom(); pushHistory(); });
+inT.addEventListener("change", () => { rebuildRoom(); pushHistory(); });
+inTI.addEventListener("change", () => { markFrameStale(); rebuildInteriorWalls(); if (selectedIW >= 0) { const prev = selectedIW; deselectIW(); selectIW(prev); } pushHistory(); });
+inTR.addEventListener("change", () => { rebuildRoom(); if (roofGroup) { buildRoof(); positionRoofArrows(); } pushHistory(); });
 
 // Opening inspector inputs
 $("oInspW").addEventListener("input", () => {
   if (selectedOpening < 0) return;
-  const v = parseInt($("oInspW").value);
-  if (!v || v < 200) return;
-  openings[selectedOpening].width = v;
+  const raw = parseInt($("oInspW").value);
+  if (!raw || raw < 200) return;
+  const o = openings[selectedOpening];
+  const maxW = Math.floor(maxAllowedWidth(o.wallIdx, o.posAlong, selectedOpening));
+  o.width = Math.min(raw, Math.max(200, maxW));
   rebuildSingleOpening(selectedOpening);
+});
+$("oInspW").addEventListener("change", () => {
+  if (selectedOpening < 0) return;
+  $("oInspW").value = openings[selectedOpening].width;
 });
 $("oInspH").addEventListener("input", () => {
   if (selectedOpening < 0) return;
@@ -4667,6 +5184,7 @@ $("btnDeleteOpening").addEventListener("click", () => {
   deselectOpening();
   removeOpeningByIdx(idx);
   rebuildScene();
+  pushHistory();
 });
 
 // Step tab clicks — goToStep (case 4) handles cache vs. regenerate.
@@ -4703,11 +5221,14 @@ document.querySelectorAll(".tool-item").forEach(el => {
 // Roof type selection
 document.querySelectorAll(".roof-option").forEach(el => {
   el.addEventListener("click", () => {
-    if (roofType !== el.dataset.roof) markFrameStale();
+    if (roofType === el.dataset.roof) return;
+    markFrameStale();
     roofType = el.dataset.roof;
     if (roofType === "gable") flatSlopeH = [0, 0];
     document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
+    $("roofIwToRidgeRow").style.display = roofType === "gable" ? "" : "none";
     rebuildScene();
+    pushHistory();
   });
 });
 
@@ -4718,7 +5239,9 @@ function enterSet() {
   tip.style.display = "none";
   hideDot();
   panel.classList.add("open");
-  btnClear.style.display = "";
+  btnUndo.style.display = "";
+  btnRedo.style.display = "";
+  updateUndoRedoButtons();
   btnNext.textContent = NEXT_LABELS[0];
   btnNext.style.display = "";
   orbit.enabled = true;
@@ -4730,6 +5253,9 @@ function enterSet() {
   const cx = (c1.x + c2.x) / 2;
   const cy = (c1.y + c2.y) / 2;
   orbit.target.set(cx, cy, (+inH.value) / 3);
+
+  undoStack.length = 0; histIdx = -1;
+  pushHistory();
 }
 
 function loadExample() {
@@ -4783,6 +5309,7 @@ function startDrawing() {
   dimEdit.style.display = "none"; editingAxis = null;
   c1 = c2 = null;
   mode = M.P1;
+  scaleWorkerDismissed = false;
   currentStep = 0;
   setStep(0);
   stepVisited.fill(false);
@@ -4797,7 +5324,8 @@ function startDrawing() {
   roofPanel.classList.remove("open");
   $("roofToolPanel").classList.remove("open");
   $("iwPanel").classList.remove("open");
-  btnClear.style.display = "none";
+  btnUndo.style.display = "none";
+  btnRedo.style.display = "none";
   btnNext.style.display = "none";
   $("btnTopView").style.display = "flex";
   orbit.enabled = false;
@@ -4822,6 +5350,16 @@ onResize();
   updateInspectorPosition();
   positionFFInspector();
   updateDistributePanelPosition();
+  if (scaleWorker) {
+    tickScaleWorkerWalk();
+    scaleWorker.visible = scaleWorkerShouldShow();
+    if (scaleWorker.visible) {
+      const dx = cam.position.x - scaleWorker.position.x;
+      const dy = cam.position.y - scaleWorker.position.y;
+      scaleWorker.rotation.z = Math.atan2(dx, -dy);
+    }
+    updateScaleWorkerPill();
+  }
   renderer.render(scene, cam);
 })();
 </script>
