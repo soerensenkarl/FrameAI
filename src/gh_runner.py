@@ -24,26 +24,28 @@ _setter = _rdoc.GetType().GetMethod(
 _setter.Invoke(None, System.Array[System.Object]([_rdoc]))
 
 
-def solve_definition(gh_filename, inputs):
-    """Load a .gh file, feed named Brep inputs, solve, return output geometry.
+def solve_definition(gh_filename, inputs, data_nicknames=None):
+    """Load a .gh file, feed named Brep inputs, solve, return outputs.
 
     The GH definition must use:
-      - **Get Geometry** components (Params > Util) with matching NickNames
-      - A **Context Bake** component (Params > Util) for output
+      - **Get Geometry** components (Params > Util) with matching NickNames for inputs
+      - **Context Bake** components (Params > Util) for geometry outputs
+      - Optional: any `IGH_Param` (Param Text/Integer/Number) whose NickName is
+        listed in ``data_nicknames`` — their solved values are harvested as
+        flat Python lists.
 
     Parameters
     ----------
     gh_filename : str
-        Filename inside the definitions/ folder (e.g. "generator_3.0.gh").
     inputs : dict[str, list[Rhino.Geometry.Brep]]
-        Maps Get Geometry component NickNames to lists of Breps.
-        e.g. {"WallBreps": [...], "DoorBreps": [...]}
+    data_nicknames : iterable[str] or None
+        NickNames of floating params whose VolatileData should be returned.
 
     Returns
     -------
-    dict[str, list[GeometryBase]]
-        Geometry keyed by Context Bake NickName.
-        e.g. {"MeshOut": [Mesh, ...], "BrepOut": [Brep, ...]}
+    dict[str, list]
+        Geometry keyed by Context Bake NickName, plus flat value lists keyed
+        by each requested data-output NickName.
     """
     path = os.path.join(DEFINITIONS_DIR, gh_filename)
     if not os.path.isfile(path):
@@ -114,5 +116,40 @@ def solve_definition(gh_filename, inputs):
                 geom_list.append(val)
         if geom_list:
             outputs.setdefault(key, []).extend(geom_list)
+
+    # -- Read any floating Param outputs whose NickName is in data_nicknames --
+    # Interface-inherited properties (IGH_Param.VolatileData, IGH_Goo.Value) aren't
+    # exposed through pythonnet's hasattr/getattr on the concrete class, so we
+    # reach them via reflection — same pattern as Context Bake above.
+    if data_nicknames:
+        wanted = set(data_nicknames)
+        for obj in doc.Objects:
+            nick = getattr(obj, "NickName", None) or ""
+            if nick not in wanted:
+                continue
+            ot = obj.GetType()
+            vd_prop = ot.GetProperty("VolatileData")
+            if not vd_prop:
+                continue
+            tree = vd_prop.GetValue(obj)
+            if tree is None:
+                continue
+            vals = []
+            try:
+                path_count = tree.PathCount
+                for i in range(path_count):
+                    branch = tree.get_Branch(tree.get_Path(i))
+                    if branch is None:
+                        continue
+                    for goo in branch:
+                        if goo is None:
+                            continue
+                        gp = goo.GetType().GetProperty("Value")
+                        v = gp.GetValue(goo) if gp else goo
+                        if v is not None:
+                            vals.append(v)
+            except Exception:
+                continue
+            outputs[nick] = vals
 
     return outputs

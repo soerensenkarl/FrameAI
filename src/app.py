@@ -159,6 +159,26 @@ def _save_breps_3dm(breps, filename):
     return _write_3dm(model, filename)
 
 
+def _save_layered_breps_3dm(layer_groups, filename):
+    """Save Breps grouped onto named layers.
+
+    `layer_groups` is an iterable of (layer_name, (r, g, b), [breps]).
+    Empty groups still create the layer so the layer structure is stable.
+    """
+    import Rhino.DocObjects as rdoc
+    from System.Drawing import Color
+    model = rio.File3dm()
+    for name, rgb, breps in layer_groups:
+        color = Color.FromArgb(int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        layer_idx = model.AllLayers.AddLayer(name, color)
+        attrs = rdoc.ObjectAttributes()
+        attrs.LayerIndex = layer_idx
+        for b in breps:
+            if b is not None:
+                model.Objects.AddBrep(b, attrs)
+    return _write_3dm(model, filename)
+
+
 def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type,
                          interior_walls=None, iw_t=None,
                          width=None, height=None, sill=None):
@@ -175,29 +195,32 @@ def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type,
     oh = float(height) if height is not None else default_h
     z_base = float(sill) if (opening_type == "window" and sill is not None) else default_sill
     i_t = float(iw_t) if iw_t is not None else t
+    # Openings extrude 50 mm past each face of the host wall so the cutter
+    # Brep reliably overshoots the wall on both sides (total +100 mm thicker).
+    pad = 50.0
 
     if wall_idx == 0:  # south wall, along +X
         cx = x0 + pos_along
         box = rg.Box(rg.Plane.WorldXY,
                      rg.Interval(cx - ow / 2, cx + ow / 2),
-                     rg.Interval(y0, y0 + t),
+                     rg.Interval(y0 - pad, y0 + t + pad),
                      rg.Interval(z_base, z_base + oh))
     elif wall_idx == 1:  # north wall, along +X
         cx = x0 + pos_along
         box = rg.Box(rg.Plane.WorldXY,
                      rg.Interval(cx - ow / 2, cx + ow / 2),
-                     rg.Interval(y1 - t, y1),
+                     rg.Interval(y1 - t - pad, y1 + pad),
                      rg.Interval(z_base, z_base + oh))
     elif wall_idx == 2:  # west wall, along +Y (origin at y0+t)
         cy = y0 + t + pos_along
         box = rg.Box(rg.Plane.WorldXY,
-                     rg.Interval(x0, x0 + t),
+                     rg.Interval(x0 - pad, x0 + t + pad),
                      rg.Interval(cy - ow / 2, cy + ow / 2),
                      rg.Interval(z_base, z_base + oh))
     elif wall_idx == 3:  # east wall, along +Y (origin at y0+t)
         cy = y0 + t + pos_along
         box = rg.Box(rg.Plane.WorldXY,
-                     rg.Interval(x1 - t, x1),
+                     rg.Interval(x1 - t - pad, x1 + pad),
                      rg.Interval(cy - ow / 2, cy + ow / 2),
                      rg.Interval(z_base, z_base + oh))
     else:
@@ -216,13 +239,13 @@ def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type,
             cx = xMin + pos_along
             box = rg.Box(rg.Plane.WorldXY,
                          rg.Interval(cx - ow / 2, cx + ow / 2),
-                         rg.Interval(iy0 - i_t / 2, iy0 + i_t / 2),
+                         rg.Interval(iy0 - i_t / 2 - pad, iy0 + i_t / 2 + pad),
                          rg.Interval(z_base, z_base + oh))
         else:
             yMin = min(iy0, iy1)
             cy = yMin + pos_along
             box = rg.Box(rg.Plane.WorldXY,
-                         rg.Interval(ix0 - i_t / 2, ix0 + i_t / 2),
+                         rg.Interval(ix0 - i_t / 2 - pad, ix0 + i_t / 2 + pad),
                          rg.Interval(cy - ow / 2, cy + ow / 2),
                          rg.Interval(z_base, z_base + oh))
     return box.ToBrep()
@@ -491,6 +514,18 @@ def generate_frame():
         flat_slope = data.get("flatSlopeH", [0, 0])
         is_flat_sloped = roof_type == "flat" and (flat_slope[0] != 0 or flat_slope[1] != 0)
 
+        # Gable geometry (shared by exterior gable walls AND iw-to-ridge interior walls)
+        if roof_type == "gable":
+            gbl_half_span = (d / 2) if ridge_along_x else (w / 2)
+            gbl_eave_lift = roof_t - ridge_h * t / gbl_half_span
+            gbl_h_eave = h + gbl_eave_lift
+            gbl_h_apex = h + ridge_h + gbl_eave_lift
+            gbl_center_x = (x0 + x1) / 2
+            gbl_center_y = (y0 + y1) / 2
+        else:
+            gbl_half_span = gbl_eave_lift = gbl_h_eave = gbl_h_apex = 0
+            gbl_center_x = gbl_center_y = 0
+
         wall_breps = []
         for i, (ox, oy, sx, sy) in enumerate(wall_specs):
             if sx <= 0 or sy <= 0:
@@ -505,11 +540,9 @@ def generate_frame():
                 # Build pentagon profile as closed polyline, then extrude
                 # Eave lift: raise the two sloped top edges by s = t * tan(slope) so the
                 # long walls stay at h while the gable pentagon rises above them.
-                half_span = (d / 2) if ridge_along_x else (w / 2)
-                # Lift so roof bottom plane meets the inner-top corner of the long walls.
-                eave_lift = roof_t - ridge_h * t / half_span
-                h_eave = h + eave_lift
-                h_apex = h + ridge_h + eave_lift
+                half_span = gbl_half_span
+                h_eave = gbl_h_eave
+                h_apex = gbl_h_apex
                 if ridge_along_x:
                     # Gable ends are west/east: profile in YZ, extruded along X
                     mid = sy / 2
@@ -597,6 +630,7 @@ def generate_frame():
 
         # Build interior wall Breps (uses its own thickness, not exterior t)
         iw_t = float(data.get("interiorThickness", t))
+        iw_to_ridge = bool(data.get("iwToRidge")) and roof_type == "gable"
         for iw in data.get("interiorWalls", []):
             ix0, iy0 = float(iw["x0"]), float(iw["y0"])
             ix1, iy1 = float(iw["x1"]), float(iw["y1"])
@@ -611,13 +645,60 @@ def generate_frame():
                 bx1 = ix0 + iw_t / 2
                 by0 = min(iy0, iy1)
                 by1 = max(iy0, iy1)
-            box = rg.Box(
-                rg.Plane.WorldXY,
-                rg.Interval(bx0, bx1),
-                rg.Interval(by0, by1),
-                rg.Interval(0, h),
-            )
-            wall_breps.append(box.ToBrep())
+
+            if iw_to_ridge:
+                # Build pentagon/trapezoid profile that follows the gable underside,
+                # then extrude by iw_t perpendicular to the wall length.
+                def _underside(xw, yw):
+                    if ridge_along_x:
+                        dist = min(gbl_half_span, abs(yw - gbl_center_y))
+                    else:
+                        dist = min(gbl_half_span, abs(xw - gbl_center_x))
+                    return gbl_h_eave + ridge_h * (1 - dist / gbl_half_span)
+
+                if is_horiz:
+                    y_wall = iy0
+                    z_left = _underside(bx0, y_wall)
+                    z_right = _underside(bx1, y_wall)
+                    pts = [
+                        rg.Point3d(bx0, by0, 0),
+                        rg.Point3d(bx1, by0, 0),
+                        rg.Point3d(bx1, by0, z_right),
+                    ]
+                    # Peak only if ridge is perpendicular to the wall and crosses it
+                    if (not ridge_along_x) and bx0 + 1 < gbl_center_x < bx1 - 1:
+                        pts.append(rg.Point3d(gbl_center_x, by0, gbl_h_apex))
+                    pts.append(rg.Point3d(bx0, by0, z_left))
+                    pts.append(rg.Point3d(bx0, by0, 0))
+                    direction = rg.Vector3d(0, iw_t, 0)
+                else:
+                    x_wall = ix0
+                    z_bot = _underside(x_wall, by0)
+                    z_top = _underside(x_wall, by1)
+                    pts = [
+                        rg.Point3d(bx0, by0, 0),
+                        rg.Point3d(bx0, by1, 0),
+                        rg.Point3d(bx0, by1, z_top),
+                    ]
+                    if ridge_along_x and by0 + 1 < gbl_center_y < by1 - 1:
+                        pts.append(rg.Point3d(bx0, gbl_center_y, gbl_h_apex))
+                    pts.append(rg.Point3d(bx0, by0, z_bot))
+                    pts.append(rg.Point3d(bx0, by0, 0))
+                    direction = rg.Vector3d(iw_t, 0, 0)
+
+                curve = rg.PolylineCurve(System.Array[rg.Point3d](pts))
+                srf = rg.Surface.CreateExtrusion(curve, direction)
+                brep = srf.ToBrep()
+                capped = brep.CapPlanarHoles(1.0)
+                wall_breps.append(capped if capped else brep)
+            else:
+                box = rg.Box(
+                    rg.Plane.WorldXY,
+                    rg.Interval(bx0, bx1),
+                    rg.Interval(by0, by1),
+                    rg.Interval(0, h),
+                )
+                wall_breps.append(box.ToBrep())
 
         # Build opening Breps from frontend placement data
         door_breps = []
@@ -647,7 +728,7 @@ def generate_frame():
             "DoorBreps": door_breps,
             "WindowBreps": window_breps,
             "RoofBreps": roof_breps,
-        })
+        }, data_nicknames=["cross_sec_out", "count_out", "total_length_out"])
 
         # "MeshOut" → display in browser, "BrepOut" → save to .3dm
         mesh_geoms = outputs.get("MeshOut", [])
@@ -679,9 +760,13 @@ def generate_frame():
                 elif tn == "Extrusion":
                     breps_out.append(geom.ToBrep())
 
-        # Save all input breps (walls + openings + roof) to design.3dm
-        all_input_breps = wall_breps + door_breps + window_breps + roof_breps
-        input_saved = _save_breps_3dm(all_input_breps, "design.3dm")
+        # Save all input breps to design.3dm, organized by layer.
+        input_saved = _save_layered_breps_3dm([
+            ("walls",   (180, 140,  90), wall_breps),
+            ("windows", ( 80, 170, 220), window_breps),
+            ("doors",   (230, 150,  60), door_breps),
+            ("roof",    (200,  70,  60), roof_breps),
+        ], "design.3dm")
 
         # Save frame Breps to frame.3dm
         frame_brep_saved = None
@@ -697,59 +782,70 @@ def generate_frame():
 
         verts, normals, tangents, tris = _members_to_triangles(mesh_geoms, breps_out)
 
-        # Compute frame statistics: total length per cross-section
-        STOCK_LENGTHS = [2400, 3000, 3600, 4200, 4800, 5400, 6000, 6600, 7200]
-        from collections import Counter, defaultdict
-        section_lengths = defaultdict(float)  # (sec_d, sec_w) → total mm
-        total_volume_mm3 = 0.0
-        total_stock_mm3 = 0.0
+        # Prefer stats straight from the GH definition (cross_sec_out / count_out /
+        # total_length_out — parallel lists, one entry per cross-section).
+        # Fall back to brep-bbox scanning when the data params are missing / empty.
+        cs_list = outputs.get("cross_sec_out") or []
+        ct_list = outputs.get("count_out") or []
+        tl_list = outputs.get("total_length_out") or []
+
+        part_list = []
+        total_volume_m3 = 0.0
         member_count = 0
 
-        for b in breps_out:
-            bb = b.GetBoundingBox(True)
-            dims = sorted([
-                round(bb.Max.X - bb.Min.X),
-                round(bb.Max.Y - bb.Min.Y),
-                round(bb.Max.Z - bb.Min.Z),
-            ])
-            sec_w, sec_d, length = dims[0], dims[1], dims[2]
-            # Round section to nearest 5mm, length to nearest 100mm
-            sec_w = round(sec_w / 5) * 5
-            sec_d = round(sec_d / 5) * 5
-            length = round(length / 100) * 100
+        if cs_list and len(cs_list) == len(ct_list) == len(tl_list):
+            for sec_str, cnt, tot_len_m in zip(cs_list, ct_list, tl_list):
+                sec_str = str(sec_str).lower().replace(" ", "")
+                try:
+                    w_mm, d_mm = (int(round(float(x))) for x in sec_str.split("x"))
+                except Exception:
+                    w_mm, d_mm = 0, 0
+                cnt = int(cnt)
+                tot_len_m = float(tot_len_m)
+                member_count += cnt
+                # Cross-section in mm² → m², times length in m → m³
+                total_volume_m3 += (w_mm * d_mm * 1e-6) * tot_len_m
+                part_list.append({
+                    "section": f"{w_mm}x{d_mm}",
+                    "meters": round(tot_len_m, 1),
+                    "count": cnt,
+                })
+        else:
+            # Legacy fallback: walk the frame Breps and infer sections by bbox.
+            from collections import defaultdict
+            section_lengths = defaultdict(float)
+            total_volume_mm3 = 0.0
+            for b in breps_out:
+                bb = b.GetBoundingBox(True)
+                dims = sorted([
+                    round(bb.Max.X - bb.Min.X),
+                    round(bb.Max.Y - bb.Min.Y),
+                    round(bb.Max.Z - bb.Min.Z),
+                ])
+                sec_w, sec_d, length = dims[0], dims[1], dims[2]
+                sec_w = round(sec_w / 5) * 5
+                sec_d = round(sec_d / 5) * 5
+                length = round(length / 100) * 100
+                section_lengths[(sec_d, sec_w)] += length
+                total_volume_mm3 += sec_w * sec_d * length
+                member_count += 1
+            for (sec_d, sec_w), total_len_mm in sorted(section_lengths.items()):
+                part_list.append({
+                    "section": f"{sec_d}x{sec_w}",
+                    "meters": round(total_len_mm / 1000, 1),
+                    "count": None,
+                })
+            total_volume_m3 = total_volume_mm3 / 1e9
 
-            section_lengths[(sec_d, sec_w)] += length
-            total_volume_mm3 += sec_w * sec_d * length
-            member_count += 1
-
-            # Find smallest stock length that fits
-            stock_len = length
-            for sl in STOCK_LENGTHS:
-                if sl >= length:
-                    stock_len = sl
-                    break
-            else:
-                stock_len = length  # longer than any stock
-            total_stock_mm3 += sec_w * sec_d * stock_len
-
-        # member_count already accumulated in loop
-        waste_pct = ((total_stock_mm3 - total_volume_mm3) / total_stock_mm3 * 100
-                     if total_stock_mm3 > 0 else 0)
-        total_volume_m3 = total_volume_mm3 / 1e9
+        # Waste is no longer available from GH (per-member lengths needed) —
+        # report the fabrication mark-up line separately.
+        waste_pct = 0
         weight_kg = total_volume_m3 * 500
 
         # Estimated build time: ~5 min per member
         build_minutes = member_count * 5
         build_h = build_minutes // 60
         build_m = build_minutes % 60
-
-        # Build part list: total meters per cross-section
-        part_list = []
-        for (sec_d, sec_w), total_len_mm in sorted(section_lengths.items()):
-            part_list.append({
-                "section": f"{sec_d}x{sec_w}",
-                "meters": round(total_len_mm / 1000, 1),
-            })
 
         # Pricing in DKK: structural C24 timber ~3350 DKK/m³ + 35% fabrication
         timber_cost = total_volume_m3 * 3350
