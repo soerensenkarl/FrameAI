@@ -256,7 +256,7 @@ def _solid_from_profile(profile_pts, direction):
     return None
 
 
-def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None, t=0):
+def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None, t=0, roof_t=295):
     """Create roof as closed-solid Brep(s) matching the frontend visualization.
 
     Each returned Brep has 6 planar faces so the Grasshopper definition can
@@ -271,7 +271,7 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
     if roof_type == "gable":
         if ridge_h is None:
             ridge_h = min(w, d) * 0.35
-        slab = 295
+        slab = roof_t
         breps = []
         if w >= d:
             # Ridge along X. No eaves: roof extent in Y is [y0, y1] (flush with
@@ -331,7 +331,7 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
         return breps
 
     # Flat roof (possibly sloped)
-    slab = 295
+    slab = roof_t
     f, b = flat_slope[0], flat_slope[1]
     if f == 0 and b == 0:
         box = rg.Box(rg.Plane.WorldXY,
@@ -446,6 +446,7 @@ def generate_frame():
         y1 = float(data["y1"])
         h = float(data.get("height", 2400))
         t = float(data.get("thickness", 150))
+        roof_t = float(data.get("roofThickness", 295))
 
         w = x1 - x0
         d = y1 - y0
@@ -495,8 +496,7 @@ def generate_frame():
                 # long walls stay at h while the gable pentagon rises above them.
                 half_span = (d / 2) if ridge_along_x else (w / 2)
                 # Lift so roof bottom plane meets the inner-top corner of the long walls.
-                roof_slab = 295
-                eave_lift = roof_slab - ridge_h * t / half_span
+                eave_lift = roof_t - ridge_h * t / half_span
                 h_eave = h + eave_lift
                 h_apex = h + ridge_h + eave_lift
                 if ridge_along_x:
@@ -625,7 +625,8 @@ def generate_frame():
                                        roof_type,
                                        ridge_h=ridge_h if roof_type == "gable" else None,
                                        flat_slope=flat_slope,
-                                       t=t)
+                                       t=t,
+                                       roof_t=roof_t)
 
         gh_file = "test_simple.gh" if data.get("devSimple") else "generator_3.0.gh"
         outputs = solve_definition(gh_file, {
