@@ -717,6 +717,7 @@
   <p style="font-size:12px; color:rgba(255,255,255,0.5); margin:0 0 8px">
     Click start point on a wall,<br>then click end point.
   </p>
+  <div class="f"><label>Thickness</label> <div class="fr"><select id="inTI"><option value="70">70</option><option value="95" selected>95</option><option value="120">120</option><option value="145">145</option><option value="195">195</option></select><span class="u">mm</span></div></div>
   <button class="btn-delete" id="btnDeleteIW" style="display:none">Delete Wall</button>
 </div>
 
@@ -730,6 +731,7 @@
     <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="20" width="28" height="14" rx="1"/><polyline points="4,20 20,6 36,20" stroke-width="2.2"/></svg>
     Gable
   </div>
+  <div class="f" style="width:100%"><label>Thickness</label> <div class="fr"><select id="inTR"><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option><option value="345">345</option><option value="395">395</option></select><span class="u">mm</span></div></div>
 </div>
 
 <!-- Frame info panel (shown after generation) -->
@@ -771,12 +773,11 @@
 
 <!-- Opening inspector (shown when an opening is selected in step 1) -->
 <div class="panel glass" id="openingInspector">
-  <span class="panel-title" id="inspectorTitle">Window</span>
-  <div class="f"><label>Width</label><div class="fr"><input type="number" id="oInspW" min="200" max="6000" step="10"><span class="u">mm</span></div></div>
-  <div class="f"><label>Height</label><div class="fr"><input type="number" id="oInspH" min="200" max="4000" step="10"><span class="u">mm</span></div></div>
-  <div class="f" id="oInspSillRow"><label>Sill height</label><div class="fr"><input type="number" id="oInspSill" min="0" max="3000" step="10"><span class="u">mm</span></div></div>
   <button class="btn-delete" id="btnDeleteOpening">Delete</button>
 </div>
+<!-- Hidden shims so existing input listeners keep binding without error -->
+<input type="hidden" id="oInspW"><input type="hidden" id="oInspH"><input type="hidden" id="oInspSill">
+<span id="inspectorTitle" style="display:none"></span><span id="oInspSillRow" style="display:none"></span>
 
 <!-- House type picker (shown at start) -->
 <div class="house-picker" id="housePicker">
@@ -1147,7 +1148,7 @@ function positionRoofArrows() {
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
   const h = +inH.value;
   const w = x1 - x0, d = y1 - y0;
-  const roofT = 295;
+  const roofT = +inTR.value;
   const ridgeAlongX = w >= d;
 
   if (roofType === "gable") {
@@ -1329,7 +1330,7 @@ const btnClear = $("btnClear");
 const btnNext  = $("btnNext");
 const leftPanel = $("leftPanel");
 const roofPanel = $("roofPanel");
-const inW = $("inW"), inD = $("inD"), inH = $("inH"), inT = $("inT");
+const inW = $("inW"), inD = $("inD"), inH = $("inH"), inT = $("inT"), inTI = $("inTI"), inTR = $("inTR");
 // Settings / Dev mode
 const btnDev = $("btnDev"), devPanel = $("devPanel");
 btnDev.addEventListener("click", () => {
@@ -1654,7 +1655,7 @@ function rebuildScene() {
   else if (roofGroup) { scene.remove(roofGroup); roofGroup = null; }
   if (currentStep === 0) positionArrows();
   positionRoofArrows();
-  updateDims();
+  if (currentStep === 0) updateDims(); else hideDims();
   rebuildOpenings();
   rebuildInteriorWalls();
 }
@@ -1960,6 +1961,9 @@ function selectOpening(idx) {
   selectedOpening = idx;
   applySelectionHighlight(idx);
   showOpeningInspector(idx);
+  const o = openings[idx];
+  const info = o && wallInfo(o.wallIdx);
+  if (info) showOpeningDims(info, o.posAlong, o.type, { width: o.width, height: o.height, sill: o.sill }, idx);
 }
 
 function deselectOpening() {
@@ -1967,6 +1971,7 @@ function deselectOpening() {
   removeSelectionHighlight(selectedOpening);
   selectedOpening = -1;
   $("openingInspector").classList.remove("open");
+  hideOpeningDims();
 }
 
 function showOpeningInspector(idx) {
@@ -2037,48 +2042,70 @@ function hideOpeningDims() {
   if (openingDimGroup) { scene.remove(openingDimGroup); openingDimGroup = null; }
 }
 
-function showOpeningDims(info, posAlong, type) {
+function showOpeningDims(info, posAlong, type, overrides, openingIdx) {
   hideOpeningDims();
   const t = +inT.value;
-  const ow = type === "window" ? WINDOW_W : DOOR_W;
-  const oh = type === "window" ? WINDOW_H : DOOR_H;
-  const oz = type === "window" ? WINDOW_SILL + WINDOW_H / 2 : DOOR_H / 2;
+  const ow = (overrides && overrides.width  != null) ? overrides.width  : (type === "window" ? WINDOW_W : DOOR_W);
+  const oh = (overrides && overrides.height != null) ? overrides.height : (type === "window" ? WINDOW_H : DOOR_H);
+  const sill = (overrides && overrides.sill != null) ? overrides.sill : WINDOW_SILL;
+  const bot = type === "window" ? sill : 0;
+  const top = bot + oh;
+  const oz = (bot + top) / 2;
   const half = ow / 2;
   const edgePad = info.isInterior ? half : (half + t);
   posAlong = Math.max(edgePad, Math.min(info.length - edgePad, posAlong));
   const leftP = posAlong - half;
   const rightP = posAlong + half;
-  if (leftP <= 1 && info.length - rightP <= 1) return;
 
-  const outPush = (info.isInterior ? 0 : t / 2) + 8;   // sit just off the face
+  const outPush = (info.isInterior ? 0 : t / 2) + 8;
   const tickH = 150;
-  const pt = (p) => new THREE.Vector3(
+  // point on the wall face at (along-p, z)
+  const pt = (p, z) => new THREE.Vector3(
     info.origin.x + info.along.x * p + info.outward.x * outPush,
     info.origin.y + info.along.y * p + info.outward.y * outPush,
-    oz
-  );
-  const ptH = (p, dz) => new THREE.Vector3(
-    info.origin.x + info.along.x * p + info.outward.x * outPush,
-    info.origin.y + info.along.y * p + info.outward.y * outPush,
-    oz + dz
+    z
   );
 
   const pts = [];
-  const labels = [];
+  const labels = [];  // { p, z, len, axis }
+
+  // ── Left/right gap dims (horizontal on wall, at opening center height) ──
   if (leftP > 1) {
-    pts.push(ptH(0, -tickH), ptH(0, tickH));
-    pts.push(pt(0), pt(leftP));
-    pts.push(ptH(leftP, -tickH), ptH(leftP, tickH));
-    const mid = leftP / 2;
-    labels.push({ p: mid, len: leftP });
+    pts.push(pt(0, oz - tickH),    pt(0, oz + tickH));
+    pts.push(pt(0, oz),            pt(leftP, oz));
+    pts.push(pt(leftP, oz - tickH), pt(leftP, oz + tickH));
+    labels.push({ p: leftP / 2, z: oz + tickH + 200, len: leftP, axis: null });
   }
   const rSpan = info.length - rightP;
   if (rSpan > 1) {
-    pts.push(ptH(rightP, -tickH), ptH(rightP, tickH));
-    pts.push(pt(rightP), pt(info.length));
-    pts.push(ptH(info.length, -tickH), ptH(info.length, tickH));
-    const mid = rightP + rSpan / 2;
-    labels.push({ p: mid, len: rSpan });
+    pts.push(pt(rightP, oz - tickH),       pt(rightP, oz + tickH));
+    pts.push(pt(rightP, oz),               pt(info.length, oz));
+    pts.push(pt(info.length, oz - tickH),  pt(info.length, oz + tickH));
+    labels.push({ p: rightP + rSpan / 2, z: oz + tickH + 200, len: rSpan, axis: null });
+  }
+
+  // ── Width dim (horizontal, below opening) ──
+  const wz = bot - 250;
+  pts.push(pt(leftP, wz - tickH),  pt(leftP, wz + tickH));
+  pts.push(pt(leftP, wz),          pt(rightP, wz));
+  pts.push(pt(rightP, wz - tickH), pt(rightP, wz + tickH));
+  labels.push({ p: posAlong, z: wz - 250, len: ow, axis: "ow" });
+
+  // ── Height dim (vertical, just outside right edge of opening) ──
+  const hOff = 300;   // offset along wall outside the opening
+  const hp = rightP + hOff;
+  pts.push(pt(hp - tickH, bot), pt(hp + tickH, bot));
+  pts.push(pt(hp, bot),         pt(hp, top));
+  pts.push(pt(hp - tickH, top), pt(hp + tickH, top));
+  labels.push({ p: hp + 400, z: (bot + top) / 2, len: oh, axis: "oh" });
+
+  // ── Sill dim (vertical, just outside left edge, windows only) ──
+  if (type === "window" && sill > 1) {
+    const sp = leftP - hOff;
+    pts.push(pt(sp - tickH, 0),    pt(sp + tickH, 0));
+    pts.push(pt(sp, 0),            pt(sp, sill));
+    pts.push(pt(sp - tickH, sill), pt(sp + tickH, sill));
+    labels.push({ p: sp - 400, z: sill / 2, len: sill, axis: "os" });
   }
 
   openingDimGroup = new THREE.Group();
@@ -2089,8 +2116,12 @@ function showOpeningDims(info, posAlong, type) {
 
   for (const lab of labels) {
     const sprite = makeTextSprite((lab.len / 1000).toFixed(2) + " m", "#F9BC06");
-    const wp = pt(lab.p);
-    sprite.position.set(wp.x, wp.y, oz + tickH + 200);
+    const wp = pt(lab.p, lab.z);
+    sprite.position.set(wp.x, wp.y, wp.z);
+    if (lab.axis && openingIdx != null) {
+      sprite.userData.dimAxis = lab.axis;
+      sprite.userData.openingIdx = openingIdx;
+    }
     openingDimGroup.add(sprite);
   }
   scene.add(openingDimGroup);
@@ -2202,7 +2233,7 @@ function buildRoof() {
   const t = +inT.value;
   const w = x1 - x0, d = y1 - y0;
   const overhang = 200;
-  const roofT = 295;
+  const roofT = +inTR.value;
 
   roofGroup = new THREE.Group();
 
@@ -2278,66 +2309,62 @@ function buildRoof() {
       roofGroup.add(edges);
     }
   } else {
-    // Gable: two sloped faces, each thickened into a triangular-prism wedge
+    // Gable: no eaves. Roof ends at outer face of long walls (eave direction)
+    // and at the inside of the pentagon walls (ridge direction).
     const ridgeH = getRidgeH();
     const ridgeAlongX = w >= d;
-    const oh = overhang;
-
-    // Each face: 4 outer verts (top surface) + 4 inner verts (bottom surface, offset down by roofT).
-    // The top plane is colinear with the (lifted) pentagon top — so the overhang eave drops
-    // below the lifted eave by (ridgeH / halfSpan) * oh, extending the slope outward past the
-    // footprint. The pentagon is lifted by `s` = OWT * tan(slope) so long walls stay at h.
     const halfSpan = ridgeAlongX ? d / 2 : w / 2;
     const s = roofT - ridgeH * t / halfSpan;
     const ridgeZ = h + ridgeH + s;
-    const eaveDrop = ridgeH * oh / halfSpan;
-    const eaveZ = h + s - eaveDrop;
+    const eaveZ = h + s;
     let faces;
     if (ridgeAlongX) {
       const midY = y0 + d / 2;
+      const xL = x0 + t, xR = x1 - t;
       faces = [
         { // south face — eave at south, ridge at center
           top: [
-            [x0 - oh, y0 - oh, eaveZ],  [x1 + oh, y0 - oh, eaveZ],
-            [x1 + oh, midY, ridgeZ],  [x0 - oh, midY, ridgeZ],
+            [xL, y0, eaveZ],  [xR, y0, eaveZ],
+            [xR, midY, ridgeZ],  [xL, midY, ridgeZ],
           ],
           bot: [
-            [x0 - oh, y0 - oh, eaveZ - roofT],  [x1 + oh, y0 - oh, eaveZ - roofT],
-            [x1 + oh, midY, ridgeZ - roofT],  [x0 - oh, midY, ridgeZ - roofT],
+            [xL, y0, eaveZ - roofT],  [xR, y0, eaveZ - roofT],
+            [xR, midY, ridgeZ - roofT],  [xL, midY, ridgeZ - roofT],
           ],
         },
         { // north face
           top: [
-            [x0 - oh, midY, ridgeZ],  [x1 + oh, midY, ridgeZ],
-            [x1 + oh, y1 + oh, eaveZ],  [x0 - oh, y1 + oh, eaveZ],
+            [xL, midY, ridgeZ],  [xR, midY, ridgeZ],
+            [xR, y1, eaveZ],  [xL, y1, eaveZ],
           ],
           bot: [
-            [x0 - oh, midY, ridgeZ - roofT],  [x1 + oh, midY, ridgeZ - roofT],
-            [x1 + oh, y1 + oh, eaveZ - roofT],  [x0 - oh, y1 + oh, eaveZ - roofT],
+            [xL, midY, ridgeZ - roofT],  [xR, midY, ridgeZ - roofT],
+            [xR, y1, eaveZ - roofT],  [xL, y1, eaveZ - roofT],
           ],
         },
       ];
     } else {
       const midX = x0 + w / 2;
+      const yL = y0 + t, yR = y1 - t;
       faces = [
         { // west face
           top: [
-            [x0 - oh, y0 - oh, eaveZ],  [x0 - oh, y1 + oh, eaveZ],
-            [midX, y1 + oh, ridgeZ],  [midX, y0 - oh, ridgeZ],
+            [x0, yL, eaveZ],  [x0, yR, eaveZ],
+            [midX, yR, ridgeZ],  [midX, yL, ridgeZ],
           ],
           bot: [
-            [x0 - oh, y0 - oh, eaveZ - roofT],  [x0 - oh, y1 + oh, eaveZ - roofT],
-            [midX, y1 + oh, ridgeZ - roofT],  [midX, y0 - oh, ridgeZ - roofT],
+            [x0, yL, eaveZ - roofT],  [x0, yR, eaveZ - roofT],
+            [midX, yR, ridgeZ - roofT],  [midX, yL, ridgeZ - roofT],
           ],
         },
         { // east face
           top: [
-            [midX, y0 - oh, ridgeZ],  [midX, y1 + oh, ridgeZ],
-            [x1 + oh, y1 + oh, eaveZ],  [x1 + oh, y0 - oh, eaveZ],
+            [midX, yL, ridgeZ],  [midX, yR, ridgeZ],
+            [x1, yR, eaveZ],  [x1, yL, eaveZ],
           ],
           bot: [
-            [midX, y0 - oh, ridgeZ - roofT],  [midX, y1 + oh, ridgeZ - roofT],
-            [x1 + oh, y1 + oh, eaveZ - roofT],  [x1 + oh, y0 - oh, eaveZ - roofT],
+            [midX, yL, ridgeZ - roofT],  [midX, yR, ridgeZ - roofT],
+            [x1, yR, eaveZ - roofT],  [x1, yL, eaveZ - roofT],
           ],
         },
       ];
@@ -2380,7 +2407,7 @@ const iwSelectedMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughnes
 
 function rebuildInteriorWalls() {
   while (iwGroup.children.length) iwGroup.remove(iwGroup.children[0]);
-  const h = +inH.value, t = +inT.value;
+  const h = +inH.value, t = +inTI.value;
   interiorWalls.forEach((iw, i) => {
     const isHoriz = Math.abs(iw.y1 - iw.y0) < 1;
     const wallIdx = 4 + i;
@@ -3273,6 +3300,17 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     rc.setFromCamera(ndc, cam);
 
+    // Click orange opening-dim label → edit
+    if (openingDimGroup && selectedOpening >= 0) {
+      const dimSprites = [];
+      openingDimGroup.traverse(c => { if (c.isSprite && c.userData.dimAxis) dimSprites.push(c); });
+      const dHits = rc.intersectObjects(dimSprites);
+      if (dHits.length) {
+        openOpeningDimEdit(dHits[0].object, e);
+        return;
+      }
+    }
+
     const openingMeshes = [];
     openingsGroup.traverse(c => { if (c.isMesh) openingMeshes.push(c); });
     const oHits = rc.intersectObjects(openingMeshes);
@@ -3452,7 +3490,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     const hitPt = new THREE.Vector3();
     if (rc.ray.intersectPlane(vertPlane, hitPt)) {
       const h = +inH.value;
-      const roofT = 295;
+      const roofT = +inTR.value;
       flatSlopeH[draggingSlopeEdge] = Math.max(0, snap(hitPt.z - h - roofT));
       rebuildScene();
     }
@@ -3494,7 +3532,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     if (rc.ray.intersectPlane(vertPlane, hitPt)) {
       const h = +inH.value;
       const t = +inT.value;
-      const roofT = 295;
+      const roofT = +inTR.value;
       // ridge arrow is at h + ridgeH + s where s = roofT - ridgeH*t/halfSpan.
       // hitZ = h + roofT + ridgeH*(1 - t/halfSpan) → solve for ridgeH.
       const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
@@ -3757,9 +3795,50 @@ renderer.domElement.addEventListener("dblclick", (e) => {
   dimEdit.select();
 });
 
+let editingOpeningIdx = -1;
+
+function openOpeningDimEdit(sprite, e) {
+  editingAxis = sprite.userData.dimAxis;           // "ow" | "oh" | "os"
+  editingOpeningIdx = sprite.userData.openingIdx;
+  const o = openings[editingOpeningIdx];
+  if (!o) { editingAxis = null; return; }
+  const curMM = editingAxis === "ow" ? o.width
+              : editingAxis === "oh" ? o.height
+              : o.sill;
+  dimEdit.value = (curMM / 1000).toFixed(2);
+  dimEdit.style.display = "block";
+  dimEdit.style.left = (e.clientX - 45) + "px";
+  dimEdit.style.top = (e.clientY - 18) + "px";
+  dimEdit.focus();
+  dimEdit.select();
+}
+
 function applyDimEdit() {
   dimEdit.style.display = "none";
-  if (!editingAxis || !c1 || !c2) return;
+  if (!editingAxis) return;
+
+  // Opening dim editing
+  if (editingAxis === "ow" || editingAxis === "oh" || editingAxis === "os") {
+    const val = Math.round(parseFloat(dimEdit.value) * 1000);
+    const axis = editingAxis;
+    const idx = editingOpeningIdx;
+    editingAxis = null; editingOpeningIdx = -1;
+    if (!isFinite(val) || idx < 0) return;
+    const o = openings[idx];
+    if (!o) return;
+    if (axis === "ow" && val >= 200 && val <= 6000) o.width = val;
+    else if (axis === "oh" && val >= 200 && val <= 4000) o.height = val;
+    else if (axis === "os" && val >= 0 && val <= 3000) o.sill = val;
+    else return;
+    rebuildSingleOpening(idx);
+    if (selectedOpening === idx) {
+      const info = wallInfo(o.wallIdx);
+      if (info) showOpeningDims(info, o.posAlong, o.type, { width: o.width, height: o.height, sill: o.sill }, idx);
+    }
+    return;
+  }
+
+  if (!c1 || !c2) return;
   const val = parseFloat(dimEdit.value) * 1000;
   if (!val || val < 500) return;
 
@@ -3831,6 +3910,8 @@ $("btnDeleteFF").addEventListener("click", deleteSelectedFF);
 
 for (const inp of [inW, inD, inH]) inp.addEventListener("input", rebuildRoom);
 inT.addEventListener("change", rebuildRoom);
+inTI.addEventListener("change", () => { rebuildInteriorWalls(); if (selectedIW >= 0) { const prev = selectedIW; deselectIW(); selectIW(prev); } });
+inTR.addEventListener("change", () => { if (roofGroup) { buildRoof(); positionRoofArrows(); } });
 
 // Opening inspector inputs
 $("oInspW").addEventListener("input", () => {
