@@ -197,26 +197,64 @@
     transform: none;
     pointer-events: auto;
   }
-  /* Openings-only: compact, floating, black-tinted delete */
+  /* Openings-only: floating orange button, no panel chrome */
   #openingInspector {
     width: auto;
-    padding: 6px;
-    background: rgba(0, 0, 0, 0.45);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   #openingInspector .btn-delete {
     width: auto;
-    padding: 5px 12px;
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: rgba(255, 255, 255, 0.75);
+    padding: 8px 18px;
+    background: #F9BC06;
+    border: none;
+    border-radius: 999px;
+    color: #0a0a0a;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     margin: 0;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    transition: background 0.15s;
   }
   #openingInspector .btn-delete:hover {
-    background: rgba(0, 0, 0, 0.6);
-    border-color: rgba(255, 255, 255, 0.25);
-    color: #fff;
+    background: #e5ab00;
   }
+
+  /* Multi-select distribute panel — same floating pill style as the opening inspector */
+  #distributePanel {
+    position: fixed;
+    display: none;
+    width: auto;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    pointer-events: auto;
+    z-index: 20;
+  }
+  #distributePanel.open { display: block; }
+  #distributePanel .btn-distribute {
+    width: auto;
+    padding: 8px 18px;
+    background: #F9BC06;
+    border: none;
+    border-radius: 999px;
+    color: #0a0a0a;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    transition: background 0.15s;
+    cursor: pointer;
+  }
+  #distributePanel .btn-distribute:hover:not(:disabled) { background: #e5ab00; }
+  #distributePanel .btn-distribute:disabled { opacity: 0.45; cursor: not-allowed; }
 
   /* Free-form wall hover hint */
   .ff-hover-hint {
@@ -717,9 +755,9 @@
 <!-- Dimension panel -->
 <div class="panel glass" id="panel">
   <span class="panel-title">Dimensions</span>
-  <div class="f" id="rowW"><label>Width</label>  <div class="fr"><input type="number" id="inW" value="4000" min="500" step="10"><span class="u">mm</span></div></div>
-  <div class="f" id="rowD"><label>Depth</label>  <div class="fr"><input type="number" id="inD" value="3000" min="500" step="10"><span class="u">mm</span></div></div>
-  <div class="f"><label>Wall Height</label>    <div class="fr"><input type="number" id="inH" value="2400" min="500" step="10"><span class="u">mm</span></div></div>
+  <div class="f" id="rowW"><label>Width</label>  <div class="fr"><input type="number" id="inW" value="4000" min="2000" max="30000" step="10"><span class="u">mm</span></div></div>
+  <div class="f" id="rowD"><label>Depth</label>  <div class="fr"><input type="number" id="inD" value="3000" min="2000" max="20000" step="10"><span class="u">mm</span></div></div>
+  <div class="f"><label>Wall Height</label>    <div class="fr"><input type="number" id="inH" value="2400" min="2000" max="5000" step="10"><span class="u">mm</span></div></div>
   <div class="f"><label>Thickness</label> <div class="fr"><select id="inT"><option value="95">95</option><option value="120">120</option><option value="145">145</option><option value="195" selected>195</option><option value="245">245</option><option value="295">295</option></select><span class="u">mm</span></div></div>
 </div>
 
@@ -757,7 +795,7 @@
     Flat
   </div>
   <div class="roof-option" data-roof="gable">
-    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="20" width="28" height="14" rx="1"/><polyline points="4,20 20,6 36,20" stroke-width="2.2"/></svg>
+    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6,34 6,20 20,6 34,20 34,34"/></svg>
     Gable
   </div>
 </div>
@@ -808,6 +846,10 @@
 <!-- Opening inspector (shown when an opening is selected in step 1) -->
 <div class="panel glass" id="openingInspector">
   <button class="btn-delete" id="btnDeleteOpening">Delete</button>
+</div>
+<!-- Multi-select distribute panel (shift-click 2+ openings in step 2) -->
+<div id="distributePanel">
+  <button class="btn-distribute" id="btnDistributeOpenings">Distribute evenly</button>
 </div>
 <!-- Hidden shims so existing input listeners keep binding without error -->
 <input type="hidden" id="oInspW"><input type="hidden" id="oInspH"><input type="hidden" id="oInspSill">
@@ -1158,7 +1200,90 @@ slopeArrows[1].userData.slopeEdge = 1;
 const heightArrow = makeUpArrow();
 heightArrow.userData.isHeight = true;
 
+// Opening slide handle (shown when an opening is selected in step 2)
+function makeSlideHandle() {
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xffffff, side: THREE.DoubleSide, depthTest: false,
+    transparent: true, opacity: 0.95,
+  });
+  const mkShape = (sign) => {
+    const s = new THREE.Shape();
+    const s1 = sign * 460, s2 = sign * 230, s3 = sign * 120;
+    s.moveTo(s1, 0);
+    s.lineTo(s2, 120);
+    s.lineTo(s2, 55);
+    s.lineTo(s3, 55);
+    s.lineTo(s3, -55);
+    s.lineTo(s2, -55);
+    s.lineTo(s2, -120);
+    s.closePath();
+    return s;
+  };
+  const ring = new THREE.Shape();
+  ring.absarc(0, 0, 100, 0, Math.PI * 2, false);
+  const hole = new THREE.Path();
+  hole.absarc(0, 0, 60, 0, Math.PI * 2, true);
+  ring.holes.push(hole);
+
+  // Invisible padded hit plane so the whole handle area is easy to grab
+  const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
+  const hitGeo = new THREE.PlaneGeometry(1100, 320);
+  const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+  hitMesh.renderOrder = 997;
+
+  const group = new THREE.Group();
+  const parts = [
+    hitMesh,
+    new THREE.Mesh(new THREE.ShapeGeometry(mkShape(-1)), mat),
+    new THREE.Mesh(new THREE.ShapeGeometry(mkShape(1)), mat),
+    new THREE.Mesh(new THREE.ShapeGeometry(ring), mat),
+  ];
+  for (const p of parts) {
+    p.renderOrder = 998;
+    p.userData.isSlideHandle = true;
+    group.add(p);
+  }
+  group.userData.mat = mat;
+  group.visible = false;
+  scene.add(group);
+  return group;
+}
+const slideHandle = makeSlideHandle();
+let draggingSlide = -1;  // openings index while slide handle is being dragged
+
+function positionSlideHandle(idx) {
+  const o = openings[idx];
+  if (!o) { slideHandle.visible = false; return; }
+  const info = wallInfo(o.wallIdx);
+  if (!info) { slideHandle.visible = false; return; }
+  // Place on ground just outside the wall (beyond outer face), offset along outward normal.
+  const tVal = +inT.value;
+  const outPush = (info.isInterior ? 750 : (tVal / 2 + 750));
+  const px = info.origin.x + info.along.x * o.posAlong + info.outward.x * outPush;
+  const py = info.origin.y + info.along.y * o.posAlong + info.outward.y * outPush;
+  slideHandle.position.set(px, py, 5);
+  slideHandle.rotation.set(0, 0, Math.atan2(info.along.y, info.along.x));
+  slideHandle.visible = true;
+}
+function setSlideHandleHover(hover) {
+  if (!slideHandle.userData.mat) return;
+  slideHandle.userData.mat.color.set(hover ? 0xF9BC06 : 0xffffff);
+  const s = hover ? 1.2 : 1.0;
+  slideHandle.scale.set(s, s, s);
+}
+
 let customRidgeH = null;
+
+// Design limits — allow fun extremes but stay buildable.
+const LIM = {
+  W_MIN: 2000,  W_MAX: 30000,
+  D_MIN: 2000,  D_MAX: 20000,
+  H_MIN: 2000,  H_MAX: 5000,
+  FLAT_SLOPE_MAX: 3000,   // max vertical delta across a flat-sloped roof
+  RIDGE_MIN: 200,
+  SLOPE_MIN_DEG: 1, SLOPE_MAX_DEG: 45,
+};
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 let flatSlopeH = [0, 0];  // [edge0, edge1] height offsets for flat roof slope
 
 function defaultRidgeH() {
@@ -1219,17 +1344,32 @@ const dimLabels = [];
 const dimLineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthTest: false });
 const dimLineMatAccent = new THREE.LineBasicMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.9, depthTest: false });
 
-function makeTextSprite(text, fillStyle, fontSize) {
+function makeTextSprite(text, fillStyle, fontSize, bgColor) {
   const c = document.createElement("canvas");
   const ctx = c.getContext("2d");
   fontSize = fontSize || 64;
   ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
   const m = ctx.measureText(text);
-  const pad = 20;
-  c.width = m.width + pad * 2;
-  c.height = fontSize * 1.4;
+  const padX = bgColor ? 28 : 20;
+  const padY = bgColor ? 14 : 0;
+  c.width = m.width + padX * 2;
+  c.height = fontSize * 1.4 + padY * 2;
   // re-set font after resize
   ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+  if (bgColor) {
+    const rx = c.height / 2;  // full-pill radius
+    ctx.fillStyle = bgColor;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(0, 0, c.width, c.height, rx);
+    else {
+      ctx.moveTo(rx, 0);
+      ctx.lineTo(c.width - rx, 0);
+      ctx.arc(c.width - rx, c.height / 2, rx, -Math.PI / 2, Math.PI / 2);
+      ctx.lineTo(rx, c.height);
+      ctx.arc(rx, c.height / 2, rx, Math.PI / 2, -Math.PI / 2);
+    }
+    ctx.fill();
+  }
   ctx.fillStyle = fillStyle || "rgba(255,255,255,0.7)";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -1332,6 +1472,116 @@ function hideDims() {
   dimLabels.length = 0;
 }
 
+function showRoofDims() {
+  if (dimGroup) { scene.remove(dimGroup); dimGroup = null; }
+  dimLabels.length = 0;
+  if (houseMode === 'free') return;
+  if (!c1 || !c2 || roofType !== 'gable') return;
+
+  dimGroup = new THREE.Group();
+  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const w = x1 - x0, d = y1 - y0;
+  const h = +inH.value;
+  const t = +inT.value;
+  const roofT = +inTR.value;
+  const ridgeH = getRidgeH();
+  const ridgeAlongX = w >= d;
+  const halfSpan = ridgeAlongX ? d / 2 : w / 2;
+  const s = roofT - ridgeH * t / halfSpan;
+  const eaveZ = h + s;
+  const kipZ = h + ridgeH + s;
+  const slopeDeg = Math.atan2(ridgeH, halfSpan) * 180 / Math.PI;
+
+  const tick = 150;
+  const accent = "#F9BC06";
+  const labelBg = "rgba(40,40,40,0.82)";
+  const labelSize = 44;
+  // Vertical dim anchored at (vx, vy) going from z=0 to z=zTop.
+  // tickAxis "x" → tick marks run along ±x (for gable end facing ±x).
+  // tickAxis "y" → tick marks run along ±y.
+  const makeVert = (vx, vy, zTop, axis, label, tickAxis) => {
+    const pts = (tickAxis === "y") ? [
+      new THREE.Vector3(vx, vy - tick, 0),    new THREE.Vector3(vx, vy + tick, 0),
+      new THREE.Vector3(vx, vy, 0),           new THREE.Vector3(vx, vy, zTop),
+      new THREE.Vector3(vx, vy - tick, zTop), new THREE.Vector3(vx, vy + tick, zTop),
+    ] : [
+      new THREE.Vector3(vx - tick, vy, 0),    new THREE.Vector3(vx + tick, vy, 0),
+      new THREE.Vector3(vx,        vy, 0),    new THREE.Vector3(vx, vy, zTop),
+      new THREE.Vector3(vx - tick, vy, zTop), new THREE.Vector3(vx + tick, vy, zTop),
+    ];
+    const line = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), dimLineMatAccent);
+    line.renderOrder = 999;
+    dimGroup.add(line);
+    const spr = makeTextSprite(label, accent, labelSize, labelBg);
+    if (tickAxis === "y") spr.position.set(vx, vy - 500, zTop / 2);
+    else                  spr.position.set(vx - 500, vy, zTop / 2);
+    spr.userData.dimAxis = axis;
+    dimGroup.add(spr);
+    dimLabels.push(spr);
+  };
+
+  if (ridgeAlongX) {
+    // Kip dim: endpoint at the apex (x0, midY, kipZ) — runs along the gable-end face
+    makeVert(x0, (y0 + y1) / 2, kipZ, "kip", (kipZ / 1000).toFixed(2) + " m", "x");
+    // Tagfod dim: at the eave corner of the gable end
+    makeVert(x0, y0, eaveZ, "tagfod", (eaveZ / 1000).toFixed(2) + " m", "x");
+  } else {
+    makeVert((x0 + x1) / 2, y0, kipZ, "kip", (kipZ / 1000).toFixed(2) + " m", "y");
+    makeVert(x0, y0, eaveZ, "tagfod", (eaveZ / 1000).toFixed(2) + " m", "y");
+  }
+
+  // Slope angle indicator at the eave corner: horizontal leg + slope leg + arc + label.
+  {
+    const legLen = 1500;
+    const slopeRad = Math.atan2(ridgeH, halfSpan);
+    // Anchor = eave corner on the gable-end face (shared by both legs)
+    // For ridge-along-X: gable-end is at x=x0; legs live in YZ plane at x=x0.
+    // For ridge-along-Y: gable-end is at y=y0; legs live in XZ plane at y=y0.
+    const anchor = ridgeAlongX ? new THREE.Vector3(x0, y0, eaveZ)
+                               : new THREE.Vector3(x0, y0, eaveZ);
+    // "horiz" axis (into the gable) and "up" axis — used to parameterize points
+    const horizAxis = ridgeAlongX ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+    const upAxis    = new THREE.Vector3(0, 0, 1);
+
+    const ptAt = (dh, dv) => anchor.clone().addScaledVector(horizAxis, dh).addScaledVector(upAxis, dv);
+
+    const horizEnd = ptAt(legLen, 0);
+    const slopeEnd = ptAt(legLen * Math.cos(slopeRad), legLen * Math.sin(slopeRad));
+
+    const legPts = [anchor, horizEnd, anchor, slopeEnd];
+    const legGeo = new THREE.BufferGeometry().setFromPoints(legPts);
+    const legLine = new THREE.LineSegments(legGeo, dimLineMatAccent);
+    legLine.renderOrder = 999;
+    dimGroup.add(legLine);
+
+    // Arc between the two legs
+    const arcR = legLen * 0.4;
+    const arcSteps = 24;
+    const arcPts = [];
+    for (let i = 0; i <= arcSteps; i++) {
+      const a = slopeRad * (i / arcSteps);
+      arcPts.push(ptAt(arcR * Math.cos(a), arcR * Math.sin(a)));
+    }
+    const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPts);
+    const arcLine = new THREE.Line(arcGeo, dimLineMatAccent);
+    arcLine.renderOrder = 999;
+    dimGroup.add(arcLine);
+
+    // Label inside the wedge
+    const labelR = legLen * 0.7;
+    const labelA = slopeRad * 0.45;
+    const labelPos = ptAt(labelR * Math.cos(labelA), labelR * Math.sin(labelA));
+    const slopeSpr = makeTextSprite(slopeDeg.toFixed(1) + "°", accent, labelSize, labelBg);
+    slopeSpr.position.copy(labelPos);
+    slopeSpr.userData.dimAxis = "slope";
+    dimGroup.add(slopeSpr);
+    dimLabels.push(slopeSpr);
+  }
+
+  scene.add(dimGroup);
+}
+
 /* ────────────────── state ────────────────── */
 const M = { P1: 1, P2: 2, SET: 3 };
 let mode = M.P1;
@@ -1407,6 +1657,23 @@ const stepIntroHints = [
   "Review and purchase your frame"
 ];
 let roofType = "flat";       // "flat" | "gable"
+
+// Frame cache state: design mutations flip frameStale=true and relabel the
+// step-4 tab "Generate". After a successful generate the cached frameGroup is
+// reused (tab reads "Frame") until something changes.
+let frameStale = true;
+function markFrameStale() {
+  if (frameStale) return;
+  frameStale = true;
+  const lab = $("step4");
+  if (lab) lab.innerHTML = '<span class="step-num">5</span> Generate';
+}
+function markFrameFresh() {
+  frameStale = false;
+  const lab = $("step4");
+  if (lab) lab.innerHTML = '<span class="step-num">5</span> Frame';
+}
+
 const openings = [];         // { type, wallIdx, posAlong, mesh }
 let openingsGroup = new THREE.Group();
 scene.add(openingsGroup);
@@ -1689,9 +1956,61 @@ function rebuildScene() {
   else if (roofGroup) { scene.remove(roofGroup); roofGroup = null; }
   if (currentStep === 0) positionArrows();
   positionRoofArrows();
-  if (currentStep === 0) updateDims(); else hideDims();
+  if (currentStep === 0) updateDims();
+  else if (currentStep === 3 && roofType === 'gable') showRoofDims();
+  else hideDims();
   rebuildOpenings();
   rebuildInteriorWalls();
+  if (currentStep === 0) maybeFitExtents();
+}
+
+// If the house AABB is getting cut off (or near the edge) in step 0, zoom-to-fit.
+function maybeFitExtents() {
+  const bb = new THREE.Box3();
+  const h = +inH.value;
+  if (houseMode === 'box' && c1 && c2) {
+    bb.expandByPoint(new THREE.Vector3(Math.min(c1.x, c2.x), Math.min(c1.y, c2.y), 0));
+    bb.expandByPoint(new THREE.Vector3(Math.max(c1.x, c2.x), Math.max(c1.y, c2.y), h));
+  } else if (houseMode === 'free' && footprintWalls.length) {
+    for (const w of footprintWalls) {
+      bb.expandByPoint(new THREE.Vector3(w.x0, w.y0, 0));
+      bb.expandByPoint(new THREE.Vector3(w.x1, w.y1, h));
+    }
+  } else {
+    return;
+  }
+  if (bb.isEmpty()) return;
+
+  // Include arrow + dim label world positions so they don't get clipped either.
+  const pad = 500;
+  bb.min.x -= pad; bb.min.y -= pad;
+  bb.max.x += pad; bb.max.y += pad; bb.max.z += pad;
+
+  const corners = [
+    new THREE.Vector3(bb.min.x, bb.min.y, bb.min.z),
+    new THREE.Vector3(bb.max.x, bb.min.y, bb.min.z),
+    new THREE.Vector3(bb.min.x, bb.max.y, bb.min.z),
+    new THREE.Vector3(bb.max.x, bb.max.y, bb.min.z),
+    new THREE.Vector3(bb.min.x, bb.min.y, bb.max.z),
+    new THREE.Vector3(bb.max.x, bb.min.y, bb.max.z),
+    new THREE.Vector3(bb.min.x, bb.max.y, bb.max.z),
+    new THREE.Vector3(bb.max.x, bb.max.y, bb.max.z),
+  ];
+  let maxAbs = 0;
+  for (const c of corners) {
+    const p = c.clone().project(cam);
+    maxAbs = Math.max(maxAbs, Math.abs(p.x), Math.abs(p.y));
+  }
+  if (maxAbs < 0.92) return;  // still comfortably in-frame
+
+  const targetRatio = 0.72;
+  const scale = maxAbs / targetRatio;
+  const center = bb.getCenter(new THREE.Vector3());
+  const offset = cam.position.clone().sub(orbit.target);
+  offset.multiplyScalar(scale);
+  orbit.target.copy(center);
+  cam.position.copy(center).add(offset);
+  orbit.update();
 }
 
 /* ────────────────── free-form footprint rendering ────────────────── */
@@ -1808,9 +2127,12 @@ function buildFreeFormRoom(walls, h, t, wMat, eMat) {
 }
 
 function rebuildRoom() {
+  markFrameStale();
   if (houseMode === 'free') { rebuildScene(); return; }
   if (mode !== M.SET || !c1) return;
-  c2 = new THREE.Vector3(c1.x + (+inW.value) * signX, c1.y + (+inD.value) * signY, 0);
+  const wVal = clamp(+inW.value || LIM.W_MIN, LIM.W_MIN, LIM.W_MAX);
+  const dVal = clamp(+inD.value || LIM.D_MIN, LIM.D_MIN, LIM.D_MAX);
+  c2 = new THREE.Vector3(c1.x + wVal * signX, c1.y + dVal * signY, 0);
   rebuildScene();
 }
 
@@ -1923,6 +2245,7 @@ function makeOpeningGroup(wallIdx, posAlong, type, dims) {
 }
 
 function placeOpening(wallIdx, posAlong, type, dims) {
+  markFrameStale();
   if (!dims) dims = defaultDims(type);
   const g = makeOpeningGroup(wallIdx, posAlong, type, dims);
   if (!g) return;
@@ -1942,6 +2265,7 @@ function removeOpening(groupMesh) {
 }
 
 function removeOpeningByIdx(idx) {
+  markFrameStale();
   const o = openings[idx];
   openingsGroup.remove(o.mesh);
   openings.splice(idx, 1);
@@ -1998,6 +2322,7 @@ function selectOpening(idx) {
   const o = openings[idx];
   const info = o && wallInfo(o.wallIdx);
   if (info) showOpeningDims(info, o.posAlong, o.type, { width: o.width, height: o.height, sill: o.sill }, idx);
+  positionSlideHandle(idx);
 }
 
 function deselectOpening() {
@@ -2006,6 +2331,123 @@ function deselectOpening() {
   selectedOpening = -1;
   $("openingInspector").classList.remove("open");
   hideOpeningDims();
+  slideHandle.visible = false;
+  setSlideHandleHover(false);
+}
+
+/* ───── multi-select (shift-click) ───── */
+let multiSelected = [];  // opening indices; when .length >= 2, drives the distribute panel
+
+function clearMultiSelection() {
+  for (const i of multiSelected) removeSelectionHighlight(i);
+  multiSelected = [];
+  hideDistributePanel();
+}
+
+function toggleMultiSelection(idx) {
+  // First shift-click: if a single opening is selected, promote both into multi.
+  if (multiSelected.length === 0) {
+    if (selectedOpening >= 0 && selectedOpening !== idx) {
+      const prev = selectedOpening;
+      // Tear down single-selection UI, but keep prev's highlight (it stays selected).
+      $("openingInspector").classList.remove("open");
+      hideOpeningDims();
+      slideHandle.visible = false;
+      selectedOpening = -1;
+      multiSelected = [prev, idx];
+      applySelectionHighlight(idx);
+      showDistributePanel();
+    } else if (selectedOpening === idx) {
+      // Shift-clicking the already-selected one — treat like deselect.
+      deselectOpening();
+    } else {
+      // Nothing selected — act like a plain single-select.
+      selectOpening(idx);
+    }
+    return;
+  }
+  const pos = multiSelected.indexOf(idx);
+  if (pos >= 0) {
+    removeSelectionHighlight(idx);
+    multiSelected.splice(pos, 1);
+    if (multiSelected.length <= 1) {
+      const remaining = multiSelected[0];
+      multiSelected = [];
+      hideDistributePanel();
+      if (remaining !== undefined) {
+        removeSelectionHighlight(remaining);  // cleared so selectOpening's re-apply is clean
+        selectOpening(remaining);
+      }
+    } else {
+      updateDistributePanelState();
+    }
+  } else {
+    multiSelected.push(idx);
+    applySelectionHighlight(idx);
+    updateDistributePanelState();
+  }
+}
+
+function showDistributePanel() {
+  $("distributePanel").classList.add("open");
+  updateDistributePanelState();
+  updateDistributePanelPosition();
+}
+function hideDistributePanel() {
+  $("distributePanel").classList.remove("open");
+}
+function updateDistributePanelState() {
+  const btn = $("btnDistributeOpenings");
+  if (multiSelected.length < 3) { btn.disabled = true; btn.title = "Select 3 or more openings to distribute"; return; }
+  const firstWall = openings[multiSelected[0]].wallIdx;
+  const sameWall = multiSelected.every(i => openings[i].wallIdx === firstWall);
+  btn.disabled = !sameWall;
+  btn.title = sameWall ? "Space openings evenly along the wall" : "All openings must be on the same wall";
+}
+function updateDistributePanelPosition() {
+  if (!multiSelected.length) return;
+  const panel = $("distributePanel");
+  if (!panel.classList.contains("open")) return;
+  const centroid = new THREE.Vector3();
+  let count = 0;
+  for (const i of multiSelected) {
+    const o = openings[i];
+    if (!o || !o.mesh || !o.mesh.children[0]) continue;
+    const wp = new THREE.Vector3();
+    o.mesh.children[0].getWorldPosition(wp);
+    centroid.add(wp);
+    count++;
+  }
+  if (!count) return;
+  centroid.divideScalar(count);
+  centroid.z += 800;  // lift above the openings so the button floats above them
+  centroid.project(cam);
+  const r = renderer.domElement.getBoundingClientRect();
+  const sx = (centroid.x * 0.5 + 0.5) * r.width + r.left;
+  const sy = (-centroid.y * 0.5 + 0.5) * r.height + r.top;
+  const pw = panel.offsetWidth || 160;
+  const ph = panel.offsetHeight || 40;
+  const px = Math.max(10, Math.min(sx - pw / 2, window.innerWidth - pw - 10));
+  const py = Math.max(10, Math.min(sy - ph - 10, window.innerHeight - ph - 10));
+  panel.style.left = px + "px";
+  panel.style.top = py + "px";
+}
+
+function distributeSelectedOpenings() {
+  if (multiSelected.length < 3) return;
+  const firstWall = openings[multiSelected[0]].wallIdx;
+  if (!multiSelected.every(i => openings[i].wallIdx === firstWall)) return;
+  const sorted = multiSelected.slice().sort((a, b) => openings[a].posAlong - openings[b].posAlong);
+  const first = openings[sorted[0]].posAlong;
+  const last  = openings[sorted[sorted.length - 1]].posAlong;
+  const n = sorted.length;
+  for (let k = 1; k < n - 1; k++) {
+    openings[sorted[k]].posAlong = first + (last - first) * (k / (n - 1));
+    rebuildSingleOpening(sorted[k]);
+  }
+  // rebuildSingleOpening only re-applies highlight to the single-selected idx; reapply for all multi.
+  for (const i of multiSelected) applySelectionHighlight(i);
+  updateDistributePanelPosition();
 }
 
 function showOpeningInspector(idx) {
@@ -2025,6 +2467,7 @@ function updateInspectorPosition() {
   if (!o || !o.mesh.children[0]) return;
   const worldPos = new THREE.Vector3();
   o.mesh.children[0].getWorldPosition(worldPos);
+  worldPos.z += 500;  // lift anchor 0.5 m so the delete button floats above the opening
   worldPos.project(cam);
   const r = renderer.domElement.getBoundingClientRect();
   const sx = (worldPos.x * 0.5 + 0.5) * r.width + r.left;
@@ -2042,13 +2485,14 @@ function updateInspectorPosition() {
 }
 
 function rebuildSingleOpening(idx) {
+  markFrameStale();
   const o = openings[idx];
   openingsGroup.remove(o.mesh);
   const g = makeOpeningGroup(o.wallIdx, o.posAlong, o.type, { width: o.width, height: o.height, sill: o.sill });
   if (!g) return;
   openingsGroup.add(g);
   o.mesh = g;
-  if (selectedOpening === idx) applySelectionHighlight(idx);
+  if (selectedOpening === idx) { applySelectionHighlight(idx); positionSlideHandle(idx); }
   rebuildWalls();
   rebuildInteriorWalls();
 }
@@ -2071,6 +2515,14 @@ function rebuildWalls() {
 let draggingOpening = null;  // { type: "window"|"door" }
 let ghostOpening = null;     // THREE.Group shown during drag
 let openingDimGroup = null;  // live dim lines showing distance to wall edges
+
+// Snap opening position to wall mid when within threshold.
+// Threshold scales down on short walls so snap never exceeds wallLen/4.
+function snapPosAlongToMid(posAlong, wallLen) {
+  const mid = wallLen / 2;
+  const thresh = Math.min(400, wallLen / 4);
+  return Math.abs(posAlong - mid) < thresh ? mid : posAlong;
+}
 
 function hideOpeningDims() {
   if (openingDimGroup) { scene.remove(openingDimGroup); openingDimGroup = null; }
@@ -2110,14 +2562,14 @@ function showOpeningDims(info, posAlong, type, overrides, openingIdx) {
     pts.push(pt(0, oz - tickH),    pt(0, oz + tickH));
     pts.push(pt(0, oz),            pt(leftP, oz));
     pts.push(pt(leftP, oz - tickH), pt(leftP, oz + tickH));
-    labels.push({ p: leftP / 2, z: oz + tickH + 160, len: leftP, axis: null, size: 44 });
+    labels.push({ p: leftP / 2, z: oz + tickH + 160, len: leftP, axis: "ogL", size: 44 });
   }
   const rSpan = info.length - rightP;
   if (rSpan > 1) {
     pts.push(pt(rightP, oz - tickH),       pt(rightP, oz + tickH));
     pts.push(pt(rightP, oz),               pt(info.length, oz));
     pts.push(pt(info.length, oz - tickH),  pt(info.length, oz + tickH));
-    labels.push({ p: rightP + rSpan / 2, z: oz + tickH + 160, len: rSpan, axis: null, size: 44 });
+    labels.push({ p: rightP + rSpan / 2, z: oz + tickH + 160, len: rSpan, axis: "ogR", size: 44 });
   }
 
   if (isSelected) {
@@ -2151,7 +2603,7 @@ function showOpeningDims(info, posAlong, type, overrides, openingIdx) {
   openingDimGroup.add(line);
 
   for (const lab of labels) {
-    const sprite = makeTextSprite((lab.len / 1000).toFixed(2) + " m", "#F9BC06", lab.size);
+    const sprite = makeTextSprite((lab.len / 1000).toFixed(2) + " m", "#F9BC06", lab.size, "rgba(40,40,40,0.82)");
     const wp = pt(lab.p, lab.z);
     sprite.position.set(wp.x, wp.y, wp.z);
     if (lab.axis && openingIdx != null) {
@@ -2214,7 +2666,7 @@ function updateGhostOpening(e) {
     const info = wallInfo(wi);
     if (info) {
       const rel = new THREE.Vector3().subVectors(hp, info.origin);
-      const posAlong = rel.dot(info.along);
+      const posAlong = snapPosAlongToMid(rel.dot(info.along), info.length);
       ghostOpening = buildGhostOpening(wi, posAlong, draggingOpening.type);
       if (ghostOpening) scene.add(ghostOpening);
       showOpeningDims(info, posAlong, draggingOpening.type);
@@ -2238,7 +2690,7 @@ function finishOpeningDrag(e) {
     const info = wallInfo(wi);
     if (info) {
       const rel = new THREE.Vector3().subVectors(hp, info.origin);
-      const posAlong = rel.dot(info.along);
+      const posAlong = snapPosAlongToMid(rel.dot(info.along), info.length);
       const dims = defaultDims(draggingOpening.type);
       openings.push({ type: draggingOpening.type, wallIdx: wi, posAlong, mesh: null,
                        width: dims.width, height: dims.height, sill: dims.sill });
@@ -2539,6 +2991,7 @@ function deselectIW() {
 
 function deleteSelectedIW() {
   if (selectedIW < 0) return;
+  markFrameStale();
   interiorWalls.splice(selectedIW, 1);
   selectedIW = -1;
   $("btnDeleteIW").style.display = "none";
@@ -2884,6 +3337,7 @@ function deleteSelectedFF() {
     if (op.wallIdx === removedIdx) openings.splice(i, 1);
     else if (op.wallIdx > removedIdx && op.wallIdx >= FF_WALL_OFFSET) op.wallIdx -= 1;
   }
+  markFrameStale();
   footprintWalls.splice(selectedFF, 1);
   selectedFF = -1;
   $("ffInspector").style.display = "none";
@@ -2905,6 +3359,7 @@ function goToStep(n) {
   infoPanel.classList.remove("open");
   $("iwPanel").classList.remove("open");
   deselectOpening();
+  clearMultiSelection();
   deselectIW();
   if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; hideFFHoverHint(); }
   hideArrows();
@@ -3056,8 +3511,19 @@ function goToStep(n) {
       }
       break;
 
-    case 4: // Generate
-      if (firstVisit) {
+    case 4: // Generate / Frame
+      if (!frameStale && frameGroup) {
+        // Cached frame is still valid — just show it.
+        if (roomGroup) roomGroup.visible = false;
+        if (roofGroup) roofGroup.visible = false;
+        openingsGroup.visible = false;
+        frameGroup.visible = true;
+        infoPanel.classList.add("open");
+        btnNext.textContent = NEXT_LABELS[4];
+        btnNext.style.display = "";
+        hint.classList.add("small");
+        hint.innerHTML = "Frame generated";
+      } else if (firstVisit) {
         hint.classList.remove("small");
         hint.innerHTML = stepIntroHints[4];
         setTimeout(() => { generateFrame(); }, 1500);
@@ -3081,6 +3547,17 @@ function goToStep(n) {
 // Start in drawing mode immediately
 orbit.enabled = false;
 renderer.domElement.style.cursor = "crosshair";
+
+// Allow wheel zoom even while orbit is disabled (e.g. while drawing the first box)
+renderer.domElement.addEventListener("wheel", (e) => {
+  if (orbit.enabled) return;  // OrbitControls already handles it
+  e.preventDefault();
+  const factor = Math.pow(0.95, e.deltaY > 0 ? -1 : 1);
+  const offset = cam.position.clone().sub(orbit.target);
+  offset.multiplyScalar(factor);
+  cam.position.copy(orbit.target).add(offset);
+  orbit.update();
+}, { passive: false });
 $("btnTopView").style.display = "flex";
 
 // House type picker — shown first, dismisses to reveal the footprint flow
@@ -3186,11 +3663,15 @@ async function generateFrame() {
         x0, y0, x1, y1,
         height: +inH.value,
         thickness: +inT.value,
+        interiorThickness: +inTI.value,
         roofThickness: +inTR.value,
         openings: openings.map(o => ({
           type: o.type,
           wallIdx: o.wallIdx,
           posAlong: o.posAlong,
+          width: o.width,
+          height: o.height,
+          sill: o.sill,
         })),
         interiorWalls: interiorWalls.map(iw => ({ x0: iw.x0, y0: iw.y0, x1: iw.x1, y1: iw.y1 })),
         roofType: roofType,
@@ -3283,6 +3764,7 @@ async function generateFrame() {
     btnNext.style.display = "";
 
     hint.innerHTML = `Frame generated — ${json.result_count} members`;
+    markFrameFresh();
   } catch (err) {
     alert("Request failed: " + err.message);
   } finally {
@@ -3340,6 +3822,27 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     rc.setFromCamera(ndc, cam);
 
+    // Slide handle hit-test (takes precedence — sits on the ground by the selected opening)
+    if (slideHandle.visible && selectedOpening >= 0) {
+      const handleParts = [];
+      slideHandle.traverse(c => { if (c.isMesh) handleParts.push(c); });
+      if (rc.intersectObjects(handleParts).length) {
+        draggingSlide = selectedOpening;
+        orbit.enabled = false;
+        renderer.domElement.style.cursor = "grabbing";
+        setSlideHandleHover(true);
+        return;
+      }
+    }
+
+    // Keep selection when click lands on a dim label — lets the dblclick edit flow
+    // fire without losing the dims between the two clicks.
+    if (selectedOpening >= 0 && openingDimGroup) {
+      const dimSprites = [];
+      openingDimGroup.traverse(c => { if (c.isSprite) dimSprites.push(c); });
+      if (dimSprites.length && rc.intersectObjects(dimSprites).length) return;
+    }
+
     const openingMeshes = [];
     openingsGroup.traverse(c => { if (c.isMesh) openingMeshes.push(c); });
     const oHits = rc.intersectObjects(openingMeshes);
@@ -3347,12 +3850,59 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
       const hitGroup = oHits[0].object.parent;
       const idx = openings.findIndex(o => o.mesh === hitGroup);
       if (idx >= 0) {
-        if (selectedOpening === idx) deselectOpening();
-        else selectOpening(idx);
+        if (e.shiftKey) {
+          toggleMultiSelection(idx);
+        } else if (multiSelected.length) {
+          // Non-shift click during multi-select → collapse to single.
+          clearMultiSelection();
+          selectOpening(idx);
+        } else if (selectedOpening === idx) {
+          deselectOpening();
+        } else {
+          selectOpening(idx);
+        }
         return;
       }
     }
+
+    // Forgiving region around the selected opening: project its AABB to screen
+    // space and only deselect if the click is outside the box + margin.
+    if (selectedOpening >= 0) {
+      const o = openings[selectedOpening];
+      if (o && o.mesh) {
+        const bbox = new THREE.Box3().setFromObject(o.mesh);
+        if (isFinite(bbox.min.x)) {
+          const corners = [
+            new THREE.Vector3(bbox.min.x, bbox.min.y, bbox.min.z),
+            new THREE.Vector3(bbox.max.x, bbox.min.y, bbox.min.z),
+            new THREE.Vector3(bbox.min.x, bbox.max.y, bbox.min.z),
+            new THREE.Vector3(bbox.max.x, bbox.max.y, bbox.min.z),
+            new THREE.Vector3(bbox.min.x, bbox.min.y, bbox.max.z),
+            new THREE.Vector3(bbox.max.x, bbox.min.y, bbox.max.z),
+            new THREE.Vector3(bbox.min.x, bbox.max.y, bbox.max.z),
+            new THREE.Vector3(bbox.max.x, bbox.max.y, bbox.max.z),
+          ];
+          let sxMin = Infinity, syMin = Infinity, sxMax = -Infinity, syMax = -Infinity;
+          for (const cp of corners) {
+            const p = cp.clone().project(cam);
+            const sx = (p.x * 0.5 + 0.5) * r.width;
+            const sy = (-p.y * 0.5 + 0.5) * r.height;
+            if (sx < sxMin) sxMin = sx;
+            if (sy < syMin) syMin = sy;
+            if (sx > sxMax) sxMax = sx;
+            if (sy > syMax) syMax = sy;
+          }
+          const margin = 120;  // px tolerance around opening
+          const mx = e.clientX - r.left;
+          const my = e.clientY - r.top;
+          if (mx >= sxMin - margin && mx <= sxMax + margin &&
+              my >= syMin - margin && my <= syMax + margin) return;
+        }
+      }
+    }
+
     deselectOpening();
+    if (multiSelected.length) clearMultiSelection();
     return;
   }
 
@@ -3520,7 +4070,8 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     if (rc.ray.intersectPlane(vertPlane, hitPt)) {
       const h = +inH.value;
       const roofT = +inTR.value;
-      flatSlopeH[draggingSlopeEdge] = Math.max(0, snap(hitPt.z - h - roofT));
+      flatSlopeH[draggingSlopeEdge] = clamp(snap(hitPt.z - h - roofT), 0, LIM.FLAT_SLOPE_MAX);
+      markFrameStale();
       rebuildScene();
     }
     return;
@@ -3538,8 +4089,9 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     vertPlane.constant = -vertPlane.normal.dot(centerPos);
     const hitPt = new THREE.Vector3();
     if (rc.ray.intersectPlane(vertPlane, hitPt)) {
-      const newH = Math.max(500, snap(hitPt.z - 350));  // subtract the arrow's 350mm offset
+      const newH = clamp(snap(hitPt.z - 350), LIM.H_MIN, LIM.H_MAX);  // subtract the arrow's 350mm offset
       inH.value = Math.round(newH);
+      markFrameStale();
       rebuildScene();
     }
     return;
@@ -3569,7 +4121,12 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       const w = x1 - x0, d = y1 - y0;
       const halfSpan = w >= d ? d / 2 : w / 2;
       const rhRaw = (hitPt.z - h - roofT) * halfSpan / (halfSpan - t);
-      customRidgeH = Math.max(200, snap(rhRaw));
+      // Snap to the nearest 1° slope increment.
+      const degRaw = Math.atan2(rhRaw, halfSpan) * 180 / Math.PI;
+      const degSnap = Math.max(1, Math.min(45, Math.round(degRaw)));
+      const rhSnap = halfSpan * Math.tan(degSnap * Math.PI / 180);
+      customRidgeH = Math.max(200, Math.round(rhSnap));
+      markFrameStale();
       rebuildScene();
     }
     return;
@@ -3592,12 +4149,45 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     }
   }
 
+  // Opening slide-handle dragging — project to ground, map onto wall axis
+  if (draggingSlide >= 0) {
+    const o = openings[draggingSlide];
+    const info = o && wallInfo(o.wallIdx);
+    const pt = groundHit(e);
+    if (!o || !info || !pt) return;
+    // Parametrize along the wall
+    const dx = pt.x - info.origin.x, dy = pt.y - info.origin.y;
+    let p = dx * info.along.x + dy * info.along.y;
+    const tVal = +inT.value;
+    const half = o.width / 2;
+    const edgePad = info.isInterior ? half : (half + tVal);
+    p = clamp(Math.round(p / 100) * 100, edgePad, info.length - edgePad);
+    if (p !== o.posAlong) {
+      o.posAlong = p;
+      rebuildSingleOpening(draggingSlide);
+      showOpeningDims(info, p, o.type, { width: o.width, height: o.height, sill: o.sill }, draggingSlide);
+      updateInspectorPosition();
+    }
+    return;
+  }
+
   // Opening hover cursor (step 2)
   if (currentStep === 2 && !draggingOpening) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     rc.setFromCamera(ndc, cam);
+    if (slideHandle.visible) {
+      const handleParts = [];
+      slideHandle.traverse(c => { if (c.isMesh) handleParts.push(c); });
+      const hHits = rc.intersectObjects(handleParts);
+      if (hHits.length) {
+        setSlideHandleHover(true);
+        renderer.domElement.style.cursor = "grab";
+        return;
+      }
+      setSlideHandleHover(false);
+    }
     const openingMeshes = [];
     openingsGroup.traverse(c => { if (c.isMesh) openingMeshes.push(c); });
     const oHits = rc.intersectObjects(openingMeshes);
@@ -3613,10 +4203,10 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
 
     let nx0 = x0, nx1 = x1, ny0 = y0, ny1 = y1;
-    if (dragging.idx === 0) ny0 = Math.min(sv, ny1 - SNAP);  // south
-    if (dragging.idx === 1) ny1 = Math.max(sv, ny0 + SNAP);  // north
-    if (dragging.idx === 2) nx0 = Math.min(sv, nx1 - SNAP);  // west
-    if (dragging.idx === 3) nx1 = Math.max(sv, nx0 + SNAP);  // east
+    if (dragging.idx === 0) ny0 = clamp(sv, ny1 - LIM.D_MAX, ny1 - LIM.D_MIN);  // south
+    if (dragging.idx === 1) ny1 = clamp(sv, ny0 + LIM.D_MIN, ny0 + LIM.D_MAX);  // north
+    if (dragging.idx === 2) nx0 = clamp(sv, nx1 - LIM.W_MAX, nx1 - LIM.W_MIN);  // west
+    if (dragging.idx === 3) nx1 = clamp(sv, nx0 + LIM.W_MIN, nx0 + LIM.W_MAX);  // east
 
     c1 = new THREE.Vector3(nx0, ny0, 0);
     c2 = new THREE.Vector3(nx1, ny1, 0);
@@ -3676,6 +4266,12 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
   }
+  if (draggingSlide >= 0) {
+    draggingSlide = -1;
+    orbit.enabled = true;
+    renderer.domElement.style.cursor = "";
+    setSlideHandleHover(false);
+  }
 
   // ── Free-form footprint right-click: select/toggle wall inspector ──
   if (e.button === 2 && currentStep === 0 && houseMode === 'free' && ffRightDown) {
@@ -3713,6 +4309,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
       const end = ffConstrainEnd(ffDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
       const len = ffDrawStart.distanceTo(end);
       if (len >= 500) {
+        markFrameStale();
         footprintWalls.push({ x0: ffDrawStart.x, y0: ffDrawStart.y, x1: end.x, y1: end.y });
         rebuildScene();
         btnNext.textContent = NEXT_LABELS[0];
@@ -3780,6 +4377,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
       const end = constrainIWEnd(iwDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
       const len = iwDrawStart.distanceTo(end);
       if (len >= 500) {
+        markFrameStale();
         interiorWalls.push({ x0: iwDrawStart.x, y0: iwDrawStart.y, x1: end.x, y1: end.y });
         rebuildInteriorWalls();
       }
@@ -3822,13 +4420,31 @@ renderer.domElement.addEventListener("dblclick", (e) => {
   const sx = (wp.x * 0.5 + 0.5) * r.width + r.left;
   const sy = (-wp.y * 0.5 + 0.5) * r.height + r.top;
 
-  const curMM = editingAxis === "w"
-    ? Math.abs((c2 || c1).x - c1.x)
-    : editingAxis === "d"
-    ? Math.abs((c2 || c1).y - c1.y)
-    : +inH.value;
+  let curVal, displayStr;
+  if (editingAxis === "w") { curVal = Math.abs((c2 || c1).x - c1.x); displayStr = (curVal / 1000).toFixed(2); }
+  else if (editingAxis === "d") { curVal = Math.abs((c2 || c1).y - c1.y); displayStr = (curVal / 1000).toFixed(2); }
+  else if (editingAxis === "h") { curVal = +inH.value; displayStr = (curVal / 1000).toFixed(2); }
+  else if (editingAxis === "kip" || editingAxis === "tagfod") {
+    const _x0 = Math.min(c1.x, c2.x), _x1 = Math.max(c1.x, c2.x);
+    const _y0 = Math.min(c1.y, c2.y), _y1 = Math.max(c1.y, c2.y);
+    const _w = _x1 - _x0, _d = _y1 - _y0;
+    const _h = +inH.value, _t = +inT.value, _rT = +inTR.value;
+    const _rh = getRidgeH();
+    const _hs = (_w >= _d) ? _d / 2 : _w / 2;
+    const _s = _rT - _rh * _t / _hs;
+    curVal = (editingAxis === "kip") ? (_h + _rh + _s) : (_h + _s);
+    displayStr = (curVal / 1000).toFixed(2);
+  }
+  else if (editingAxis === "slope") {
+    const _x0 = Math.min(c1.x, c2.x), _x1 = Math.max(c1.x, c2.x);
+    const _y0 = Math.min(c1.y, c2.y), _y1 = Math.max(c1.y, c2.y);
+    const _w = _x1 - _x0, _d = _y1 - _y0;
+    const _hs = (_w >= _d) ? _d / 2 : _w / 2;
+    curVal = Math.atan2(getRidgeH(), _hs) * 180 / Math.PI;
+    displayStr = curVal.toFixed(1);
+  }
 
-  dimEdit.value = (curMM / 1000).toFixed(2);
+  dimEdit.value = displayStr;
   dimEdit.style.display = "block";
   dimEdit.style.left = (sx - 45) + "px";
   dimEdit.style.top = (sy - 18) + "px";
@@ -3839,13 +4455,19 @@ renderer.domElement.addEventListener("dblclick", (e) => {
 let editingOpeningIdx = -1;
 
 function openOpeningDimEdit(sprite, e) {
-  editingAxis = sprite.userData.dimAxis;           // "ow" | "oh" | "os"
+  editingAxis = sprite.userData.dimAxis;           // "ow" | "oh" | "os" | "ogL" | "ogR"
   editingOpeningIdx = sprite.userData.openingIdx;
   const o = openings[editingOpeningIdx];
   if (!o) { editingAxis = null; return; }
-  const curMM = editingAxis === "ow" ? o.width
-              : editingAxis === "oh" ? o.height
-              : o.sill;
+  let curMM;
+  if (editingAxis === "ow") curMM = o.width;
+  else if (editingAxis === "oh") curMM = o.height;
+  else if (editingAxis === "os") curMM = o.sill;
+  else if (editingAxis === "ogL") curMM = Math.max(0, o.posAlong - o.width / 2);
+  else if (editingAxis === "ogR") {
+    const info = wallInfo(o.wallIdx);
+    curMM = info ? Math.max(0, info.length - (o.posAlong + o.width / 2)) : 0;
+  }
   dimEdit.value = (curMM / 1000).toFixed(2);
   dimEdit.style.display = "block";
   dimEdit.style.left = (e.clientX - 45) + "px";
@@ -3859,7 +4481,8 @@ function applyDimEdit() {
   if (!editingAxis) return;
 
   // Opening dim editing
-  if (editingAxis === "ow" || editingAxis === "oh" || editingAxis === "os") {
+  if (editingAxis === "ow" || editingAxis === "oh" || editingAxis === "os"
+      || editingAxis === "ogL" || editingAxis === "ogR") {
     const val = Math.round(parseFloat(dimEdit.value) * 1000);
     const axis = editingAxis;
     const idx = editingOpeningIdx;
@@ -3870,18 +4493,74 @@ function applyDimEdit() {
     if (axis === "ow" && val >= 200 && val <= 6000) o.width = val;
     else if (axis === "oh" && val >= 200 && val <= 4000) o.height = val;
     else if (axis === "os" && val >= 0 && val <= 3000) o.sill = val;
+    else if (axis === "ogL" || axis === "ogR") {
+      if (val < 0) return;
+      const info = wallInfo(o.wallIdx);
+      if (!info) return;
+      const tW = +inT.value;
+      const half = o.width / 2;
+      const edgePad = info.isInterior ? half : (half + tW);
+      const minPos = edgePad;
+      const maxPos = info.length - edgePad;
+      if (maxPos < minPos) return;
+      const desired = axis === "ogL" ? (val + half) : (info.length - val - half);
+      o.posAlong = Math.max(minPos, Math.min(maxPos, desired));
+    }
     else return;
     rebuildSingleOpening(idx);
     if (selectedOpening === idx) {
       const info = wallInfo(o.wallIdx);
-      if (info) showOpeningDims(info, o.posAlong, o.type, { width: o.width, height: o.height, sill: o.sill }, idx);
+      if (info) {
+        showOpeningDims(info, o.posAlong, o.type, { width: o.width, height: o.height, sill: o.sill }, idx);
+        updateInspectorPosition();
+      }
     }
     return;
   }
 
   if (!c1 || !c2) return;
-  const val = parseFloat(dimEdit.value) * 1000;
-  if (!val || val < 500) return;
+
+  // Roof dim edits (kip / tagfod / slope)
+  if (editingAxis === "kip" || editingAxis === "tagfod" || editingAxis === "slope") {
+    const raw = parseFloat(dimEdit.value);
+    const axis = editingAxis;
+    editingAxis = null;
+    if (!isFinite(raw)) return;
+    const _x0 = Math.min(c1.x, c2.x), _x1 = Math.max(c1.x, c2.x);
+    const _y0 = Math.min(c1.y, c2.y), _y1 = Math.max(c1.y, c2.y);
+    const _w = _x1 - _x0, _d = _y1 - _y0;
+    const _h = +inH.value, _t = +inT.value, _rT = +inTR.value;
+    const _hs = (_w >= _d) ? _d / 2 : _w / 2;
+    let newRH;
+    if (axis === "slope") {
+      const deg = Math.max(1, Math.min(45, raw));
+      newRH = _hs * Math.tan(deg * Math.PI / 180);
+    } else if (axis === "kip") {
+      const kipZ = raw * 1000;
+      if (_hs - _t <= 0) return;
+      newRH = (kipZ - _h - _rT) * _hs / (_hs - _t);
+    } else { // tagfod
+      const tagZ = raw * 1000;
+      if (_t <= 0) return;
+      newRH = (_h + _rT - tagZ) * _hs / _t;
+    }
+    if (!isFinite(newRH)) return;
+    // Clamp so the resulting slope is within 1°–45°.
+    const minRH = _hs * Math.tan(LIM.SLOPE_MIN_DEG * Math.PI / 180);
+    const maxRH = _hs * Math.tan(LIM.SLOPE_MAX_DEG * Math.PI / 180);
+    customRidgeH = clamp(Math.round(newRH), Math.max(LIM.RIDGE_MIN, minRH), maxRH);
+    markFrameStale();
+    rebuildScene();
+    return;
+  }
+
+  const rawVal = parseFloat(dimEdit.value) * 1000;
+  if (!isFinite(rawVal)) return;
+  const clamped = editingAxis === "w" ? clamp(rawVal, LIM.W_MIN, LIM.W_MAX)
+                : editingAxis === "d" ? clamp(rawVal, LIM.D_MIN, LIM.D_MAX)
+                : editingAxis === "h" ? clamp(rawVal, LIM.H_MIN, LIM.H_MAX)
+                : rawVal;
+  const val = clamped;
 
   const x0 = Math.min(c1.x, c2.x), y0 = Math.min(c1.y, c2.y);
   if (editingAxis === "w") {
@@ -3898,6 +4577,7 @@ function applyDimEdit() {
     inH.value = Math.round(val);
   }
   editingAxis = null;
+  markFrameStale();
   rebuildScene();
 }
 
@@ -3948,10 +4628,15 @@ document.addEventListener("keyup", (e) => {
 
 $("btnDeleteIW").addEventListener("click", deleteSelectedIW);
 $("btnDeleteFF").addEventListener("click", deleteSelectedFF);
+$("btnDistributeOpenings").addEventListener("click", distributeSelectedOpenings);
 
 for (const inp of [inW, inD, inH]) inp.addEventListener("input", rebuildRoom);
+// Clamp direct typing on blur/change so HTML max caps are enforced in code.
+inW.addEventListener("change", () => { inW.value = Math.round(clamp(+inW.value || LIM.W_MIN, LIM.W_MIN, LIM.W_MAX)); rebuildRoom(); });
+inD.addEventListener("change", () => { inD.value = Math.round(clamp(+inD.value || LIM.D_MIN, LIM.D_MIN, LIM.D_MAX)); rebuildRoom(); });
+inH.addEventListener("change", () => { inH.value = Math.round(clamp(+inH.value || LIM.H_MIN, LIM.H_MIN, LIM.H_MAX)); rebuildRoom(); });
 inT.addEventListener("change", rebuildRoom);
-inTI.addEventListener("change", () => { rebuildInteriorWalls(); if (selectedIW >= 0) { const prev = selectedIW; deselectIW(); selectIW(prev); } });
+inTI.addEventListener("change", () => { markFrameStale(); rebuildInteriorWalls(); if (selectedIW >= 0) { const prev = selectedIW; deselectIW(); selectIW(prev); } });
 inTR.addEventListener("change", () => { rebuildRoom(); if (roofGroup) { buildRoof(); positionRoofArrows(); } });
 
 // Opening inspector inputs
@@ -3984,20 +4669,10 @@ $("btnDeleteOpening").addEventListener("click", () => {
   rebuildScene();
 });
 
-// Step tab clicks
+// Step tab clicks — goToStep (case 4) handles cache vs. regenerate.
 for (let i = 0; i < 5; i++) {
   stepEls[i].addEventListener("click", () => {
     if (!c1 || !c2 || mode !== M.SET) return;
-    // For Generate step: if frame exists, show it; else trigger generation
-    if (i === 4 && frameGroup) {
-      goToStep(4);
-      // Just show existing frame
-      setStep(4);
-      if (roomGroup) roomGroup.visible = false;
-      frameGroup.visible = true;
-      hint.innerHTML = "Frame generated";
-      return;
-    }
     goToStep(i);
   });
 }
@@ -4028,6 +4703,7 @@ document.querySelectorAll(".tool-item").forEach(el => {
 // Roof type selection
 document.querySelectorAll(".roof-option").forEach(el => {
   el.addEventListener("click", () => {
+    if (roofType !== el.dataset.roof) markFrameStale();
     roofType = el.dataset.roof;
     if (roofType === "gable") flatSlopeH = [0, 0];
     document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
@@ -4086,6 +4762,7 @@ function startDrawing() {
   if (roomGroup)  { scene.remove(roomGroup);  roomGroup = null; }
   if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
   if (roofGroup)  { scene.remove(roofGroup);  roofGroup = null; }
+  markFrameStale();
   clearOpenings();
   interiorWalls.length = 0;
   while (iwGroup.children.length) iwGroup.remove(iwGroup.children[0]);
@@ -4144,6 +4821,7 @@ onResize();
   orbit.update();
   updateInspectorPosition();
   positionFFInspector();
+  updateDistributePanelPosition();
   renderer.render(scene, cam);
 })();
 </script>

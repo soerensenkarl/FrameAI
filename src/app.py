@@ -159,11 +159,22 @@ def _save_breps_3dm(breps, filename):
     return _write_3dm(model, filename)
 
 
-def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type, interior_walls=None):
-    """Create a box Brep representing a door or window opening in a wall."""
-    ow = WINDOW_W if opening_type == "window" else DOOR_W
-    oh = WINDOW_H if opening_type == "window" else DOOR_H
-    z_base = WINDOW_SILL if opening_type == "window" else 0
+def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type,
+                         interior_walls=None, iw_t=None,
+                         width=None, height=None, sill=None):
+    """Create a box Brep representing a door or window opening in a wall.
+
+    `width`/`height`/`sill` override the type defaults when the frontend
+    supplies per-opening dimensions. `iw_t` is interior-wall thickness
+    (falls back to `t` when not provided).
+    """
+    default_w = WINDOW_W if opening_type == "window" else DOOR_W
+    default_h = WINDOW_H if opening_type == "window" else DOOR_H
+    default_sill = WINDOW_SILL if opening_type == "window" else 0
+    ow = float(width) if width is not None else default_w
+    oh = float(height) if height is not None else default_h
+    z_base = float(sill) if (opening_type == "window" and sill is not None) else default_sill
+    i_t = float(iw_t) if iw_t is not None else t
 
     if wall_idx == 0:  # south wall, along +X
         cx = x0 + pos_along
@@ -205,13 +216,13 @@ def _build_opening_brep(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type, in
             cx = xMin + pos_along
             box = rg.Box(rg.Plane.WorldXY,
                          rg.Interval(cx - ow / 2, cx + ow / 2),
-                         rg.Interval(iy0 - t / 2, iy0 + t / 2),
+                         rg.Interval(iy0 - i_t / 2, iy0 + i_t / 2),
                          rg.Interval(z_base, z_base + oh))
         else:
             yMin = min(iy0, iy1)
             cy = yMin + pos_along
             box = rg.Box(rg.Plane.WorldXY,
-                         rg.Interval(ix0 - t / 2, ix0 + t / 2),
+                         rg.Interval(ix0 - i_t / 2, ix0 + i_t / 2),
                          rg.Interval(cy - ow / 2, cy + ow / 2),
                          rg.Interval(z_base, z_base + oh))
     return box.ToBrep()
@@ -584,7 +595,8 @@ def generate_frame():
                 )
                 wall_breps.append(box.ToBrep())
 
-        # Build interior wall Breps
+        # Build interior wall Breps (uses its own thickness, not exterior t)
+        iw_t = float(data.get("interiorThickness", t))
         for iw in data.get("interiorWalls", []):
             ix0, iy0 = float(iw["x0"]), float(iw["y0"])
             ix1, iy1 = float(iw["x1"]), float(iw["y1"])
@@ -592,11 +604,11 @@ def generate_frame():
             if is_horiz:
                 bx0 = min(ix0, ix1)
                 bx1 = max(ix0, ix1)
-                by0 = iy0 - t / 2
-                by1 = iy0 + t / 2
+                by0 = iy0 - iw_t / 2
+                by1 = iy0 + iw_t / 2
             else:
-                bx0 = ix0 - t / 2
-                bx1 = ix0 + t / 2
+                bx0 = ix0 - iw_t / 2
+                bx1 = ix0 + iw_t / 2
                 by0 = min(iy0, iy1)
                 by1 = max(iy0, iy1)
             box = rg.Box(
@@ -615,7 +627,8 @@ def generate_frame():
             brep = _build_opening_brep(
                 x0, y0, x1, y1, t,
                 int(op["wallIdx"]), float(op["posAlong"]), op["type"],
-                interior_walls=interior_walls,
+                interior_walls=interior_walls, iw_t=iw_t,
+                width=op.get("width"), height=op.get("height"), sill=op.get("sill"),
             )
             if brep:
                 (door_breps if op["type"] == "door" else window_breps).append(brep)
