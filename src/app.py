@@ -256,7 +256,7 @@ def _solid_from_profile(profile_pts, direction):
     return None
 
 
-def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None):
+def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None, t=0):
     """Create roof as closed-solid Brep(s) matching the frontend visualization.
 
     Each returned Brep has 6 planar faces so the Grasshopper definition can
@@ -274,26 +274,31 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
         slab = 295
         breps = []
         if w >= d:
-            # Ridge along X. Each wedge's cross-section is a parallelogram in the YZ plane,
-            # extruded along X by (w + 2*overhang). Eave Z is dropped so the top plane is
-            # colinear with the gable-end wall's pentagon top edge.
+            # Ridge along X. Cross-section is a parallelogram in the YZ plane,
+            # extruded along X by (w + 2*overhang). Pentagon eaves are lifted
+            # by s = ridge_h * t / half_span so the inner-wall top edge meets
+            # the underside of the roof plane. Overhang eave Z drops below
+            # that so the top plane stays colinear with the pentagon slope.
             mid_y = (y0 + y1) / 2
-            eave_drop = ridge_h * overhang / (d / 2)
-            eave_z = h - eave_drop
+            half_span = d / 2
+            s = slab - ridge_h * t / half_span
+            eave_drop = ridge_h * overhang / half_span
+            eave_z = h + s - eave_drop
+            ridge_z = h + ridge_h + s
             ext = rg.Vector3d(w + 2 * overhang, 0, 0)
             x_ref = x0 - overhang
             # South wedge: eave at y0, ridge at midY
             south_profile = [
                 rg.Point3d(x_ref, y0 - overhang, eave_z),              # eave top
-                rg.Point3d(x_ref, mid_y,        h + ridge_h),          # ridge top
-                rg.Point3d(x_ref, mid_y,        h + ridge_h - slab),   # ridge bot
+                rg.Point3d(x_ref, mid_y,        ridge_z),              # ridge top
+                rg.Point3d(x_ref, mid_y,        ridge_z - slab),       # ridge bot
                 rg.Point3d(x_ref, y0 - overhang, eave_z - slab),       # eave bot
             ]
             north_profile = [
-                rg.Point3d(x_ref, mid_y,        h + ridge_h),
+                rg.Point3d(x_ref, mid_y,        ridge_z),
                 rg.Point3d(x_ref, y1 + overhang, eave_z),
                 rg.Point3d(x_ref, y1 + overhang, eave_z - slab),
-                rg.Point3d(x_ref, mid_y,        h + ridge_h - slab),
+                rg.Point3d(x_ref, mid_y,        ridge_z - slab),
             ]
             for prof in (south_profile, north_profile):
                 solid = _solid_from_profile(prof, ext)
@@ -302,21 +307,24 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
         else:
             # Ridge along Y. Cross-section in XZ plane, extruded along Y.
             mid_x = (x0 + x1) / 2
-            eave_drop = ridge_h * overhang / (w / 2)
-            eave_z = h - eave_drop
+            half_span = w / 2
+            s = slab - ridge_h * t / half_span
+            eave_drop = ridge_h * overhang / half_span
+            eave_z = h + s - eave_drop
+            ridge_z = h + ridge_h + s
             ext = rg.Vector3d(0, d + 2 * overhang, 0)
             y_ref = y0 - overhang
             west_profile = [
                 rg.Point3d(x0 - overhang, y_ref, eave_z),
-                rg.Point3d(mid_x,        y_ref, h + ridge_h),
-                rg.Point3d(mid_x,        y_ref, h + ridge_h - slab),
+                rg.Point3d(mid_x,        y_ref, ridge_z),
+                rg.Point3d(mid_x,        y_ref, ridge_z - slab),
                 rg.Point3d(x0 - overhang, y_ref, eave_z - slab),
             ]
             east_profile = [
-                rg.Point3d(mid_x,        y_ref, h + ridge_h),
+                rg.Point3d(mid_x,        y_ref, ridge_z),
                 rg.Point3d(x1 + overhang, y_ref, eave_z),
                 rg.Point3d(x1 + overhang, y_ref, eave_z - slab),
-                rg.Point3d(mid_x,        y_ref, h + ridge_h - slab),
+                rg.Point3d(mid_x,        y_ref, ridge_z - slab),
             ]
             for prof in (west_profile, east_profile):
                 solid = _solid_from_profile(prof, ext)
@@ -485,15 +493,23 @@ def generate_frame():
             if is_gable_wall:
                 # Pentagonal wall: rectangle + triangle up to ridge
                 # Build pentagon profile as closed polyline, then extrude
+                # Eave lift: raise the two sloped top edges by s = t * tan(slope) so the
+                # long walls stay at h while the gable pentagon rises above them.
+                half_span = (d / 2) if ridge_along_x else (w / 2)
+                # Lift so roof bottom plane meets the inner-top corner of the long walls.
+                roof_slab = 295
+                eave_lift = roof_slab - ridge_h * t / half_span
+                h_eave = h + eave_lift
+                h_apex = h + ridge_h + eave_lift
                 if ridge_along_x:
                     # Gable ends are west/east: profile in YZ, extruded along X
                     mid = sy / 2
                     pts = [
                         rg.Point3d(ox, oy, 0),
                         rg.Point3d(ox, oy + sy, 0),
-                        rg.Point3d(ox, oy + sy, h),
-                        rg.Point3d(ox, oy + mid, h + ridge_h),
-                        rg.Point3d(ox, oy, h),
+                        rg.Point3d(ox, oy + sy, h_eave),
+                        rg.Point3d(ox, oy + mid, h_apex),
+                        rg.Point3d(ox, oy, h_eave),
                         rg.Point3d(ox, oy, 0),
                     ]
                     direction = rg.Vector3d(sx, 0, 0)
@@ -503,9 +519,9 @@ def generate_frame():
                     pts = [
                         rg.Point3d(ox, oy, 0),
                         rg.Point3d(ox + sx, oy, 0),
-                        rg.Point3d(ox + sx, oy, h),
-                        rg.Point3d(ox + mid, oy, h + ridge_h),
-                        rg.Point3d(ox, oy, h),
+                        rg.Point3d(ox + sx, oy, h_eave),
+                        rg.Point3d(ox + mid, oy, h_apex),
+                        rg.Point3d(ox, oy, h_eave),
                         rg.Point3d(ox, oy, 0),
                     ]
                     direction = rg.Vector3d(0, sy, 0)
@@ -610,7 +626,8 @@ def generate_frame():
         roof_breps = _build_roof_breps(x0, y0, x1, y1, h,
                                        roof_type,
                                        ridge_h=ridge_h if roof_type == "gable" else None,
-                                       flat_slope=flat_slope)
+                                       flat_slope=flat_slope,
+                                       t=t)
 
         gh_file = "test_simple.gh" if data.get("devSimple") else "generator_3.0.gh"
         outputs = solve_definition(gh_file, {

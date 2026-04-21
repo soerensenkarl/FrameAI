@@ -111,7 +111,10 @@
     top: 20px;
     display: none;
     z-index: 10;
+    width: 57px;
+    height: 57px;
   }
+  #btnTopView svg { width: 24px; height: 24px; }
 
   /* ── Dev mode ── */
   .dev-btn {
@@ -144,6 +147,18 @@
   .dev-opt input[type="checkbox"] {
     accent-color: #F9BC06;
   }
+  .dev-opt input[type="range"] {
+    accent-color: #F9BC06;
+    width: 100%;
+  }
+  .dev-options {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
+  .dev-options.open { display: flex; }
   .btn-next {
     padding: 7px 22px;
     background: #F9BC06;
@@ -269,10 +284,10 @@
     z-index: 10;
     pointer-events: none;
     transition: all 0.4s ease;
-    background: rgba(251, 250, 249, 0.1);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    border: 1px solid rgba(251, 250, 249, 0.6);
+    background: rgba(28, 28, 30, 0.62);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
     white-space: nowrap;
   }
@@ -793,13 +808,20 @@
   <div class="loading-text">Generating frame…</div>
 </div>
 
-<!-- Dev mode -->
-<button class="btn-icon glass dev-btn" id="btnDev" title="Dev mode">
+<!-- Settings -->
+<button class="btn-icon glass dev-btn" id="btnDev" title="Settings">
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.3l-.5 2.1A5.5 5.5 0 0 0 3.7 4.6l-2-.7L.5 6l1.6 1.4a5.6 5.6 0 0 0 0 1.2L.5 10l1.2 2 2-.7a5.5 5.5 0 0 0 1.8 1l.5 2.1h2.4l.5-2a5.5 5.5 0 0 0 1.8-1.1l2 .7L14 10l-1.6-1.4a5.6 5.6 0 0 0 0-1.2L14 6l-1.2-2-2 .7a5.5 5.5 0 0 0-1.8-1L8.4 1.4z"/><circle cx="7.2" cy="8" r="2"/></svg>
 </button>
 <div class="dev-panel glass" id="devPanel">
-  <span class="panel-title">Dev Mode</span>
-  <label class="dev-opt"><input type="checkbox" id="devSimpleCb"> Use test_simple.gh</label>
+  <span class="panel-title">Settings</span>
+  <label class="dev-opt"><input type="checkbox" id="devModeCb"> Dev Mode</label>
+  <div class="dev-options" id="devOptions">
+    <label class="dev-opt"><input type="checkbox" id="devSimpleCb"> Use test_simple.gh</label>
+    <label class="dev-opt" style="flex-direction:column; align-items:stretch; gap:4px;">
+      <span>House transparency <span id="devOpacityVal">100%</span></span>
+      <input type="range" id="devOpacity" min="0" max="100" value="100" step="1">
+    </label>
+  </div>
 </div>
 
 <!-- Cursor tooltip -->
@@ -1129,7 +1151,10 @@ function positionRoofArrows() {
   const ridgeAlongX = w >= d;
 
   if (roofType === "gable") {
-    ridgeArrow.position.set((x0 + x1) / 2, (y0 + y1) / 2, h + getRidgeH());
+    const t = +inT.value;
+    const rh = getRidgeH();
+    const s = roofT - rh * t / (ridgeAlongX ? d / 2 : w / 2);
+    ridgeArrow.position.set((x0 + x1) / 2, (y0 + y1) / 2, h + rh + s);
     ridgeArrow.visible = true;
     slopeArrows[0].visible = false;
     slopeArrows[1].visible = false;
@@ -1157,8 +1182,9 @@ let draggingHeight = false;
 let dimGroup = null;
 const dimLabels = [];
 const dimLineMat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthTest: false });
+const dimLineMatAccent = new THREE.LineBasicMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.9, depthTest: false });
 
-function makeTextSprite(text) {
+function makeTextSprite(text, fillStyle) {
   const c = document.createElement("canvas");
   const ctx = c.getContext("2d");
   const fontSize = 64;
@@ -1169,7 +1195,7 @@ function makeTextSprite(text) {
   c.height = fontSize * 1.4;
   // re-set font after resize
   ctx.font = `500 ${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
-  ctx.fillStyle = "rgba(255,255,255,0.7)";
+  ctx.fillStyle = fillStyle || "rgba(255,255,255,0.7)";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text, c.width / 2, c.height / 2);
@@ -1194,18 +1220,19 @@ function updateDims(a, b) {
   const y0 = Math.min(pa.y, pb.y), y1 = Math.max(pa.y, pb.y);
   const w = x1 - x0, d = y1 - y0;
   const z = 3;           // slightly above ground
-  const gap = 1250;      // offset from walls
-  const tick = 150;      // end tick length
+  const gap = 1000;      // offset from walls (1 m)
+  const tick = 150;      // outer tick length
+  const tickIn = gap - 150;  // inner tick extends toward house, stopping 150 mm short
 
   // ── Width dim (along bottom, south side) ──
   const wy = y0 - gap;
   const wPts = [
     // left tick
-    new THREE.Vector3(x0, wy - tick, z), new THREE.Vector3(x0, wy + tick, z),
+    new THREE.Vector3(x0, wy - tick, z), new THREE.Vector3(x0, wy + tickIn, z),
     // main line
     new THREE.Vector3(x0, wy, z), new THREE.Vector3(x1, wy, z),
     // right tick
-    new THREE.Vector3(x1, wy - tick, z), new THREE.Vector3(x1, wy + tick, z),
+    new THREE.Vector3(x1, wy - tick, z), new THREE.Vector3(x1, wy + tickIn, z),
   ];
   const wGeo = new THREE.BufferGeometry().setFromPoints(wPts);
   const wLine = new THREE.LineSegments(wGeo, dimLineMat);
@@ -1222,11 +1249,11 @@ function updateDims(a, b) {
   const dx = x1 + gap;
   const dPts = [
     // bottom tick
-    new THREE.Vector3(dx - tick, y0, z), new THREE.Vector3(dx + tick, y0, z),
+    new THREE.Vector3(dx - tickIn, y0, z), new THREE.Vector3(dx + tick, y0, z),
     // main line
     new THREE.Vector3(dx, y0, z), new THREE.Vector3(dx, y1, z),
     // top tick
-    new THREE.Vector3(dx - tick, y1, z), new THREE.Vector3(dx + tick, y1, z),
+    new THREE.Vector3(dx - tickIn, y1, z), new THREE.Vector3(dx + tick, y1, z),
   ];
   const dGeo = new THREE.BufferGeometry().setFromPoints(dPts);
   const dLine = new THREE.LineSegments(dGeo, dimLineMat);
@@ -1245,11 +1272,11 @@ function updateDims(a, b) {
   const hy = y0;
   const hPts = [
     // bottom tick
-    new THREE.Vector3(hx - tick, hy, 0), new THREE.Vector3(hx + tick, hy, 0),
+    new THREE.Vector3(hx - tick, hy, 0), new THREE.Vector3(hx + tickIn, hy, 0),
     // main line
     new THREE.Vector3(hx, hy, 0), new THREE.Vector3(hx, hy, h),
     // top tick
-    new THREE.Vector3(hx - tick, hy, h), new THREE.Vector3(hx + tick, hy, h),
+    new THREE.Vector3(hx - tick, hy, h), new THREE.Vector3(hx + tickIn, hy, h),
   ];
   const hGeo = new THREE.BufferGeometry().setFromPoints(hPts);
   const hLine = new THREE.LineSegments(hGeo, dimLineMat);
@@ -1303,13 +1330,28 @@ const btnNext  = $("btnNext");
 const leftPanel = $("leftPanel");
 const roofPanel = $("roofPanel");
 const inW = $("inW"), inD = $("inD"), inH = $("inH"), inT = $("inT");
-// Dev mode
+// Settings / Dev mode
 const btnDev = $("btnDev"), devPanel = $("devPanel");
 btnDev.addEventListener("click", () => {
   const open = devPanel.classList.toggle("open");
   btnDev.classList.toggle("active", open);
 });
+$("devModeCb").addEventListener("change", e => {
+  $("devOptions").classList.toggle("open", e.target.checked);
+});
 $("devSimpleCb").addEventListener("change", e => { window._devSimple = e.target.checked; });
+$("devOpacity").addEventListener("input", e => {
+  const v = +e.target.value;
+  $("devOpacityVal").textContent = v + "%";
+  const op = v / 100;
+  const mats = [wallMat, floorMat, roofMat];
+  for (const m of mats) {
+    m.transparent = op < 1;
+    m.opacity = op;
+    m.depthWrite = op >= 1;
+    m.needsUpdate = true;
+  }
+});
 const stepEls = [$("step0"), $("step1"), $("step2"), $("step3"), $("step4"), $("step5")];
 const infoPanel = $("infoPanel");
 const NEXT_LABELS = ["Walls \u2192", "Openings \u2192", "Roof \u2192", "Generate \u2192", "Buy \u2192"];
@@ -1506,13 +1548,17 @@ function buildRoom(a, b, h, t, wMat, eMat, fMat, wallCutouts) {
   const isFlatSloped = roofType === "flat" && (flatSlopeH[0] !== 0 || flatSlopeH[1] !== 0);
   const e0h = h + flatSlopeH[0], e1h = h + flatSlopeH[1];
 
+  // Pentagon eave lift: lift the gable so the roof's BOTTOM plane passes through
+  // the inner-top corner of the long walls. s = roofT - ridgeH*t/halfSpan.
+  const gableEaveLift = isGable ? (295 - ridgeH * t / (ridgeAlongX ? d / 2 : w / 2)) : 0;
+
   // Wall specs: "perp" walls own the corners (full length, sloped/gabled top);
   // "long" walls are inset by t on each end (flat top).
   //   ridgeAlongX  → perp = W,E (slope runs along Y or gable spans Y)
   //   ridgeAlongY  → perp = S,N
   const specs = [];
   const flat = (hVal) => [[0, hVal], [1, hVal]];
-  const gableProfile = [[0, h], [0.5, h + ridgeH], [1, h]];
+  const gableProfile = [[0, h + gableEaveLift], [0.5, h + ridgeH + gableEaveLift], [1, h + gableEaveLift]];
 
   if (ridgeAlongX) {
     // Long S/N: inset by t, flat top at eave height (or edge height for sloped flat)
@@ -1985,6 +2031,70 @@ function rebuildWalls() {
 /* ────────────────── opening drag & drop ────────────────── */
 let draggingOpening = null;  // { type: "window"|"door" }
 let ghostOpening = null;     // THREE.Group shown during drag
+let openingDimGroup = null;  // live dim lines showing distance to wall edges
+
+function hideOpeningDims() {
+  if (openingDimGroup) { scene.remove(openingDimGroup); openingDimGroup = null; }
+}
+
+function showOpeningDims(info, posAlong, type) {
+  hideOpeningDims();
+  const t = +inT.value;
+  const ow = type === "window" ? WINDOW_W : DOOR_W;
+  const oh = type === "window" ? WINDOW_H : DOOR_H;
+  const oz = type === "window" ? WINDOW_SILL + WINDOW_H / 2 : DOOR_H / 2;
+  const half = ow / 2;
+  const edgePad = info.isInterior ? half : (half + t);
+  posAlong = Math.max(edgePad, Math.min(info.length - edgePad, posAlong));
+  const leftP = posAlong - half;
+  const rightP = posAlong + half;
+  if (leftP <= 1 && info.length - rightP <= 1) return;
+
+  const outPush = (info.isInterior ? 0 : t / 2) + 8;   // sit just off the face
+  const tickH = 150;
+  const pt = (p) => new THREE.Vector3(
+    info.origin.x + info.along.x * p + info.outward.x * outPush,
+    info.origin.y + info.along.y * p + info.outward.y * outPush,
+    oz
+  );
+  const ptH = (p, dz) => new THREE.Vector3(
+    info.origin.x + info.along.x * p + info.outward.x * outPush,
+    info.origin.y + info.along.y * p + info.outward.y * outPush,
+    oz + dz
+  );
+
+  const pts = [];
+  const labels = [];
+  if (leftP > 1) {
+    pts.push(ptH(0, -tickH), ptH(0, tickH));
+    pts.push(pt(0), pt(leftP));
+    pts.push(ptH(leftP, -tickH), ptH(leftP, tickH));
+    const mid = leftP / 2;
+    labels.push({ p: mid, len: leftP });
+  }
+  const rSpan = info.length - rightP;
+  if (rSpan > 1) {
+    pts.push(ptH(rightP, -tickH), ptH(rightP, tickH));
+    pts.push(pt(rightP), pt(info.length));
+    pts.push(ptH(info.length, -tickH), ptH(info.length, tickH));
+    const mid = rightP + rSpan / 2;
+    labels.push({ p: mid, len: rSpan });
+  }
+
+  openingDimGroup = new THREE.Group();
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const line = new THREE.LineSegments(geo, dimLineMatAccent);
+  line.renderOrder = 999;
+  openingDimGroup.add(line);
+
+  for (const lab of labels) {
+    const sprite = makeTextSprite((lab.len / 1000).toFixed(2) + " m", "#F9BC06");
+    const wp = pt(lab.p);
+    sprite.position.set(wp.x, wp.y, oz + tickH + 200);
+    openingDimGroup.add(sprite);
+  }
+  scene.add(openingDimGroup);
+}
 
 function buildGhostOpening(wallIdx, posAlong, type) {
   const info = wallInfo(wallIdx);
@@ -2028,6 +2138,7 @@ function updateGhostOpening(e) {
   const wHits = rc.intersectObjects(walls);
 
   if (ghostOpening) { scene.remove(ghostOpening); ghostOpening = null; }
+  hideOpeningDims();
 
   if (wHits.length) {
     const wallMesh = wHits[0].object;
@@ -2039,6 +2150,7 @@ function updateGhostOpening(e) {
       const posAlong = rel.dot(info.along);
       ghostOpening = buildGhostOpening(wi, posAlong, draggingOpening.type);
       if (ghostOpening) scene.add(ghostOpening);
+      showOpeningDims(info, posAlong, draggingOpening.type);
     }
   }
 }
@@ -2068,6 +2180,7 @@ function finishOpeningDrag(e) {
   }
 
   if (ghostOpening) { scene.remove(ghostOpening); ghostOpening = null; }
+  hideOpeningDims();
   draggingOpening = null;
   renderer.domElement.style.cursor = "";
 }
@@ -2086,6 +2199,7 @@ function buildRoof() {
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
   const h = +inH.value;
+  const t = +inT.value;
   const w = x1 - x0, d = y1 - y0;
   const overhang = 200;
   const roofT = 295;
@@ -2170,57 +2284,59 @@ function buildRoof() {
     const oh = overhang;
 
     // Each face: 4 outer verts (top surface) + 4 inner verts (bottom surface, offset down by roofT).
-    // The top plane is colinear with the wall's pentagon top, so the overhang eave drops below h
-    // by (ridgeH / halfSpan) * oh — extending the wall slope outward past the footprint.
+    // The top plane is colinear with the (lifted) pentagon top — so the overhang eave drops
+    // below the lifted eave by (ridgeH / halfSpan) * oh, extending the slope outward past the
+    // footprint. The pentagon is lifted by `s` = OWT * tan(slope) so long walls stay at h.
+    const halfSpan = ridgeAlongX ? d / 2 : w / 2;
+    const s = roofT - ridgeH * t / halfSpan;
+    const ridgeZ = h + ridgeH + s;
+    const eaveDrop = ridgeH * oh / halfSpan;
+    const eaveZ = h + s - eaveDrop;
     let faces;
     if (ridgeAlongX) {
       const midY = y0 + d / 2;
-      const eaveDrop = ridgeH * oh / (d / 2);
-      const eaveZ = h - eaveDrop;
       faces = [
         { // south face — eave at south, ridge at center
           top: [
             [x0 - oh, y0 - oh, eaveZ],  [x1 + oh, y0 - oh, eaveZ],
-            [x1 + oh, midY, h + ridgeH],  [x0 - oh, midY, h + ridgeH],
+            [x1 + oh, midY, ridgeZ],  [x0 - oh, midY, ridgeZ],
           ],
           bot: [
             [x0 - oh, y0 - oh, eaveZ - roofT],  [x1 + oh, y0 - oh, eaveZ - roofT],
-            [x1 + oh, midY, h + ridgeH - roofT],  [x0 - oh, midY, h + ridgeH - roofT],
+            [x1 + oh, midY, ridgeZ - roofT],  [x0 - oh, midY, ridgeZ - roofT],
           ],
         },
         { // north face
           top: [
-            [x0 - oh, midY, h + ridgeH],  [x1 + oh, midY, h + ridgeH],
+            [x0 - oh, midY, ridgeZ],  [x1 + oh, midY, ridgeZ],
             [x1 + oh, y1 + oh, eaveZ],  [x0 - oh, y1 + oh, eaveZ],
           ],
           bot: [
-            [x0 - oh, midY, h + ridgeH - roofT],  [x1 + oh, midY, h + ridgeH - roofT],
+            [x0 - oh, midY, ridgeZ - roofT],  [x1 + oh, midY, ridgeZ - roofT],
             [x1 + oh, y1 + oh, eaveZ - roofT],  [x0 - oh, y1 + oh, eaveZ - roofT],
           ],
         },
       ];
     } else {
       const midX = x0 + w / 2;
-      const eaveDrop = ridgeH * oh / (w / 2);
-      const eaveZ = h - eaveDrop;
       faces = [
         { // west face
           top: [
             [x0 - oh, y0 - oh, eaveZ],  [x0 - oh, y1 + oh, eaveZ],
-            [midX, y1 + oh, h + ridgeH],  [midX, y0 - oh, h + ridgeH],
+            [midX, y1 + oh, ridgeZ],  [midX, y0 - oh, ridgeZ],
           ],
           bot: [
             [x0 - oh, y0 - oh, eaveZ - roofT],  [x0 - oh, y1 + oh, eaveZ - roofT],
-            [midX, y1 + oh, h + ridgeH - roofT],  [midX, y0 - oh, h + ridgeH - roofT],
+            [midX, y1 + oh, ridgeZ - roofT],  [midX, y0 - oh, ridgeZ - roofT],
           ],
         },
         { // east face
           top: [
-            [midX, y0 - oh, h + ridgeH],  [midX, y1 + oh, h + ridgeH],
+            [midX, y0 - oh, ridgeZ],  [midX, y1 + oh, ridgeZ],
             [x1 + oh, y1 + oh, eaveZ],  [x1 + oh, y0 - oh, eaveZ],
           ],
           bot: [
-            [midX, y0 - oh, h + ridgeH - roofT],  [midX, y1 + oh, h + ridgeH - roofT],
+            [midX, y0 - oh, ridgeZ - roofT],  [midX, y1 + oh, ridgeZ - roofT],
             [x1 + oh, y1 + oh, eaveZ - roofT],  [x1 + oh, y0 - oh, eaveZ - roofT],
           ],
         },
@@ -2336,6 +2452,16 @@ function selectIW(idx) {
   selectedIW = idx;
   rebuildInteriorWalls();
   $("btnDeleteIW").style.display = "";
+  const iw = interiorWalls[idx];
+  if (iw) {
+    const len = Math.hypot(iw.x1 - iw.x0, iw.y1 - iw.y0);
+    showFFDim(
+      new THREE.Vector3(iw.x0, iw.y0, 0),
+      new THREE.Vector3(iw.x1, iw.y1, 0),
+      len,
+      { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" }
+    );
+  }
 }
 
 function deselectIW() {
@@ -2345,6 +2471,7 @@ function deselectIW() {
   }
   selectedIW = -1;
   $("btnDeleteIW").style.display = "none";
+  hideFFDim();
 }
 
 function deleteSelectedIW() {
@@ -2464,7 +2591,7 @@ function showIWGhost(start, end) {
   if (iwGhostMesh) { scene.remove(iwGhostMesh); iwGhostMesh = null; }
   const isHoriz = Math.abs(end.y - start.y) < 1;
   const len = isHoriz ? Math.abs(end.x - start.x) : Math.abs(end.y - start.y);
-  if (len < 10) return;
+  if (len < 10) { hideFFDim(); return; }
   const h = +inH.value, t = +inT.value;
   const geo = isHoriz
     ? new THREE.BoxGeometry(len, t, h)
@@ -2473,12 +2600,14 @@ function showIWGhost(start, end) {
   iwGhostMesh.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, h / 2);
   iwGhostMesh.renderOrder = 998;
   scene.add(iwGhostMesh);
+  showFFDim(start, end, len, { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" });
 }
 
 function cancelIWDraw() {
   iwDrawStart = null;
   iwPointerDown = null;
   if (iwGhostMesh) { scene.remove(iwGhostMesh); iwGhostMesh = null; }
+  hideFFDim();
 }
 
 /* ────────────────── free-form draw helpers ────────────────── */
@@ -2563,7 +2692,7 @@ function showFFGhost(start, end) {
 
 // Live dimension: line offset to the right of the wall + label, like box-drag
 let ffDimGroup = null;
-function showFFDim(start, end, len) {
+function showFFDim(start, end, len, opts) {
   hideFFDim();
   const dx = end.x - start.x, dy = end.y - start.y;
   const L = len || Math.hypot(dx, dy);
@@ -2571,8 +2700,10 @@ function showFFDim(start, end, len) {
   const ux = dx / L, uy = dy / L;
   // right-hand perpendicular (relative to wall direction)
   const nx = uy, ny = -ux;
-  const gap = 900;
+  const gap = (opts && opts.gap) || 900;
   const tick = 150;
+  const lineMat = (opts && opts.lineMat) || dimLineMat;
+  const labelColor = (opts && opts.labelColor) || null;
   const z = 3;
   const ox = nx * gap, oy = ny * gap;
   const tx = nx * tick, ty = ny * tick;
@@ -2585,12 +2716,12 @@ function showFFDim(start, end, len) {
     new THREE.Vector3(eOff.x - tx, eOff.y - ty, z), new THREE.Vector3(eOff.x + tx, eOff.y + ty, z),
   ];
   const geo = new THREE.BufferGeometry().setFromPoints(pts);
-  const line = new THREE.LineSegments(geo, dimLineMat);
+  const line = new THREE.LineSegments(geo, lineMat);
   line.renderOrder = 999;
   ffDimGroup = new THREE.Group();
   ffDimGroup.add(line);
 
-  const label = makeTextSprite((L / 1000).toFixed(2) + " m");
+  const label = makeTextSprite((L / 1000).toFixed(2) + " m", labelColor);
   const midX = (start.x + end.x) / 2 + nx * (gap + 250);
   const midY = (start.y + end.y) / 2 + ny * (gap + 250);
   label.position.set(midX, midY, z);
@@ -3107,13 +3238,19 @@ function hitArrow(e) {
 
 // Right-click edit tracking for free-form walls (right-drag still pans via OrbitControls)
 let ffRightDown = null;
+let iwRightDown = null;
 renderer.domElement.addEventListener("contextmenu", (e) => {
   if (currentStep === 0 && houseMode === 'free') e.preventDefault();
+  if (currentStep === 1) e.preventDefault();
 });
 renderer.domElement.addEventListener("pointerleave", () => hideFFHoverHint());
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button === 2 && currentStep === 0 && houseMode === 'free') {
     ffRightDown = { x: e.clientX, y: e.clientY };
+    return;
+  }
+  if (e.button === 2 && currentStep === 1) {
+    iwRightDown = { x: e.clientX, y: e.clientY };
     return;
   }
   if (e.button !== 0) return;   // middle reserved for OrbitControls dolly
@@ -3356,7 +3493,16 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     const hitPt = new THREE.Vector3();
     if (rc.ray.intersectPlane(vertPlane, hitPt)) {
       const h = +inH.value;
-      customRidgeH = Math.max(200, snap(hitPt.z - h));
+      const t = +inT.value;
+      const roofT = 295;
+      // ridge arrow is at h + ridgeH + s where s = roofT - ridgeH*t/halfSpan.
+      // hitZ = h + roofT + ridgeH*(1 - t/halfSpan) → solve for ridgeH.
+      const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+      const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+      const w = x1 - x0, d = y1 - y0;
+      const halfSpan = w >= d ? d / 2 : w / 2;
+      const rhRaw = (hitPt.z - h - roofT) * halfSpan / (halfSpan - t);
+      customRidgeH = Math.max(200, snap(rhRaw));
       rebuildScene();
     }
     return;
@@ -3506,6 +3652,29 @@ renderer.domElement.addEventListener("pointerup", (e) => {
         btnNext.style.display = "";
       }
       cancelFFDraw();
+    }
+    return;
+  }
+
+  // ── Interior Walls right-click: select/toggle wall (highlight + delete + dim) ──
+  if (e.button === 2 && currentStep === 1 && iwRightDown) {
+    const dx = e.clientX - iwRightDown.x;
+    const dy = e.clientY - iwRightDown.y;
+    iwRightDown = null;
+    if (dx * dx + dy * dy > 25) return;   // was a pan
+    const r2 = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r2.left) / r2.width) * 2 - 1;
+    ndc.y = -((e.clientY - r2.top) / r2.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const iwMeshes2 = [];
+    iwGroup.traverse(c => { if (c.isMesh) iwMeshes2.push(c); });
+    const hits2 = rc.intersectObjects(iwMeshes2);
+    if (hits2.length && hits2[0].object.userData.isInteriorWall) {
+      const hitIdx = hits2[0].object.userData.iwIdx;
+      if (selectedIW === hitIdx) deselectIW();
+      else selectIW(hitIdx);
+    } else {
+      deselectIW();
     }
     return;
   }
