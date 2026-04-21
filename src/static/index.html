@@ -2169,54 +2169,59 @@ function buildRoof() {
     const ridgeAlongX = w >= d;
     const oh = overhang;
 
-    // Each face: 4 outer verts (top surface) + 4 inner verts (bottom surface, offset down by roofT)
-    // The offset is purely vertical (down) for simplicity — good enough for typical roof pitches
+    // Each face: 4 outer verts (top surface) + 4 inner verts (bottom surface, offset down by roofT).
+    // The top plane is colinear with the wall's pentagon top, so the overhang eave drops below h
+    // by (ridgeH / halfSpan) * oh — extending the wall slope outward past the footprint.
     let faces;
     if (ridgeAlongX) {
       const midY = y0 + d / 2;
+      const eaveDrop = ridgeH * oh / (d / 2);
+      const eaveZ = h - eaveDrop;
       faces = [
         { // south face — eave at south, ridge at center
           top: [
-            [x0 - oh, y0 - oh, h],  [x1 + oh, y0 - oh, h],
+            [x0 - oh, y0 - oh, eaveZ],  [x1 + oh, y0 - oh, eaveZ],
             [x1 + oh, midY, h + ridgeH],  [x0 - oh, midY, h + ridgeH],
           ],
           bot: [
-            [x0 - oh, y0 - oh, h - roofT],  [x1 + oh, y0 - oh, h - roofT],
+            [x0 - oh, y0 - oh, eaveZ - roofT],  [x1 + oh, y0 - oh, eaveZ - roofT],
             [x1 + oh, midY, h + ridgeH - roofT],  [x0 - oh, midY, h + ridgeH - roofT],
           ],
         },
         { // north face
           top: [
             [x0 - oh, midY, h + ridgeH],  [x1 + oh, midY, h + ridgeH],
-            [x1 + oh, y1 + oh, h],  [x0 - oh, y1 + oh, h],
+            [x1 + oh, y1 + oh, eaveZ],  [x0 - oh, y1 + oh, eaveZ],
           ],
           bot: [
             [x0 - oh, midY, h + ridgeH - roofT],  [x1 + oh, midY, h + ridgeH - roofT],
-            [x1 + oh, y1 + oh, h - roofT],  [x0 - oh, y1 + oh, h - roofT],
+            [x1 + oh, y1 + oh, eaveZ - roofT],  [x0 - oh, y1 + oh, eaveZ - roofT],
           ],
         },
       ];
     } else {
       const midX = x0 + w / 2;
+      const eaveDrop = ridgeH * oh / (w / 2);
+      const eaveZ = h - eaveDrop;
       faces = [
         { // west face
           top: [
-            [x0 - oh, y0 - oh, h],  [x0 - oh, y1 + oh, h],
+            [x0 - oh, y0 - oh, eaveZ],  [x0 - oh, y1 + oh, eaveZ],
             [midX, y1 + oh, h + ridgeH],  [midX, y0 - oh, h + ridgeH],
           ],
           bot: [
-            [x0 - oh, y0 - oh, h - roofT],  [x0 - oh, y1 + oh, h - roofT],
+            [x0 - oh, y0 - oh, eaveZ - roofT],  [x0 - oh, y1 + oh, eaveZ - roofT],
             [midX, y1 + oh, h + ridgeH - roofT],  [midX, y0 - oh, h + ridgeH - roofT],
           ],
         },
         { // east face
           top: [
             [midX, y0 - oh, h + ridgeH],  [midX, y1 + oh, h + ridgeH],
-            [x1 + oh, y1 + oh, h],  [x1 + oh, y0 - oh, h],
+            [x1 + oh, y1 + oh, eaveZ],  [x1 + oh, y0 - oh, eaveZ],
           ],
           bot: [
             [midX, y0 - oh, h + ridgeH - roofT],  [midX, y1 + oh, h + ridgeH - roofT],
-            [x1 + oh, y1 + oh, h - roofT],  [x1 + oh, y0 - oh, h - roofT],
+            [x1 + oh, y1 + oh, eaveZ - roofT],  [x1 + oh, y0 - oh, eaveZ - roofT],
           ],
         },
       ];
