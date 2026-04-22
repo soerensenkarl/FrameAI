@@ -86,6 +86,81 @@
     font-size: 11px;
   }
 
+  /* ── Development preview badge ── */
+  .dev-badge {
+    position: fixed;
+    top: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 13px;
+    background: rgba(249, 188, 6, 0.12);
+    border: 1px solid rgba(249, 188, 6, 0.5);
+    border-radius: 999px;
+    color: #F9BC06;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    white-space: nowrap;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    z-index: 9;
+    user-select: none;
+    pointer-events: none;
+  }
+  .dev-badge.hidden { display: none; }
+
+  /* Locked tile (coming soon) */
+  .house-tile.locked {
+    cursor: not-allowed;
+    position: relative;
+    overflow: hidden;
+    opacity: 0.6;
+  }
+  .house-tile.locked:hover {
+    border-color: rgba(251, 250, 249, 0.2);
+    color: rgba(251, 250, 249, 0.9);
+    background: rgba(251, 250, 249, 0.06);
+  }
+  .house-tile.locked svg { stroke: rgba(249, 188, 6, 0.55); }
+  .coming-soon-stamp {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-18deg);
+    padding: 6px 18px;
+    border: 3px solid #ff5252;
+    border-radius: 6px;
+    color: #ff5252;
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: rgba(255, 82, 82, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(255, 82, 82, 0.35);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    user-select: none;
+  }
+  .dev-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #F9BC06;
+    box-shadow: 0 0 0 0 rgba(249, 188, 6, 0.6);
+    animation: devPulse 2s infinite;
+  }
+  @keyframes devPulse {
+    0%   { box-shadow: 0 0 0 0   rgba(249, 188, 6, 0.55); }
+    70%  { box-shadow: 0 0 0 7px rgba(249, 188, 6, 0);    }
+    100% { box-shadow: 0 0 0 0   rgba(249, 188, 6, 0);    }
+  }
+
+
   /* Buttons */
   .btn-icon {
     display: flex;
@@ -597,6 +672,7 @@
     font-weight: 500;
   }
 
+
   /* ── Loading overlay ── */
   .loading-overlay {
     position: fixed;
@@ -933,6 +1009,11 @@
   <button class="btn-next" id="btnNext" style="display:none">Openings →</button>
 </div>
 
+<!-- Development preview badge -->
+<div class="dev-badge" id="devBadge" title="This is an early development preview. Features may change, break, or be incomplete.">
+  DEVELOPMENT PREVIEW
+</div>
+
 <!-- Dimension panel -->
 <div class="panel glass" id="panel">
   <span class="panel-title">Dimensions</span>
@@ -1060,12 +1141,13 @@
     </svg>
     <span class="label">Box House</span>
   </button>
-  <button type="button" class="house-tile" id="tileFree">
+  <button type="button" class="house-tile locked" id="tileFree" title="Free Form is not yet available in this preview">
     <svg viewBox="0 0 64 64">
       <!-- L-shaped footprint polyline -->
       <path d="M12 12 L38 12 L38 34 L52 34 L52 52 L12 52 Z"/>
     </svg>
     <span class="label">Free Form</span>
+    <span class="coming-soon-stamp">Coming Soon</span>
   </button>
 </div>
 
@@ -1833,6 +1915,8 @@ btnDev.addEventListener("click", () => {
 });
 $("devModeCb").addEventListener("change", e => {
   $("devOptions").classList.toggle("open", e.target.checked);
+  $("devBadge").classList.toggle("hidden", e.target.checked);
+  $("tileFree").classList.toggle("locked", !e.target.checked);
 });
 $("devSimpleCb").addEventListener("change", e => { window._devSimple = e.target.checked; });
 $("devOpacity").addEventListener("input", e => {
@@ -4307,7 +4391,8 @@ $("tileBox").addEventListener("click", () => {
   hint.style.display = "";
   $("exampleLink").style.display = "";
 });
-$("tileFree").addEventListener("click", () => {
+$("tileFree").addEventListener("click", (e) => {
+  if (e.currentTarget.classList.contains("locked")) { e.preventDefault(); return; }
   houseMode = 'free';
   houseTypePicked = true;
   housePicker.style.display = "none";
