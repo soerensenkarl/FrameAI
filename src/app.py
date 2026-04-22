@@ -977,5 +977,7 @@ def submit_feedback():
 
 
 if __name__ == "__main__":
-    print("Server running at http://localhost:5000")
-    app.run(debug=False, port=5000, threaded=False)
+    port = int(os.environ.get("PORT", 5000))
+    env_label = os.environ.get("FRAMEAI_ENV", "prod" if port == 5000 else "dev")
+    print(f"Server running at http://localhost:{port}  (env: {env_label})")
+    app.run(debug=False, port=port, threaded=False)
