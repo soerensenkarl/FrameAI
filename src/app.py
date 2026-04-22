@@ -2,23 +2,42 @@
 import io
 import os
 import tempfile
+from functools import wraps
 
 # Ensure Rhino's native DLLs are findable
 RHINO_SYSTEM = r"C:\Program Files\Rhino 8\System"
 os.environ["PATH"] = RHINO_SYSTEM + os.pathsep + os.environ.get("PATH", "")
 
-# rhinoinside must load before any Rhino imports
-import rhinoinside
-rhinoinside.load(RHINO_SYSTEM, "net8.0")
-
 from flask import Flask, request, send_file, jsonify
-from box_gen import generate_box
-from wall_framer import frame_wall
-from gh_runner import solve_definition
 
-import System
-import Rhino.FileIO as rio
-import Rhino.Geometry as rg
+# FRAMEAI_SKIP_RHINO=1 lets dev run alongside prod for UI iteration
+# (only one process can hold the Rhino license at a time).
+# Geometry endpoints return 503 when Rhino is skipped.
+SKIP_RHINO = os.environ.get("FRAMEAI_SKIP_RHINO") == "1"
+RHINO_AVAILABLE = False
+
+if not SKIP_RHINO:
+    import rhinoinside
+    rhinoinside.load(RHINO_SYSTEM, "net8.0")
+    from box_gen import generate_box
+    from wall_framer import frame_wall
+    from gh_runner import solve_definition
+    import System
+    import Rhino.FileIO as rio
+    import Rhino.Geometry as rg
+    RHINO_AVAILABLE = True
+
+
+def requires_rhino(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not RHINO_AVAILABLE:
+            return jsonify({
+                "error": "Geometry disabled in this process (FRAMEAI_SKIP_RHINO=1). Stop the prod server to free the Rhino license, then restart this server without that env var."
+            }), 503
+        return fn(*args, **kwargs)
+    return wrapper
+
 
 import math
 
@@ -415,6 +434,7 @@ def index():
 
 
 @app.route("/generate", methods=["POST"])
+@requires_rhino
 def generate():
     data = request.get_json()
     mesh = generate_box(float(data["width"]), float(data["depth"]), float(data["height"]))
@@ -437,6 +457,7 @@ def generate():
 
 
 @app.route("/frame", methods=["POST"])
+@requires_rhino
 def frame():
     try:
         data = request.get_json()
@@ -472,6 +493,7 @@ def frame():
 
 
 @app.route("/generate-frame", methods=["POST"])
+@requires_rhino
 def generate_frame():
     try:
         data = request.get_json()
@@ -878,6 +900,7 @@ def generate_frame():
 
 
 @app.route("/solve-gh", methods=["POST"])
+@requires_rhino
 def solve_gh():
     try:
         data = request.get_json()
