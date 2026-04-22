@@ -2,23 +2,82 @@
 import io
 import os
 import tempfile
+from functools import wraps
 
 # Ensure Rhino's native DLLs are findable
 RHINO_SYSTEM = r"C:\Program Files\Rhino 8\System"
 os.environ["PATH"] = RHINO_SYSTEM + os.pathsep + os.environ.get("PATH", "")
 
-# rhinoinside must load before any Rhino imports
-import rhinoinside
-rhinoinside.load(RHINO_SYSTEM, "net8.0")
-
 from flask import Flask, request, send_file, jsonify
-from box_gen import generate_box
-from wall_framer import frame_wall
-from gh_runner import solve_definition
 
-import System
-import Rhino.FileIO as rio
-import Rhino.Geometry as rg
+# Dev/prod coexistence mode. Only one process can hold the Rhino license,
+# so the dev process loads without rhinoinside and forwards geometry
+# requests to prod via RHINO_PROXY_URL. UI-only iteration then works
+# concurrently with prod serving testers on port 5000.
+#   FRAMEAI_SKIP_RHINO=1            → don't load rhinoinside in this process
+#   RHINO_PROXY_URL=http://.../     → forward Rhino-requiring routes here
+SKIP_RHINO = os.environ.get("FRAMEAI_SKIP_RHINO") == "1"
+RHINO_PROXY_URL = (os.environ.get("RHINO_PROXY_URL") or "").rstrip("/")
+RHINO_AVAILABLE = False
+
+if not SKIP_RHINO:
+    import rhinoinside
+    rhinoinside.load(RHINO_SYSTEM, "net8.0")
+    from box_gen import generate_box
+    from wall_framer import frame_wall
+    from gh_runner import solve_definition
+    import System
+    import Rhino.FileIO as rio
+    import Rhino.Geometry as rg
+    RHINO_AVAILABLE = True
+
+
+def _proxy_to_rhino():
+    """Forward the current request to RHINO_PROXY_URL and relay the response.
+
+    Uses stdlib urllib so no extra dependency. Passes JSON body through,
+    returns raw bytes + status + Content-Type so binary responses (e.g.
+    .3dm file downloads) survive the hop.
+    """
+    import urllib.request
+    import urllib.error
+    url = f"{RHINO_PROXY_URL}{request.path}"
+    body = request.get_data() or b""
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method=request.method,
+        headers={"Content-Type": request.headers.get("Content-Type", "application/json")},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            return (
+                resp.read(),
+                resp.status,
+                {"Content-Type": resp.getheader("Content-Type", "application/json")},
+            )
+    except urllib.error.HTTPError as e:
+        return (e.read(), e.code, {"Content-Type": e.headers.get("Content-Type", "application/json")})
+    except urllib.error.URLError as e:
+        return (
+            jsonify({"error": f"Rhino proxy unreachable at {RHINO_PROXY_URL}: {e.reason}. Is the prod server running on that port?"}).get_data(),
+            502,
+            {"Content-Type": "application/json"},
+        )
+
+
+def requires_rhino(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if RHINO_AVAILABLE:
+            return fn(*args, **kwargs)
+        if RHINO_PROXY_URL:
+            return _proxy_to_rhino()
+        return jsonify({
+            "error": "Geometry disabled in this process (FRAMEAI_SKIP_RHINO=1) and no RHINO_PROXY_URL set. Start the prod server and set RHINO_PROXY_URL=http://localhost:5000, or stop prod and restart this process without FRAMEAI_SKIP_RHINO=1."
+        }), 503
+    return wrapper
+
 
 import math
 
@@ -415,6 +474,7 @@ def index():
 
 
 @app.route("/generate", methods=["POST"])
+@requires_rhino
 def generate():
     data = request.get_json()
     mesh = generate_box(float(data["width"]), float(data["depth"]), float(data["height"]))
@@ -437,6 +497,7 @@ def generate():
 
 
 @app.route("/frame", methods=["POST"])
+@requires_rhino
 def frame():
     try:
         data = request.get_json()
@@ -472,6 +533,7 @@ def frame():
 
 
 @app.route("/generate-frame", methods=["POST"])
+@requires_rhino
 def generate_frame():
     try:
         data = request.get_json()
@@ -878,6 +940,7 @@ def generate_frame():
 
 
 @app.route("/solve-gh", methods=["POST"])
+@requires_rhino
 def solve_gh():
     try:
         data = request.get_json()
