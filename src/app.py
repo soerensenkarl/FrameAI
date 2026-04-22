@@ -394,6 +394,9 @@ def _solid_from_profile(profile_pts, direction):
 
 def _roof_specs(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None, t=0, roof_t=295):
     """Pure-Python roof geometry specs. No RhinoCommon."""
+    # "none" → walls only, no roof members generated.
+    if roof_type == "none":
+        return []
     w = x1 - x0
     d = y1 - y0
     if flat_slope is None:
