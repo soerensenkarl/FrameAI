@@ -874,7 +874,7 @@
   <div class="f"><label>Thickness</label> <div class="fr"><select id="inTR"><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option></select><span class="u">mm</span></div></div>
   <div class="f" id="roofIwToRidgeRow" style="gap:8px; display:none" title="Extend interior walls up to the underside of the roof">
     <label style="flex:1">Interior walls to ridge</label>
-    <input type="checkbox" id="inIwToRidgeRoof">
+    <input type="checkbox" id="inIwToRidgeRoof" class="ios-toggle">
   </div>
 </div>
 
@@ -1795,23 +1795,76 @@ function scaleWorkerShouldShow() {
   return false;
 }
 
+function isWorkerDragActive() {
+  return !!(dragging || draggingRidge || draggingSlopeEdge >= 0 || draggingHeight || draggingSlide >= 0);
+}
+
 function positionScaleWorker() {
   if (!scaleWorker) return;
   if (scaleWorkerWalking) return;        // don't clobber the walk-off tween
-  // Stand at the front-right (max-X, min-Y) corner, offset ~1.5 m diagonally
-  // outward so he clears the wall thickness / any roof overhang.
+  // Stand at the (xMax, yMax) corner, offset ~1.5 m diagonally outward
+  // so he clears the wall thickness / any roof overhang.
   const gap = 1500;
+  let desired = null;
   if (houseMode === 'box' && c1 && c2) {
     const xMax = Math.max(c1.x, c2.x);
-    const yMin = Math.min(c1.y, c2.y);
-    scaleWorker.position.set(xMax + gap, yMin - gap, 0);
+    const yMax = Math.max(c1.y, c2.y);
+    desired = { x: xMax + gap, y: yMax + gap };
   } else if (houseMode === 'free' && footprintWalls.length) {
-    let xMax = -Infinity, yMin = Infinity;
+    let xMax = -Infinity, yMax = -Infinity;
     for (const w of footprintWalls) {
       xMax = Math.max(xMax, w.x0, w.x1);
-      yMin = Math.min(yMin, w.y0, w.y1);
+      yMax = Math.max(yMax, w.y0, w.y1);
     }
-    scaleWorker.position.set(xMax + gap, yMin - gap, 0);
+    desired = { x: xMax + gap, y: yMax + gap };
+  }
+  if (!desired) return;
+  scaleWorkerDesired = desired;
+  // First-ever placement: teleport instantly (no fade).
+  if (scaleWorker.position.x === 0 && scaleWorker.position.y === 0) {
+    scaleWorker.position.set(desired.x, desired.y, 0);
+  }
+}
+
+function tickScaleWorkerRestage() {
+  if (!scaleWorker || !scaleWorkerMesh) return;
+  if (scaleWorkerWalking) return;
+  const mat = scaleWorkerMesh.material;
+
+  // No tween active — check whether we need to start one (only when no drag in progress).
+  if (!scaleWorkerRestage) {
+    if (mat.opacity !== WORKER_BASE_OPACITY) mat.opacity = WORKER_BASE_OPACITY;
+    if (isWorkerDragActive() || !scaleWorkerDesired) return;
+    const dx = scaleWorkerDesired.x - scaleWorker.position.x;
+    const dy = scaleWorkerDesired.y - scaleWorker.position.y;
+    if (dx * dx + dy * dy > 1) {
+      scaleWorkerRestage = {
+        phase: 'fadeOut',
+        t0: performance.now(),
+        toX: scaleWorkerDesired.x,
+        toY: scaleWorkerDesired.y,
+      };
+    } else {
+      return;
+    }
+  }
+
+  const now = performance.now();
+  const t = Math.min(1, (now - scaleWorkerRestage.t0) / WORKER_RESTAGE_MS);
+  if (scaleWorkerRestage.phase === 'fadeOut') {
+    mat.opacity = WORKER_BASE_OPACITY * (1 - t);
+    if (t >= 1) {
+      scaleWorker.position.x = scaleWorkerRestage.toX;
+      scaleWorker.position.y = scaleWorkerRestage.toY;
+      scaleWorkerRestage = { phase: 'fadeIn', t0: performance.now() };
+      mat.opacity = 0;
+    }
+  } else {
+    mat.opacity = WORKER_BASE_OPACITY * t;
+    if (t >= 1) {
+      mat.opacity = WORKER_BASE_OPACITY;
+      scaleWorkerRestage = null;
+    }
   }
 }
 
@@ -5352,6 +5405,7 @@ onResize();
   updateDistributePanelPosition();
   if (scaleWorker) {
     tickScaleWorkerWalk();
+    tickScaleWorkerRestage();
     scaleWorker.visible = scaleWorkerShouldShow();
     if (scaleWorker.visible) {
       const dx = cam.position.x - scaleWorker.position.x;
