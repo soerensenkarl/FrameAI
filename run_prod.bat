@@ -1,19 +1,29 @@
 @echo off
 title FrameAI Prod Server
-REM Starts the PROD Flask server on port 5000 AND the Cloudflare tunnel
-REM that exposes it publicly. Run this from C:\FrameAI.
+REM Starts the PROD Flask server on port 5000 AND the Cloudflare tunnel.
+REM MUST be run from C:\FrameAI (the master-branch worktree).
 REM The window title "FrameAI Prod Server" is used by 2_UPDATE_PROD.BAT
 REM to find and close this window when shipping new code.
+pushd "%~dp0"
 
-REM --- Kill anything already on port 5000 (defensive; 2_UPDATE_PROD.BAT
-REM     does this too, but this lets you double-click run_prod.bat safely
-REM     without first remembering to stop an old instance).
+REM --- Guard: refuse to run from the wrong worktree.
+for /f "usebackq delims=" %%i in (`git rev-parse --abbrev-ref HEAD 2^>nul`) do set BRANCH=%%i
+if /i not "%BRANCH%"=="master" (
+  echo.
+  echo ERROR: run_prod.bat must run from C:\FrameAI ^(master branch^).
+  echo You are in a folder on branch: %BRANCH%
+  echo Double-click the run_prod.bat in C:\FrameAI instead.
+  echo.
+  popd & pause & exit /b 1
+)
+
+REM --- Kill anything already on port 5000 (defensive).
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:":5000 " ^| findstr LISTENING') do (
   taskkill /F /PID %%a >nul 2>&1
 )
 
 REM --- Ensure the Cloudflare tunnel is running. If one is already alive
-REM     from an earlier session, leave it alone (its URL stays stable).
+REM     from an earlier session, leave it alone (URL stays stable).
 set CFLARED="C:\Program Files (x86)\cloudflared\cloudflared.exe"
 if not exist %CFLARED% (
   echo WARNING: cloudflared not found at %CFLARED%.
@@ -24,16 +34,23 @@ if not exist %CFLARED% (
     echo Starting Cloudflare tunnel in its own window...
     start "FrameAI Tunnel" cmd /k %CFLARED% tunnel --url http://localhost:5000
   ) else (
-    echo Cloudflare tunnel already running — leaving it alone.
+    echo Cloudflare tunnel already running - leaving it alone.
   )
 )
 
-REM --- Start the Flask server in THIS window.
+REM --- Start the Flask server.
 set PORT=5000
 set FRAMEAI_ENV=prod
-pushd "%~dp0src"
+pushd src
+if not exist "..\.venv\Scripts\activate.bat" (
+  echo.
+  echo ERROR: could not find .venv at C:\FrameAI\.venv
+  echo The venv should have been created during initial setup.
+  popd & popd & pause & exit /b 1
+)
 call "..\.venv\Scripts\activate.bat"
 python app.py
+popd
 popd
 echo.
 echo Prod server exited. Press any key to close this window.
