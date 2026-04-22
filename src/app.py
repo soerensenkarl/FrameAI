@@ -826,12 +826,21 @@ def _compute_geometry_specs(data):
                                   ridge_h=ridge_h if roof_type == "gable" else None,
                                   flat_slope=flat_slope, t=t, roof_t=roof_t)
 
+    try:
+        material_factor = float(data.get("materialFactor", 3.1))
+    except (TypeError, ValueError):
+        material_factor = 3.1
+    try:
+        fab_factor = float(data.get("fabFactor", 1.0))
+    except (TypeError, ValueError):
+        fab_factor = 1.0
     return {
         "walls": wall_specs,
         "roof": roof_spec_list,
         "doors": door_specs,
         "windows": window_specs,
-        "dev_simple": bool(data.get("devSimple")),
+        "material_factor": material_factor,
+        "fab_factor": fab_factor,
     }
 
 
@@ -1016,8 +1025,7 @@ def _solve_and_respond(specs):
     window_breps = _breps_from_specs(specs["windows"])
     roof_breps = _breps_from_specs(specs["roof"])
 
-    gh_file = "test_simple.gh" if specs.get("dev_simple") else "generator_3.0.gh"
-    outputs = solve_definition(gh_file, {
+    outputs = solve_definition("generator_3.0.gh", {
         "WallBreps": wall_breps,
         "DoorBreps": door_breps,
         "WindowBreps": window_breps,
@@ -1091,9 +1099,12 @@ def _solve_and_respond(specs):
         for sec_str, cnt, tot_len_m in zip(cs_list, ct_list, tl_list):
             sec_str = str(sec_str).lower().replace(" ", "")
             try:
-                w_mm, d_mm = (int(round(float(x))) for x in sec_str.split("x"))
+                a_mm, b_mm = (int(round(float(x))) for x in sec_str.split("x"))
             except Exception:
-                w_mm, d_mm = 0, 0
+                a_mm, b_mm = 0, 0
+            # Canonical section string: larger dimension first. Keeps keys
+            # aligned with the indkøbspriser table ("295x45", never "45x295").
+            w_mm, d_mm = max(a_mm, b_mm), min(a_mm, b_mm)
             cnt = int(cnt)
             tot_len_m = float(tot_len_m)
             member_count += cnt
@@ -1141,9 +1152,61 @@ def _solve_and_respond(specs):
     build_h = build_minutes // 60
     build_m = build_minutes % 60
 
-    # Pricing in DKK: structural C24 timber ~3350 DKK/m³ + 35% fabrication
-    timber_cost = total_volume_m3 * 3350
-    price = timber_cost * 1.35
+    # Pricing (DKK). Material = per-section indkøbspris × meters. Fabrication
+    # = Material × fab_factor (admin-controlled slider, default 1×). Total is
+    # the sum. Unknown sections fall back to a volumetric rate so one surprise
+    # section doesn't silently price at zero.
+    timber_price_per_m = {
+        "295x45": 48.00,
+        "245x45": 36.00,
+        "220x45": 32.00,
+        "195x45": 27.00,
+        "170x45": 24.50,
+        "145x45": 21.00,
+        "120x45": 18.95,
+        "95x45":  14.00,
+        "70x45":  11.00,
+        "50x45":   7.00,
+        "45x45":   7.00,
+    }
+    # Raw purchase cost (indkøbspris × meters). Tolerates both "295x45" and
+    # "45x295" orderings, and falls back to a volumetric estimate when a
+    # section isn't in the table so one surprise never prices a frame at zero.
+    def _rate_for(section):
+        rate = timber_price_per_m.get(section)
+        if rate is not None:
+            return rate
+        try:
+            a, b = (int(x) for x in str(section).split("x"))
+        except (ValueError, AttributeError):
+            return 0.0
+        # Canonical key is bigger-first; try both before fallback.
+        rate = timber_price_per_m.get(f"{max(a, b)}x{min(a, b)}")
+        if rate is not None:
+            return rate
+        return (a * b / 1e6) * 3350
+
+    raw_timber_cost = 0.0
+    for it in part_list:
+        meters = it.get("meters")
+        try:
+            meters = float(meters)
+        except (TypeError, ValueError):
+            continue
+        if meters <= 0:
+            continue
+        raw_timber_cost += _rate_for(it.get("section")) * meters
+
+    # Material and Fabrication each scale rawCost INDEPENDENTLY — they do not
+    # chain. Total = Material + Fabrication. Factors clamped to [0, 10] so a
+    # malformed request can't bloat or zero the price.
+    material_factor = max(0.0, min(10.0, float(specs.get("material_factor", 3.1))))
+    fab_factor      = max(0.0, min(10.0, float(specs.get("fab_factor", 1.0))))
+    material_cost    = raw_timber_cost * material_factor
+    fabrication_cost = raw_timber_cost * fab_factor
+    price = material_cost + fabrication_cost
+    # Keep the historical field name populated for any external consumer.
+    timber_cost = material_cost
 
     return jsonify({
         "vertices": verts,
@@ -1159,7 +1222,10 @@ def _solve_and_respond(specs):
             "waste_pct": round(waste_pct, 1),
             "build_time": f"{build_h}h {build_m:02d}m",
             "weight_kg": round(weight_kg, 1),
-            "timber_cost": round(timber_cost, 2),
+            "raw_timber_cost": round(raw_timber_cost, 2),
+            "material_cost": round(material_cost, 2),
+            "fabrication_cost": round(fabrication_cost, 2),
+            "timber_cost": round(timber_cost, 2),   # alias of material_cost (back-compat)
             "price": round(price, 2),
             "part_list": part_list,
         },
