@@ -3680,6 +3680,10 @@ function rebuildInteriorWalls() {
   const h = +inH.value, t = +inTI.value;
 
   // Gable-roof parameters (only used when iwToRidge && roofType === 'gable').
+  // Interior walls stop at the UNDERSIDE of the roof slab, not its top. The top
+  // of the slab (hEave/hApex) is offset upward by roofT so the slab's BOTTOM
+  // plane passes through the inner-top corner of the long walls (see the
+  // gableEaveLift derivation in buildRoom). So the underside = top − roofT.
   const useGable = iwToRidge && roofType === "gable" && c1 && c2 && houseMode !== "free";
   let gable = null;
   if (useGable) {
@@ -3689,19 +3693,20 @@ function rebuildInteriorWalls() {
     const ridgeAlongX = w >= d;
     const halfSpan = ridgeAlongX ? d / 2 : w / 2;
     const ridgeH = getRidgeH();
-    const eaveLift = (+inTR.value) - ridgeH * (+inT.value) / halfSpan;
+    const roofT = +inTR.value;
+    const eaveLift = roofT - ridgeH * (+inT.value) / halfSpan;
     gable = {
       ridgeAlongX, halfSpan, ridgeH,
       centerCoord: ridgeAlongX ? (y0g + y1g) / 2 : (x0g + x1g) / 2,
-      hEave: h + eaveLift,
-      hApex: h + ridgeH + eaveLift,
+      hEaveUnder: h + eaveLift - roofT,
+      hApexUnder: h + ridgeH + eaveLift - roofT,
     };
   }
   const undersideAt = (xw, yw) => {
     if (!gable) return h;
     const coord = gable.ridgeAlongX ? yw : xw;
     const dist = Math.min(gable.halfSpan, Math.abs(coord - gable.centerCoord));
-    return gable.hEave + gable.ridgeH * (1 - dist / gable.halfSpan);
+    return gable.hEaveUnder + gable.ridgeH * (1 - dist / gable.halfSpan);
   };
 
   interiorWalls.forEach((iw, i) => {
@@ -3727,7 +3732,7 @@ function rebuildInteriorWalls() {
       if (perpToRidge) {
         const startCoord = gable.ridgeAlongX ? yMin : xMin;
         const p = gable.centerCoord - startCoord;
-        if (p > 1 && p < len - 1) { peakAlong = p; zPeak = gable.hApex; }
+        if (p > 1 && p < len - 1) { peakAlong = p; zPeak = gable.hApexUnder; }
       }
     }
 
@@ -5661,17 +5666,37 @@ dimEdit.addEventListener("blur", applyDimEdit);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Shift" && currentStep === 0 && houseMode === 'free') ffShiftHeld = true;
   if (e.key === "Escape") {
-    if (selectedOpening >= 0) { deselectOpening(); return; }
-    // Free-form: Esc cancels in-progress draw without wiping the house
+    // Escape cancels the current action only — never wipes the house. Priority:
+    //   in-progress draw > active selection > no-op.
+    if (currentStep === 0 && houseMode === 'box' && mode === M.P2) {
+      // First corner placed, waiting for second — drop c1 and the ghost.
+      c1 = null;
+      mode = M.P1;
+      if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; }
+      hint.classList.add("small");
+      hint.innerHTML = "Click to place your house";
+      return;
+    }
     if (currentStep === 0 && houseMode === 'free' && ffDrawStart) {
       cancelFFDraw();
       return;
     }
+    if (currentStep === 1 && iwDrawStart) {
+      cancelIWDraw();
+      hint.classList.add("small");
+      hint.innerHTML = "Click to draw • Right-click to edit";
+      return;
+    }
+    if (selectedOpening >= 0) { deselectOpening(); return; }
     if (currentStep === 0 && houseMode === 'free' && selectedFF >= 0) {
       deselectFFWall();
       return;
     }
-    startDrawing();
+    if (currentStep === 1 && selectedIW >= 0) {
+      deselectIW();
+      return;
+    }
+    // Nothing in progress, nothing selected — do nothing.
   }
   if (e.key === "Delete" && currentStep === 2 && selectedOpening >= 0) {
     const idx = selectedOpening;
@@ -5680,12 +5705,7 @@ document.addEventListener("keydown", (e) => {
     rebuildScene();
     pushHistory();
   }
-  // Interior wall: Escape to cancel draw, Delete to remove selected
-  if (e.key === "Escape" && currentStep === 1 && iwDrawStart) {
-    cancelIWDraw();
-    hint.classList.add("small");
-    hint.innerHTML = "Click to draw • Right-click to edit";
-  }
+  // Interior wall: Delete to remove selected (Escape handled above)
   if (e.key === "Delete" && currentStep === 1 && selectedIW >= 0) {
     deleteSelectedIW();
   }
