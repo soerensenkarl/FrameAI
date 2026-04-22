@@ -1157,10 +1157,10 @@
 </div>
 
 <!-- Free-form wall hover hint -->
-<div class="ff-hover-hint" id="ffHoverHint">Right-click to edit</div>
+<div class="ff-hover-hint" id="ffHoverHint">Click to edit</div>
 
 <!-- Interior wall hover hint -->
-<div class="ff-hover-hint" id="iwHoverHint">Right-click to edit</div>
+<div class="ff-hover-hint" id="iwHoverHint">Click to edit</div>
 
 <!-- Opening inspector (shown when an opening is selected in step 1) -->
 <div class="panel glass" id="openingInspector">
@@ -2175,7 +2175,7 @@ const stepVisited = [false, false, false, false, false, false];  // track first 
 // Intro hints shown centered on first visit to each tab
 const stepIntroHints = [
   "Click to place your house",
-  "Click to draw interior walls • Right-click to edit",
+  "Click inside to draw interior walls • Click a wall to edit",
   "Drag windows and doors onto walls \u2022 click to edit",
   "Pick a roof style for your house",
   "Generate the timber frame",
@@ -2236,6 +2236,7 @@ const WORKER_RESTAGE_MS = 280;
 })();
 
 function scaleWorkerShouldShow() {
+  if (isTopView) return false;
   if (scaleWorkerWalking) return true;   // keep him visible during the walk-off
   if (scaleWorkerDismissed) return false;
   if (houseMode === 'box') return !!(c1 && c2);
@@ -3713,7 +3714,8 @@ function buildRoof() {
 }
 
 /* ────────────────── interior walls ────────────────── */
-const iwSelectedMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6, metalness: 0 });
+const iwMat         = new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.82, metalness: 0 });
+const iwSelectedMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6,  metalness: 0 });
 
 function rebuildInteriorWalls() {
   while (iwGroup.children.length) iwGroup.remove(iwGroup.children[0]);
@@ -3817,7 +3819,7 @@ function rebuildInteriorWalls() {
     const m = new THREE.Matrix4().makeBasis(along, up, perp);
     m.setPosition(origin);
 
-    const mat = (i === selectedIW) ? iwSelectedMat : wallMat;
+    const mat = (i === selectedIW) ? iwSelectedMat : iwMat;
     const mesh = new THREE.Mesh(geo, mat);
     mesh.applyMatrix4(m);
     mesh.castShadow = true;
@@ -3882,7 +3884,11 @@ function selectIW(idx) {
     $("iwLengthVal").textContent = (lenMm / 1000).toFixed(2) + " m";
     $("iwInspector").style.display = "flex";
     positionIWInspector();
-    // Selecting a wall drops out of draw mode.
+    // Selecting a wall drops out of draw mode — clear any lingering snap UI
+    // so the selection feels clean even before the next pointermove.
+    hideDot();
+    hideSnapBars();
+    hideIWHoverHint();
     renderer.domElement.style.cursor = "";
   }
 }
@@ -4112,12 +4118,28 @@ function iwWallAtEvent(e) {
 }
 
 /* ────────────────── free-form draw helpers ────────────────── */
-// Must be > grid SNAP so endpoint snap wins over grid rounding.
+// Minimum endpoint snap radius in world-mm. Must exceed grid SNAP so endpoint
+// snap beats grid rounding when both apply. The effective radius scales up
+// with zoom-out — see ffSnapRadius.
 const FF_ENDPOINT_SNAP = 900;
+
+// World-mm per screen pixel at the orbit target. Lets us keep the endpoint
+// snap zone a consistent ~40 px regardless of zoom. The old fixed 900 mm
+// radius shrank to a few pixels when zoomed out, which made hitting a node
+// feel unreliable.
+function worldPerPixel() {
+  const dist = Math.max(100, cam.position.distanceTo(orbit.target));
+  const vFov = cam.fov * Math.PI / 180;
+  const h = renderer.domElement.clientHeight || 1;
+  return (2 * dist * Math.tan(vFov / 2)) / h;
+}
+function ffSnapRadius() {
+  return Math.max(FF_ENDPOINT_SNAP, 40 * worldPerPixel());
+}
 
 function ffSnapPoint(pt) {
   // Priority: endpoint of an existing wall > grid snap
-  let best = null, bestD = FF_ENDPOINT_SNAP;
+  let best = null, bestD = ffSnapRadius();
   for (const w of footprintWalls) {
     for (const p of [[w.x0, w.y0], [w.x1, w.y1]]) {
       const d = Math.hypot(pt.x - p[0], pt.y - p[1]);
@@ -4338,6 +4360,7 @@ function goToStep(n) {
   if (n < 0 || n > 5) return;
   currentStep = n;
   setStep(n);
+  updateExtWallOpacity();
 
   // Hide everything step-specific
   panel.classList.remove("open");
@@ -4378,7 +4401,7 @@ function goToStep(n) {
   // Small hints shown after intro dismisses (or on revisit)
   const stepSmallHints = [
     "Drag arrows or edit dimensions",
-    "Click to draw \u2022 Right-click to edit",
+    "Click to draw \u2022 Click to edit",
     "Drag to add \u2022 Click to inspect",
     "Choose a roof type",
     "",
@@ -4460,7 +4483,7 @@ function goToStep(n) {
         showIntroThenSmall();
       } else {
         hint.classList.add("small");
-        hint.innerHTML = "Click to draw • Right-click to edit";
+        hint.innerHTML = "Click empty space to draw • Click a wall to edit";
       }
       break;
 
@@ -4586,6 +4609,13 @@ $("tileFree").addEventListener("click", (e) => {
 });
 
 /* ────────────────── top view toggle ────────────────── */
+function updateExtWallOpacity() {
+  const ghost = currentStep === 1 && !isTopView;
+  wallMat.transparent = ghost;
+  wallMat.opacity = ghost ? 0.5 : 1.0;
+  wallMat.needsUpdate = true;
+}
+
 function enableTopView() {
   isTopView = true;
   $("btnTopView").classList.add("active");
@@ -4599,6 +4629,7 @@ function enableTopView() {
   orbit.minPolarAngle = 0;
   orbit.maxPolarAngle = 0.0001;
   orbit.update();
+  updateExtWallOpacity();
 }
 
 function disableTopView() {
@@ -4613,6 +4644,7 @@ function disableTopView() {
   orbit.minPolarAngle = 0;
   orbit.maxPolarAngle = Math.PI / 2.05;
   orbit.update();
+  updateExtWallOpacity();
 }
 
 $("btnTopView").addEventListener("click", () => {
@@ -4881,24 +4913,13 @@ function hitArrow(e) {
   return hits.length ? hits[0].object : null;
 }
 
-// Right-click edit tracking for free-form walls (right-drag still pans via OrbitControls)
-let ffRightDown = null;
-let iwRightDown = null;
-renderer.domElement.addEventListener("contextmenu", (e) => {
-  if (currentStep === 0 && houseMode === 'free') e.preventDefault();
-  if (currentStep === 1) e.preventDefault();
-});
+// Always suppress the native context menu on the canvas — right-drag still
+// pans via OrbitControls because that listens to pointer events, not
+// contextmenu. No in-app feature binds to right-click anymore.
+renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
 renderer.domElement.addEventListener("pointerleave", () => { hideFFHoverHint(); hideIWHoverHint(); });
 renderer.domElement.addEventListener("pointerdown", (e) => {
-  if (e.button === 2 && currentStep === 0 && houseMode === 'free') {
-    ffRightDown = { x: e.clientX, y: e.clientY };
-    return;
-  }
-  if (e.button === 2 && currentStep === 1) {
-    iwRightDown = { x: e.clientX, y: e.clientY };
-    return;
-  }
-  if (e.button !== 0) return;   // middle reserved for OrbitControls dolly
+  if (e.button !== 0) return;   // right = OrbitControls pan, middle = dolly
   if (!houseTypePicked) return;
 
   // Scale-worker hit-test takes precedence over step-specific handlers.
@@ -5139,6 +5160,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         const hovered = snapped.snapped ? -1 : ffWallAtEvent(e);
         ffHoverPointer.x = e.clientX; ffHoverPointer.y = e.clientY;
         if (hovered >= 0) {
+          renderer.domElement.style.cursor = "pointer";
           if (hovered !== ffHoverIdx) {
             hideFFHoverHint();
             ffHoverIdx = hovered;
@@ -5147,6 +5169,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
             showFFHoverHint();  // follow cursor
           }
         } else {
+          renderer.domElement.style.cursor = "crosshair";
           hideFFHoverHint();
         }
       }
@@ -5156,6 +5179,15 @@ renderer.domElement.addEventListener("pointermove", (e) => {
 
   // Interior wall snap dot + ghost preview; hover hint when idle
   if (currentStep === 1) {
+    // Draw tool is disabled while a wall is selected — no snap dot, no ghost,
+    // no snap bars. Click another wall to switch, or click empty space to
+    // deselect and start drawing.
+    if (selectedIW >= 0) {
+      hideDot();
+      hideSnapBars();
+      hideIWHoverHint();
+      return;
+    }
     const pt = groundHit(e);
     if (pt) {
       if (iwDrawStart) {
@@ -5173,6 +5205,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         const hovered = onEndpoint ? -1 : iwWallAtEvent(e);
         iwHoverPointer.x = e.clientX; iwHoverPointer.y = e.clientY;
         if (hovered >= 0) {
+          renderer.domElement.style.cursor = "pointer";
           if (hovered !== iwHoverIdx) {
             hideIWHoverHint();
             iwHoverIdx = hovered;
@@ -5181,6 +5214,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
             showIWHoverHint();  // follow cursor
           }
         } else {
+          renderer.domElement.style.cursor = "crosshair";
           hideIWHoverHint();
         }
       }
@@ -5413,24 +5447,10 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     pushHistory();
   }
 
-  // ── Free-form footprint right-click: select/toggle wall inspector ──
-  if (e.button === 2 && currentStep === 0 && houseMode === 'free' && ffRightDown) {
-    const dx = e.clientX - ffRightDown.x;
-    const dy = e.clientY - ffRightDown.y;
-    ffRightDown = null;
-    if (dx * dx + dy * dy > 25) return;   // it was a pan, not a click
-    const idx = ffWallAtEvent(e);
-    if (idx >= 0) {
-      if (selectedFF === idx) deselectFFWall();
-      else selectFFWall(idx);
-    } else {
-      deselectFFWall();
-    }
-    hideFFHoverHint();
-    return;
-  }
-
-  // ── Free-form footprint left-click: draw only (never select) ──
+  // ── Free-form footprint (left-click does everything) ──
+  // Priority: finish in-progress draw > click an existing wall to select/toggle
+  // > start a new wall. The in-progress check wins so the second click of a
+  // draw can't accidentally re-select the wall you just landed on.
   if (currentStep === 0 && houseMode === 'free' && ffPointerDown) {
     const dx = e.clientX - ffPointerDown.x;
     const dy = e.clientY - ffPointerDown.y;
@@ -5440,12 +5460,8 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     const pt = groundHit(e);
     if (!pt) return;
 
-    if (!ffDrawStart) {
-      deselectFFWall();
-      ffDrawStart = ffSnapPoint(new THREE.Vector3(pt.x, pt.y, 0));
-      hint.style.display = "none";
-      hideFFHoverHint();
-    } else {
+    if (ffDrawStart) {
+      // Finishing an in-progress wall.
       const end = ffConstrainEnd(ffDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
       const len = ffDrawStart.distanceTo(end);
       if (len >= 500) {
@@ -5457,57 +5473,38 @@ renderer.domElement.addEventListener("pointerup", (e) => {
         pushHistory();
       }
       cancelFFDraw();
+      return;
     }
+
+    const hitIdx = ffWallAtEvent(e);
+    if (hitIdx >= 0) {
+      if (selectedFF === hitIdx) deselectFFWall();
+      else selectFFWall(hitIdx);
+      hideFFHoverHint();
+      return;
+    }
+
+    // Empty ground → start a new wall. Any lingering selection is cleared.
+    deselectFFWall();
+    ffDrawStart = ffSnapPoint(new THREE.Vector3(pt.x, pt.y, 0));
+    hint.style.display = "none";
+    hideFFHoverHint();
     return;
   }
 
-  // ── Interior Walls right-click: select/toggle wall (highlight + delete + dim) ──
-  if (e.button === 2 && currentStep === 1 && iwRightDown) {
-    const dx = e.clientX - iwRightDown.x;
-    const dy = e.clientY - iwRightDown.y;
-    iwRightDown = null;
-    if (dx * dx + dy * dy > 25) return;   // was a pan
-    const r2 = renderer.domElement.getBoundingClientRect();
-    ndc.x = ((e.clientX - r2.left) / r2.width) * 2 - 1;
-    ndc.y = -((e.clientY - r2.top) / r2.height) * 2 + 1;
-    rc.setFromCamera(ndc, cam);
-    const iwMeshes2 = [];
-    iwGroup.traverse(c => { if (c.isMesh) iwMeshes2.push(c); });
-    const hits2 = rc.intersectObjects(iwMeshes2);
-    if (hits2.length && hits2[0].object.userData.isInteriorWall) {
-      const hitIdx = hits2[0].object.userData.iwIdx;
-      if (selectedIW === hitIdx) deselectIW();
-      else selectIW(hitIdx);
-    } else {
-      deselectIW();
-    }
-    hideIWHoverHint();
-    return;
-  }
-
-  // ── Interior Walls left-click: draw only (never select). Right-click handles selection. ──
+  // ── Interior Walls (left-click does everything) ──
+  // Same priority order as free-form above.
   if (currentStep === 1 && iwPointerDown) {
     const dx = e.clientX - iwPointerDown.x;
     const dy = e.clientY - iwPointerDown.y;
     iwPointerDown = null;
     if (dx * dx + dy * dy > 25) return; // moved > 5px → was orbiting
 
-    // Draw tool is disabled while a wall is selected: first left-click just
-    // deselects and re-enables the tool; the user's next click starts drawing.
-    if (selectedIW >= 0) {
-      deselectIW();
-      return;
-    }
-
     const pt = groundHit(e);
     if (!pt) return;
 
-    if (!iwDrawStart) {
-      // First click — start drawing
-      hideIWHoverHint();
-      iwDrawStart = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
-    } else {
-      // Second click — finish wall
+    if (iwDrawStart) {
+      // Finishing an in-progress wall.
       const end = constrainIWEnd(iwDrawStart, new THREE.Vector3(pt.x, pt.y, 0));
       const len = iwDrawStart.distanceTo(end);
       if (len >= 500) {
@@ -5517,7 +5514,30 @@ renderer.domElement.addEventListener("pointerup", (e) => {
         pushHistory();
       }
       cancelIWDraw();
+      return;
     }
+
+    // Hit-test an existing interior wall first — click it to select/toggle.
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const iwMeshes = [];
+    iwGroup.traverse(c => { if (c.isMesh && c.userData.isInteriorWall) iwMeshes.push(c); });
+    const iwHits = rc.intersectObjects(iwMeshes);
+    if (iwHits.length) {
+      const hitIdx = iwHits[0].object.userData.iwIdx;
+      if (selectedIW === hitIdx) deselectIW();
+      else selectIW(hitIdx);
+      hideIWHoverHint();
+      return;
+    }
+
+    // Empty ground → start a new wall. Deselect first so the cursor snaps back
+    // to crosshair and the snap UI re-arms.
+    if (selectedIW >= 0) deselectIW();
+    hideIWHoverHint();
+    iwDrawStart = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
   }
 });
 
@@ -5743,7 +5763,7 @@ document.addEventListener("keydown", (e) => {
     if (currentStep === 1 && iwDrawStart) {
       cancelIWDraw();
       hint.classList.add("small");
-      hint.innerHTML = "Click to draw • Right-click to edit";
+      hint.innerHTML = "Click empty space to draw • Click a wall to edit";
       return;
     }
     if (selectedOpening >= 0) { deselectOpening(); return; }
