@@ -396,7 +396,7 @@ def _build_roof_breps(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=Non
     """
     w = x1 - x0
     d = y1 - y0
-    overhang = 200
+    overhang = 0
     if flat_slope is None:
         flat_slope = [0, 0]
 
