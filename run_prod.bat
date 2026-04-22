@@ -31,8 +31,8 @@ if not exist %CFLARED% (
 ) else (
   tasklist /FI "IMAGENAME eq cloudflared.exe" 2>nul | find /I "cloudflared.exe" >nul
   if errorlevel 1 (
-    echo Starting Cloudflare tunnel in its own window...
-    start "FrameAI Tunnel" cmd /k %CFLARED% tunnel --url http://localhost:5000
+    echo Starting Cloudflare named tunnel "frameai" ^(frame.syntropic.dk^)...
+    start "FrameAI Tunnel" cmd /k %CFLARED% tunnel run frameai
   ) else (
     echo Cloudflare tunnel already running - leaving it alone.
   )
