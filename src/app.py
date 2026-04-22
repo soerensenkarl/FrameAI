@@ -66,11 +66,34 @@ def _proxy_to_rhino():
         )
 
 
+def _is_rhino_not_licensed(exc):
+    """Match Rhino.Runtime.NotLicensedException without requiring a clean import.
+
+    Pythonnet wraps the .NET exception; checking the class name is robust
+    whether the .NET type is loaded here or surfaces through a nested call.
+    """
+    e = exc
+    while e is not None:
+        if "NotLicensed" in type(e).__name__:
+            return True
+        e = getattr(e, "__cause__", None) or getattr(e, "__context__", None)
+    return False
+
+
 def requires_rhino(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if RHINO_AVAILABLE:
-            return fn(*args, **kwargs)
+            try:
+                return fn(*args, **kwargs)
+            except Exception as e:
+                if _is_rhino_not_licensed(e):
+                    import traceback
+                    traceback.print_exc()
+                    return jsonify({
+                        "error": "Rhino license is unavailable right now. Most common cause: Rhino 8 (the GUI app) is open on the server PC and is holding the single license. Close Rhino there and retry in a few seconds."
+                    }), 503
+                raise
         if RHINO_PROXY_URL:
             return _proxy_to_rhino()
         return jsonify({

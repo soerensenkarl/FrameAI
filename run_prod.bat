@@ -17,6 +17,22 @@ if /i not "%BRANCH%"=="master" (
   popd & pause & exit /b 1
 )
 
+REM --- Warn if Rhino GUI is open. It shares the single Cloud Zoo license
+REM     with rhinoinside in prod, so having it open causes intermittent
+REM     NotLicensedException on /generate-frame etc.
+tasklist /FI "IMAGENAME eq Rhino.exe" 2>nul | find /I "Rhino.exe" >nul
+if not errorlevel 1 (
+  echo.
+  echo ================================================================
+  echo   WARNING: Rhino 8 ^(GUI^) is running on this PC.
+  echo   It shares the single Rhino license with prod and WILL cause
+  echo   "Rhino license unavailable" errors for testers.
+  echo   Close Rhino 8 on your desktop, then retry.
+  echo ================================================================
+  echo.
+  pause
+)
+
 REM --- Kill anything already on port 5000 (defensive).
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:":5000 " ^| findstr LISTENING') do (
   taskkill /F /PID %%a >nul 2>&1
