@@ -135,3 +135,56 @@ def test_solve_frame_accepts_spec_bundle():
     assert resp.status_code == 200, resp.data.decode()
     data = resp.get_json()
     assert "vertices" in data and data["stats"]["member_count"] > 0
+
+
+# ── interior wall joint retractions ──
+
+def test_iw_joint_t_into_long_wall_retracts_butting_end():
+    """Short horizontal wall butting mid-span of a long vertical wall retracts by t/2."""
+    from app import _compute_iw_joints
+    walls = [
+        {"x0": 5000, "y0": 1000, "x1": 5000, "y1": 7000},  # long vertical
+        {"x0": 5000, "y0": 3000, "x1": 8000, "y1": 3000},  # horizontal butting in
+    ]
+    r = _compute_iw_joints(walls, iw_t=120)
+    # Long wall: both ends free (inside footprint-less test world) → no retract.
+    assert r[0] == [0, 0]
+    # Short wall: side 0 hits long wall's mid-span → retract 60; side 1 free → 0.
+    assert r[1][0] == 60
+    assert r[1][1] == 0
+
+
+def test_iw_joint_corner_longer_wins():
+    """L-corner: shorter wall's end retracts, longer keeps full length."""
+    from app import _compute_iw_joints
+    walls = [
+        {"x0": 0, "y0": 0, "x1": 10000, "y1": 0},  # long horizontal — winner
+        {"x0": 0, "y0": 0, "x1": 0,      "y1": 2000},  # short vertical — loser
+    ]
+    r = _compute_iw_joints(walls, iw_t=200)
+    assert r[0] == [0, 0]
+    assert r[1][0] == 100  # shorter wall retracts at the shared corner
+
+
+def test_iw_joint_end_on_exterior_face_no_retract():
+    """End flush with an exterior inner face doesn't retract."""
+    from app import _compute_iw_joints
+    walls = [
+        {"x0": 195, "y0": 1500, "x1": 5000, "y1": 1500},  # starts on west inner face
+    ]
+    r = _compute_iw_joints(walls, iw_t=120,
+                            ix0=195, iy0=195, ix1=5000, iy1=3000)
+    assert r[0][0] == 0  # flush with ext face → no retract at side 0
+
+
+def test_iw_thickness_change_re_resolves_retraction():
+    """Doubling iw_t doubles the retraction amount."""
+    from app import _compute_iw_joints
+    walls = [
+        {"x0": 0, "y0": 0, "x1": 0, "y1": 5000},
+        {"x0": 0, "y0": 2500, "x1": 3000, "y1": 2500},
+    ]
+    r_thin = _compute_iw_joints(walls, iw_t=100)
+    r_thick = _compute_iw_joints(walls, iw_t=200)
+    assert r_thin[1][0] == 50
+    assert r_thick[1][0] == 100
