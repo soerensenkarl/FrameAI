@@ -84,24 +84,27 @@ def requires_rhino(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if RHINO_AVAILABLE:
-            # Retry once on a NotLicensed blip — Rhino GUI and rhinoinside
-            # share one Cloud Zoo seat, and periodic re-validation can
-            # miss for a moment. A short pause usually clears it.
+            # rhinoinside + Rhino GUI share one Cloud Zoo seat and
+            # periodic re-validation occasionally misses. Retry a few
+            # times with backoff — this is the only lever rhinoinside
+            # gives us. The real fix is migrating to rhino.compute.exe
+            # which holds the license in a long-lived parent process.
             import time
+            delays = [0.5, 1.0, 2.0]  # 3 retries, total up to ~3.5s extra
             last_exc = None
-            for attempt in range(2):
+            for attempt in range(1 + len(delays)):
                 try:
                     return fn(*args, **kwargs)
                 except Exception as e:
                     if _is_rhino_not_licensed(e):
                         last_exc = e
-                        if attempt == 0:
-                            time.sleep(0.8)
+                        if attempt < len(delays):
+                            time.sleep(delays[attempt])
                             continue
                         import traceback
                         traceback.print_exc()
                         return jsonify({
-                            "error": "Rhino license unavailable after retry. Rhino GUI on the server PC may be contending for the seat — close it and retry, or wait a moment and try again."
+                            "error": "Rhino license unavailable after 4 attempts. Rhino GUI on the server PC is likely contending for the seat — close Rhino there and retry."
                         }), 503
                     raise
             if last_exc is not None:
