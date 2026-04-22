@@ -1,6 +1,7 @@
 @echo off
-REM Merge the feature branch into master (i.e. ship to prod).
-REM Run from C:\FrameAI (the prod worktree). Pushes master after merging.
+REM Merge the feature branch into master (i.e. ship to prod) and
+REM automatically restart the prod server so new code is immediately live.
+REM Run from C:\FrameAI (the prod worktree).
 pushd "%~dp0"
 
 for /f "usebackq delims=" %%i in (`git rev-parse --abbrev-ref HEAD 2^>nul`) do set BRANCH=%%i
@@ -21,11 +22,12 @@ echo === Commits that will land on master ===
 git log --oneline HEAD..feature
 echo.
 
-REM Detect whether anything actually needs merging
 for /f %%c in ('git log HEAD..feature --oneline ^| find /c /v ""') do set NC=%%c
 if "%NC%"=="0" (
   echo Nothing to merge. master is already in sync with feature.
-  popd & pause & exit /b 0
+  echo Skipping merge; restarting prod anyway.
+  echo.
+  goto restart
 )
 
 git merge feature --no-ff -m "Merge feature into master"
@@ -33,7 +35,7 @@ if errorlevel 1 (
   echo.
   echo Merge had conflicts. Resolve them in C:\FrameAI then commit, or run:
   echo   git merge --abort
-  echo to cancel. Nothing has been pushed.
+  echo to cancel. Nothing has been pushed or restarted.
   popd & pause & exit /b 1
 )
 
@@ -44,10 +46,22 @@ if errorlevel 1 (
   popd & pause & exit /b 1
 )
 
+:restart
+echo === Stopping old prod server ===
+REM Close any window titled "FrameAI Prod Server"
+taskkill /F /FI "WINDOWTITLE eq FrameAI Prod Server*" >nul 2>&1
+REM Belt-and-braces: kill whatever is still listening on :5000
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:":5000 " ^| findstr LISTENING') do (
+  taskkill /F /PID %%a >nul 2>&1
+)
+
+REM Give the OS a moment to release the port
+timeout /t 2 /nobreak >nul
+
+echo === Launching new prod server in its own window ===
+start "FrameAI Prod Server" cmd /k "%~dp0run_prod.bat"
+
 echo.
-echo Done. Prod files on disk now match feature.
-echo.
-echo REMEMBER: if you changed Python code ^(app.py, box_gen.py, etc.^),
-echo you need to stop the prod server and re-run run_prod.bat for the
-echo change to take effect. Frontend-only changes show up on next refresh.
+echo Done. A new "FrameAI Prod Server" window is opening now.
+echo Tunnel reconnects within a few seconds — testers' URL stays the same.
 popd & pause

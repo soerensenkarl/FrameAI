@@ -1,4 +1,5 @@
 @echo off
+title FrameAI Dev Server
 REM Starts the DEV Flask server on port 5001 for local iteration.
 REM Run this from C:\FrameAI-dev (feature branch). Not exposed publicly.
 REM Open http://localhost:5001 in your browser.
