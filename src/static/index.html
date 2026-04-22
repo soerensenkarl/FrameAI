@@ -773,37 +773,86 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* ── Left panel (tools — Openings drag-drop) ── */
-  .left-panel {
+  /* ── Unified left sidebar ──
+     One panel, always visible, vertically centered on the left edge.
+     Two sections: a step-specific "step" area (top) that expands the panel
+     upward with contextual tools (Window/Door on step 2, Flat/Gable on step
+     3), and a "persist" area (bottom) that holds tools that are always
+     available (e.g. Measure). The divider between them only appears when
+     the step section has content, so idle steps just show the persist row.
+  */
+  .leftbar {
     position: fixed;
     left: 20px;
     top: 50%;
     transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    gap: 0;
+    z-index: 10;
+  }
+  .leftbar-step {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .leftbar-step.hidden { display: none; }
+  .leftbar-persist {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .leftbar-step:not(.hidden) + .leftbar-persist {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+  /* Persistent tools read as round icon buttons — a deliberate visual break
+     from the square step-specific tiles above. */
+  .leftbar-persist .tool-item {
+    width: 56px;
+    height: 56px;
+    min-width: 0;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+    gap: 0;
+    font-size: 0;            /* hide the "Measure" text label (title= still tooltips) */
+  }
+  .leftbar-persist .tool-item svg { width: 28px; height: 28px; }
+  /* Step-scoped buttons hidden by default; the matching step makes them visible. */
+  .leftbar-step > [data-step-for] { display: none; }
+  .leftbar[data-current-step="2"] .leftbar-step > [data-step-for="2"] { display: flex; }
+  .leftbar[data-current-step="3"] .leftbar-step > [data-step-for="3"] { display: flex; }
+
+  /* Interior Walls panel is variables/info → force right side, match .panel width */
+  #iwPanel {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 196px;
     padding: 18px;
     display: none;
     flex-direction: column;
     gap: 10px;
     z-index: 10;
   }
-  .left-panel.open { display: flex; }
-
-  /* Interior Walls panel is variables/info → force right side, match .panel width */
-  #iwPanel {
-    left: auto;
-    right: 20px;
-    width: 196px;
-  }
+  #iwPanel.open { display: flex; }
 
   .tool-item {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 14px 16px;
-    background: rgba(255,255,255,0.04);
-    border: 1.5px solid rgba(255,255,255,0.08);
+    gap: 6px;
+    padding: 12px 14px;
+    min-width: 92px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1.5px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
-    color: rgba(255,255,255,0.55);
+    color: rgba(255, 255, 255, 0.6);
     font-size: 12px;
     font-weight: 500;
     cursor: grab;
@@ -811,18 +860,17 @@
     user-select: none;
   }
   .tool-item:hover {
-    border-color: rgba(255,255,255,0.18);
-    color: rgba(255,255,255,0.85);
+    border-color: rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.06);
   }
-  .tool-item:active {
-    cursor: grabbing;
-  }
+  .tool-item:active { cursor: grabbing; }
   .tool-item.active {
     border-color: #F9BC06;
     color: #F9BC06;
-    background: rgba(249,188,6,0.08);
+    background: rgba(249, 188, 6, 0.08);
   }
-  .tool-item svg { width: 40px; height: 40px; flex-shrink: 0; }
+  .tool-item svg { width: 36px; height: 36px; flex-shrink: 0; }
 
   /* ── Delete button ── */
   .btn-delete {
@@ -876,28 +924,29 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 18px 28px;
-    background: rgba(255,255,255,0.04);
-    border: 1.5px solid rgba(255,255,255,0.08);
+    gap: 6px;
+    padding: 12px 14px;
+    min-width: 92px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1.5px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
-    color: rgba(255,255,255,0.5);
-    font-size: 13px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.15s;
-    min-width: 110px;
   }
   .roof-option:hover {
-    border-color: rgba(255,255,255,0.2);
-    color: rgba(255,255,255,0.8);
+    border-color: rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.06);
   }
   .roof-option.active {
     border-color: #F9BC06;
     color: #F9BC06;
-    background: rgba(249,188,6,0.08);
+    background: rgba(249, 188, 6, 0.08);
   }
-  .roof-option svg { width: 40px; height: 40px; }
+  .roof-option svg { width: 36px; height: 36px; }
 
   /* ── Frame info panel (right side, after generation) ── */
   .info-panel {
@@ -1066,21 +1115,48 @@
 <!-- Drag ghost that follows cursor -->
 <div class="drag-ghost" id="dragGhost"></div>
 
-<!-- Left panel (Openings) -->
-<div class="left-panel glass" id="leftPanel">
-  <span class="panel-title">Drag onto walls</span>
-  <div class="tool-item" data-tool="window">
-    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="8" width="30" height="24" rx="2"/><line x1="20" y1="8" x2="20" y2="32"/><line x1="5" y1="20" x2="35" y2="20"/></svg>
-    Window
+<!-- Unified left sidebar — one panel, always visible, centered on the left edge.
+     Step-specific buttons live in .leftbar-step (top, expands upward); always-on
+     tools live in .leftbar-persist (bottom). Divider appears only when both
+     sections are populated. -->
+<div class="leftbar glass" id="leftBar">
+  <div class="leftbar-step" id="leftBarStep">
+    <!-- Step 2: openings (drag onto walls) -->
+    <div class="tool-item" data-tool="window" data-step-for="2">
+      <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="8" width="30" height="24" rx="2"/><line x1="20" y1="8" x2="20" y2="32"/><line x1="5" y1="20" x2="35" y2="20"/></svg>
+      Window
+    </div>
+    <div class="tool-item" data-tool="door" data-step-for="2">
+      <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="8" y="4" width="24" height="32" rx="2"/><circle cx="27" cy="22" r="2" fill="currentColor" stroke="none"/></svg>
+      Door
+    </div>
+    <!-- Step 3: roof tiles -->
+    <div class="roof-option" data-roof="flat" data-step-for="3">
+      <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="16" width="28" height="18" rx="1"/><line x1="4" y1="16" x2="36" y2="16" stroke-width="2.2"/></svg>
+      Flat
+    </div>
+    <div class="roof-option" data-roof="gable" data-step-for="3">
+      <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6,34 6,20 20,6 34,20 34,34"/></svg>
+      Gable
+    </div>
   </div>
-  <div class="tool-item" data-tool="door">
-    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="8" y="4" width="24" height="32" rx="2"/><circle cx="27" cy="22" r="2" fill="currentColor" stroke="none"/></svg>
-    Door
+  <div class="leftbar-persist">
+    <div class="tool-item" data-tool="measure" id="toolMeasure" title="Measure distance">
+      <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="15" width="36" height="10" rx="1.5" transform="rotate(-30 20 20)"/>
+        <line x1="8.5"  y1="13" x2="10"   y2="17" transform="rotate(-30 20 20)"/>
+        <line x1="14"   y1="13" x2="16"   y2="18" transform="rotate(-30 20 20)"/>
+        <line x1="20"   y1="13" x2="22"   y2="17" transform="rotate(-30 20 20)"/>
+        <line x1="26"   y1="13" x2="28"   y2="18" transform="rotate(-30 20 20)"/>
+        <line x1="32"   y1="13" x2="33.5" y2="17" transform="rotate(-30 20 20)"/>
+      </svg>
+      Measure
+    </div>
   </div>
 </div>
 
-<!-- Interior walls panel -->
-<div class="left-panel glass" id="iwPanel">
+<!-- Interior walls panel (right-side settings) -->
+<div class="glass" id="iwPanel">
   <span class="panel-title">Interior Walls</span>
   <p style="font-size:12px; color:rgba(255,255,255,0.5); margin:0 0 8px">
     Click start point on a wall,<br>then click end point.
@@ -1092,20 +1168,9 @@
   </div>
 </div>
 
-<!-- Roof tool panel (left — tiles) -->
-<div class="left-panel glass" id="roofToolPanel">
-  <span class="panel-title">Roof</span>
-  <div class="roof-option" data-roof="flat">
-    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="16" width="28" height="18" rx="1"/><line x1="4" y1="16" x2="36" y2="16" stroke-width="2.2"/></svg>
-    Flat
-  </div>
-  <div class="roof-option" data-roof="gable">
-    <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6,34 6,20 20,6 34,20 34,34"/></svg>
-    Gable
-  </div>
-</div>
-
 <!-- Roof settings panel (right — thickness) -->
+<!-- Roof tile selector (flat/gable) moved into #leftBar above. -->
+
 <div class="panel glass" id="roofPanel">
   <span class="panel-title">Roof</span>
   <div class="f"><label>Thickness</label> <div class="fr"><select id="inTR"><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option></select><span class="u">mm</span></div></div>
@@ -1182,11 +1247,8 @@
 <div class="house-picker" id="housePicker">
   <button type="button" class="house-tile" id="tileBox">
     <svg viewBox="0 0 64 64">
-      <!-- isometric cube (rotated 180°) -->
-      <g transform="rotate(180 32 32)">
-        <path d="M32 10 L52 22 L52 46 L32 58 L12 46 L12 22 Z"/>
-        <path d="M32 10 L32 34 M12 46 L32 34 M52 46 L32 34"/>
-      </g>
+      <path d="M11,40 L39,30 L54,38 L54,25 L26,35 L11,27 Z M39,30 L39,17 M11,27 L39,17 L54,25"/>
+      <path stroke-dasharray="2 2" d="M11,40 L26,48 L54,38 M26,48 L26,35"/>
     </svg>
     <span class="label">Box House</span>
   </button>
@@ -1219,6 +1281,7 @@
   <label class="dev-opt"><input type="checkbox" id="devModeCb"> Dev Mode</label>
   <div class="dev-options" id="devOptions">
     <label class="dev-opt"><input type="checkbox" id="devSimpleCb"> Use test_simple.gh</label>
+    <label class="dev-opt"><input type="checkbox" id="devOverlayCb"> Overlay design on frame</label>
     <label class="dev-opt" style="flex-direction:column; align-items:stretch; gap:4px;">
       <span>House transparency <span id="devOpacityVal">100%</span></span>
       <input type="range" id="devOpacity" min="0" max="100" value="100" step="1">
@@ -1318,6 +1381,62 @@ function moveDot(snapped) {
 function hideDot() {
   dot.visible = false;
 }
+
+/* ─── Face alignment indicator ───
+ * Snaps store CENTERLINE coords, but the rendered wall retracts to meet the
+ * receiver's FACE. The indicator previews those face lines so the user sees
+ * exactly where the wall will land when they click. Only active while drawing
+ * interior walls and only when the snap point lies on another interior wall's
+ * centerline (T or L-corner into that wall).
+ */
+const faceIndicatorMat = new THREE.LineBasicMaterial({
+  color: 0xF9BC06, transparent: true, opacity: 0.75, depthTest: false,
+});
+const faceIndicator = new THREE.Group();
+faceIndicator.renderOrder = 999;
+faceIndicator.visible = false;
+scene.add(faceIndicator);
+
+function updateFaceIndicator(snapped) {
+  while (faceIndicator.children.length) faceIndicator.remove(faceIndicator.children[0]);
+  const EPS = 1.0;
+  const halfT = (+inTI.value) / 2;
+  const SEG = 600;
+
+  let targetIsHoriz = null;
+  for (const w of interiorWalls) {
+    const isHoriz = Math.abs(w.y1 - w.y0) < 1;
+    if (isHoriz) {
+      if (Math.abs(snapped.y - w.y0) > EPS) continue;
+      const xmin = Math.min(w.x0, w.x1), xmax = Math.max(w.x0, w.x1);
+      if (snapped.x >= xmin - EPS && snapped.x <= xmax + EPS) { targetIsHoriz = true; break; }
+    } else {
+      if (Math.abs(snapped.x - w.x0) > EPS) continue;
+      const ymin = Math.min(w.y0, w.y1), ymax = Math.max(w.y0, w.y1);
+      if (snapped.y >= ymin - EPS && snapped.y <= ymax + EPS) { targetIsHoriz = false; break; }
+    }
+  }
+  if (targetIsHoriz === null) { faceIndicator.visible = false; return; }
+
+  const z = 3;
+  const segs = targetIsHoriz
+    ? [
+        [[snapped.x - SEG / 2, snapped.y - halfT, z], [snapped.x + SEG / 2, snapped.y - halfT, z]],
+        [[snapped.x - SEG / 2, snapped.y + halfT, z], [snapped.x + SEG / 2, snapped.y + halfT, z]],
+      ]
+    : [
+        [[snapped.x - halfT, snapped.y - SEG / 2, z], [snapped.x - halfT, snapped.y + SEG / 2, z]],
+        [[snapped.x + halfT, snapped.y - SEG / 2, z], [snapped.x + halfT, snapped.y + SEG / 2, z]],
+      ];
+  for (const [a, b] of segs) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute([...a, ...b], 3));
+    faceIndicator.add(new THREE.Line(geo, faceIndicatorMat));
+  }
+  faceIndicator.visible = true;
+}
+
+function hideFaceIndicator() { faceIndicator.visible = false; }
 
 /* ────────────────── snap guide tower ────────────────── */
 const snapBarMat = new THREE.MeshBasicMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.5, depthTest: false });
@@ -1958,8 +2077,22 @@ const tip    = $("tip");
 const btnUndo = $("btnUndo");
 const btnRedo = $("btnRedo");
 const btnNext  = $("btnNext");
-const leftPanel = $("leftPanel");
+// The old #leftPanel / #roofToolPanel have been folded into #leftBar. We still
+// expose a `leftPanel` alias so legacy code paths that call
+// leftPanel.classList.add/remove("open") keep working (the extra ".open" class
+// on #leftBar is a harmless no-op).
+const leftPanel = $("leftBar");
 const roofPanel = $("roofPanel");
+
+// Sync the unified left sidebar to the current step so the right buttons show.
+function updateLeftBar() {
+  const bar = $("leftBar");
+  if (!bar) return;
+  bar.dataset.currentStep = String(currentStep);
+  const stepSection = $("leftBarStep");
+  const hasStepContent = (currentStep === 2 || currentStep === 3);
+  stepSection.classList.toggle("hidden", !hasStepContent);
+}
 const inW = $("inW"), inD = $("inD"), inH = $("inH"), inT = $("inT"), inTI = $("inTI"), inTR = $("inTR");
 // Settings / Dev mode
 const btnDev = $("btnDev"), devPanel = $("devPanel");
@@ -1971,13 +2104,36 @@ $("devModeCb").addEventListener("change", e => {
   $("devOptions").classList.toggle("open", e.target.checked);
   $("devBadge").classList.toggle("hidden", e.target.checked);
   $("tileFree").classList.toggle("locked", !e.target.checked);
+  if (!e.target.checked) {
+    // Leaving dev mode wipes any overlay state so the normal view returns.
+    $("devOverlayCb").checked = false;
+    window._devOverlay = false;
+    syncOverlay();
+  }
+});
+// Single source of truth for design/frame group visibility. The base rule is
+// "design groups live in steps 0–3, frame lives in 4–5"; dev overlay ORs the
+// design groups back on in frame steps so the user can see both at once.
+function syncOverlay() {
+  const n = currentStep;
+  const overlay = !!window._devOverlay;
+  const inFrame = (n >= 4);
+  if (roomGroup)     roomGroup.visible     = (n <= 3)              || (overlay && inFrame);
+  if (frameGroup)    frameGroup.visible    = inFrame;
+  openingsGroup.visible                     = (n >= 2 && n <= 3)    || (overlay && inFrame);
+  iwGroup.visible                           = (n >= 1 && n <= 3)    || (overlay && inFrame);
+  if (roofGroup)     roofGroup.visible     = (n === 3)              || (overlay && inFrame);
+}
+$("devOverlayCb").addEventListener("change", e => {
+  window._devOverlay = e.target.checked;
+  syncOverlay();
 });
 $("devSimpleCb").addEventListener("change", e => { window._devSimple = e.target.checked; });
 $("devOpacity").addEventListener("input", e => {
   const v = +e.target.value;
   $("devOpacityVal").textContent = v + "%";
   const op = v / 100;
-  const mats = [wallMat, floorMat, roofMat];
+  const mats = [wallMat, iwMat, floorMat, roofMat];
   for (const m of mats) {
     m.transparent = op < 1;
     m.opacity = op;
@@ -3717,9 +3873,73 @@ function buildRoof() {
 const iwMat         = new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.82, metalness: 0 });
 const iwSelectedMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6,  metalness: 0 });
 
+// Joint analysis: how far each interior wall's end should retract to meet its
+// neighbour cleanly. Per-end retraction is computed from the current centerline
+// layout and current iw_t — so changing thickness automatically re-resolves
+// T-junctions and corners.
+function computeIwJoints(walls, iwT) {
+  const EPS = 1.0;  // 1 mm
+  const b = (typeof getInnerBounds === 'function') ? getInnerBounds() : null;
+  const onExteriorFace = (x, y) => {
+    if (!b) return false;
+    const onVert = (Math.abs(x - b.ix0) < EPS || Math.abs(x - b.ix1) < EPS) &&
+                    y >= b.iy0 - EPS && y <= b.iy1 + EPS;
+    const onHoriz = (Math.abs(y - b.iy0) < EPS || Math.abs(y - b.iy1) < EPS) &&
+                     x >= b.ix0 - EPS && x <= b.ix1 + EPS;
+    return onVert || onHoriz;
+  };
+  const pointVsWall = (px, py, w) => {
+    const isHoriz = Math.abs(w.y1 - w.y0) < 1;
+    if (isHoriz) {
+      if (Math.abs(py - w.y0) > EPS) return null;
+      const xmin = Math.min(w.x0, w.x1), xmax = Math.max(w.x0, w.x1);
+      if (Math.abs(px - xmin) < EPS || Math.abs(px - xmax) < EPS) return 'endpoint';
+      if (px > xmin + EPS && px < xmax - EPS) return 'mid';
+      return null;
+    }
+    if (Math.abs(px - w.x0) > EPS) return null;
+    const ymin = Math.min(w.y0, w.y1), ymax = Math.max(w.y0, w.y1);
+    if (Math.abs(py - ymin) < EPS || Math.abs(py - ymax) < EPS) return 'endpoint';
+    if (py > ymin + EPS && py < ymax - EPS) return 'mid';
+    return null;
+  };
+  const wallLen = (w) => Math.hypot(w.x1 - w.x0, w.y1 - w.y0);
+
+  const retract = walls.map(() => [0, 0]);
+  walls.forEach((w, i) => {
+    const myLen = wallLen(w);
+    const ends = [ { x: w.x0, y: w.y0, side: 0 }, { x: w.x1, y: w.y1, side: 1 } ];
+    for (const { x, y, side } of ends) {
+      if (onExteriorFace(x, y)) continue;   // flush with exterior inner face — no retract
+      let mid = 0;
+      const endpointHits = [];
+      walls.forEach((w2, j) => {
+        if (j === i) return;
+        const rel = pointVsWall(x, y, w2);
+        if (rel === 'mid') mid++;
+        else if (rel === 'endpoint') endpointHits.push({ idx: j, len: wallLen(w2) });
+      });
+      if (mid > 0) { retract[i][side] = iwT / 2; continue; }
+      if (endpointHits.length > 0) {
+        // Longest wins; tiebreak by lower index.
+        let winnerIdx = i, winnerLen = myLen;
+        for (const h of endpointHits) {
+          if (h.len > winnerLen + EPS ||
+              (Math.abs(h.len - winnerLen) < EPS && h.idx < winnerIdx)) {
+            winnerIdx = h.idx; winnerLen = h.len;
+          }
+        }
+        if (winnerIdx !== i) retract[i][side] = iwT / 2;
+      }
+    }
+  });
+  return retract;
+}
+
 function rebuildInteriorWalls() {
   while (iwGroup.children.length) iwGroup.remove(iwGroup.children[0]);
   const h = +inH.value, t = +inTI.value;
+  const iwJoints = computeIwJoints(interiorWalls, t);
 
   // Gable-roof parameters (only used when iwToRidge && roofType === 'gable').
   // Interior walls stop at the UNDERSIDE of the roof slab, not its top. The top
@@ -3754,10 +3974,27 @@ function rebuildInteriorWalls() {
   interiorWalls.forEach((iw, i) => {
     const isHoriz = Math.abs(iw.y1 - iw.y0) < 1;
     const wallIdx = 4 + i;
-    const xMin = Math.min(iw.x0, iw.x1), xMax = Math.max(iw.x0, iw.x1);
-    const yMin = Math.min(iw.y0, iw.y1), yMax = Math.max(iw.y0, iw.y1);
+    // Centerline extents (posAlong for openings is measured from centerline xMin/yMin).
+    const cxMin = Math.min(iw.x0, iw.x1), cxMax = Math.max(iw.x0, iw.x1);
+    const cyMin = Math.min(iw.y0, iw.y1), cyMax = Math.max(iw.y0, iw.y1);
+    const centerLen = isHoriz ? (cxMax - cxMin) : (cyMax - cyMin);
+    if (centerLen < 1) return;
+
+    // Joint retractions: side 0 = (x0,y0), side 1 = (x1,y1). Translate to
+    // retractions at the xMin/xMax ends (the side whose coord is smaller/larger).
+    const [r0, r1] = iwJoints[i];
+    const lowSideRetract  = isHoriz ? (iw.x0 <= iw.x1 ? r0 : r1) : (iw.y0 <= iw.y1 ? r0 : r1);
+    const highSideRetract = isHoriz ? (iw.x0 >  iw.x1 ? r0 : r1) : (iw.y0 >  iw.y1 ? r0 : r1);
+
+    const xMin = isHoriz ? (cxMin + lowSideRetract) : (iw.x0);
+    const xMax = isHoriz ? (cxMax - highSideRetract) : (iw.x0);
+    const yMin = isHoriz ? (iw.y0) : (cyMin + lowSideRetract);
+    const yMax = isHoriz ? (iw.y0) : (cyMax - highSideRetract);
     const len = isHoriz ? (xMax - xMin) : (yMax - yMin);
     if (len < 1) return;
+
+    // Shift between centerline-origin (posAlong=0 at cxMin/cyMin) and rendered-origin.
+    const alongShift = lowSideRetract;
 
     // Top edge: flat at h, or follows the gable-roof underside when iwToRidge.
     // Local along coord → world (x, y). Start of along corresponds to xMin/yMin.
@@ -3789,9 +4026,11 @@ function rebuildInteriorWalls() {
 
     for (const op of openings) {
       if (op.wallIdx !== wallIdx) continue;
+      // posAlong is in centerline coords; shift into rendered-local coords.
+      const localPos = op.posAlong - alongShift;
       const halfW = op.width / 2;
-      const left = op.posAlong - halfW;
-      const right = op.posAlong + halfW;
+      const left = localPos - halfW;
+      const right = localPos + halfW;
       if (right <= 0 || left >= len) continue;
       const bot = op.type === "window" ? op.sill : 0;
       const top = Math.min(bot + op.height, h - 50);
@@ -3838,33 +4077,10 @@ function rebuildInteriorWalls() {
   rebuildIWEndpointMarkers();
 }
 
-// Visible snap markers for interior wall drawing — existing wall endpoints
-// plus the four inner-footprint corners. Rebuilt whenever IWs change.
-const iwEndpointMat = new THREE.MeshBasicMaterial({ color: 0xF9BC06, depthTest: false, transparent: true, opacity: 0.8 });
-const iwEndpointGroup = new THREE.Group();
-iwEndpointGroup.renderOrder = 997;
-scene.add(iwEndpointGroup);
-
-function rebuildIWEndpointMarkers() {
-  while (iwEndpointGroup.children.length) iwEndpointGroup.remove(iwEndpointGroup.children[0]);
-  if (currentStep !== 1) { iwEndpointGroup.visible = false; return; }
-  iwEndpointGroup.visible = true;
-  const seen = new Set();
-  const add = (x, y) => {
-    const key = Math.round(x) + "," + Math.round(y);
-    if (seen.has(key)) return;
-    seen.add(key);
-    const m = new THREE.Mesh(new THREE.CircleGeometry(80, 20), iwEndpointMat);
-    m.position.set(x, y, 3);
-    iwEndpointGroup.add(m);
-  };
-  for (const iw of interiorWalls) { add(iw.x0, iw.y0); add(iw.x1, iw.y1); }
-  const b = getInnerBounds();
-  if (b && isFinite(b.ix0) && b.ix1 > b.ix0 && b.iy1 > b.iy0) {
-    add(b.ix0, b.iy0); add(b.ix1, b.iy0);
-    add(b.ix1, b.iy1); add(b.ix0, b.iy1);
-  }
-}
+// Endpoint-first snapping is still active inside snapIWPoint — we just don't
+// render markers for them. The visible dots felt noisy and were redundant
+// with the snap tower + cursor-grow feedback.
+function rebuildIWEndpointMarkers() {}
 
 function selectIW(idx) {
   deselectIW();
@@ -3888,6 +4104,7 @@ function selectIW(idx) {
     // so the selection feels clean even before the next pointermove.
     hideDot();
     hideSnapBars();
+    hideFaceIndicator();
     hideIWHoverHint();
     renderer.domElement.style.cursor = "";
   }
@@ -3967,6 +4184,13 @@ function getInnerBounds() {
   return { ix0: b.x0 + t, iy0: b.y0 + t, ix1: b.x1 - t, iy1: b.y1 - t, t };
 }
 
+// Interior walls snap to a finer 10 cm grid than the visible 50 cm floor grid —
+// lets the user land real-world dimensions (2.30 m, 1.80 m, etc.) without
+// dimension edits. Global `snap()` still drives everything else, so the
+// visible grid lines don't change.
+const IW_SNAP = 100;
+function snapIW(v) { return Math.round(v / IW_SNAP) * IW_SNAP; }
+
 // Snap a point to the nearest interior wall face or exterior wall inner face, then grid
 function snapIWPoint(pt) {
   const b = getInnerBounds();
@@ -3999,15 +4223,16 @@ function snapIWPoint(pt) {
   const xSnaps = [b.ix0, b.ix1];
   const ySnaps = [b.iy0, b.iy1];
 
-  // Interior wall faces (centerline ± t/2) and endpoints
-  const t = +inT.value;
+  // Interior wall centerlines (for T-junction butting) and their endpoints.
+  // We intentionally snap to the *centerline*, not the face, so joint analysis
+  // at render time can cleanly retract the butting wall against current iw_t.
   for (const iw of interiorWalls) {
     const isHoriz = Math.abs(iw.y1 - iw.y0) < 1;
     if (isHoriz) {
-      ySnaps.push(iw.y0 - t / 2, iw.y0 + t / 2);
-      xSnaps.push(iw.x0, iw.x1);
+      ySnaps.push(iw.y0);            // centerline (for T into this wall)
+      xSnaps.push(iw.x0, iw.x1);     // endpoints (for L-corner)
     } else {
-      xSnaps.push(iw.x0 - t / 2, iw.x0 + t / 2);
+      xSnaps.push(iw.x0);
       ySnaps.push(iw.y0, iw.y1);
     }
   }
@@ -4018,7 +4243,7 @@ function snapIWPoint(pt) {
     const d = Math.abs(x - sx);
     if (d < bestDx) { bestDx = d; x = sx; }
   }
-  if (bestDx >= threshold) x = snap(x); else snappedX = true;
+  if (bestDx >= threshold) x = snapIW(x); else snappedX = true;
 
   // Snap to nearest y snap line if close enough
   let bestDy = threshold;
@@ -4026,7 +4251,7 @@ function snapIWPoint(pt) {
     const d = Math.abs(y - sy);
     if (d < bestDy) { bestDy = d; y = sy; }
   }
-  if (bestDy >= threshold) y = snap(y); else snappedY = true;
+  if (bestDy >= threshold) y = snapIW(y); else snappedY = true;
 
   // Clamp to inner bounds
   x = Math.max(b.ix0, Math.min(b.ix1, x));
@@ -4085,6 +4310,7 @@ function cancelIWDraw() {
   iwPointerDown = null;
   if (iwGhostMesh) { scene.remove(iwGhostMesh); iwGhostMesh = null; }
   hideFFDim();
+  hideFaceIndicator();
 }
 
 // Hover-to-tip state for interior walls (mirrors the free-form wall behavior)
@@ -4358,26 +4584,29 @@ function deleteSelectedFF() {
 /* ────────────────── step navigation ────────────────── */
 function goToStep(n) {
   if (n < 0 || n > 5) return;
+  // Changing tabs also exits the measure tool — the measurement belongs to
+  // the scene state the user was just looking at.
+  if (measureActive) setMeasureActive(false);
   currentStep = n;
   setStep(n);
   updateExtWallOpacity();
 
   // Hide everything step-specific
   panel.classList.remove("open");
-  leftPanel.classList.remove("open");
   roofPanel.classList.remove("open");
-  $("roofToolPanel").classList.remove("open");
   infoPanel.classList.remove("open");
   $("iwPanel").classList.remove("open");
+  updateLeftBar();   // swap step-specific buttons in the unified left sidebar
   deselectOpening();
   clearMultiSelection();
   deselectIW();
   if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; hideFFHoverHint(); }
-  if (n !== 1) { cancelIWDraw(); iwEndpointGroup.visible = false; hideIWHoverHint(); }
+  if (n !== 1) { cancelIWDraw(); hideIWHoverHint(); }
   if (n !== 2) hideCompassTip();
   hideArrows();
   hideDot();
   hideSnapBars();
+  hideFaceIndicator();
   hideDims();
   activeTool = null;
   document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
@@ -4388,12 +4617,8 @@ function goToStep(n) {
   if (!keepTop && isTopView) disableTopView();
   $("btnTopView").style.display = (n <= 2) ? "flex" : "none";
 
-  // Common visibility
-  if (roomGroup) roomGroup.visible = (n <= 3);
-  if (frameGroup) frameGroup.visible = (n >= 4);
-  openingsGroup.visible = (n >= 2 && n <= 3);
-  iwGroup.visible = (n >= 1 && n <= 3);
-  if (roofGroup) roofGroup.visible = (n >= 3 && n <= 3);
+  // Common visibility — authoritative for design/frame groups.
+  syncOverlay();
 
   const firstVisit = !stepVisited[n];
   stepVisited[n] = true;
@@ -4490,7 +4715,6 @@ function goToStep(n) {
     case 2: // Openings
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
-      leftPanel.classList.add("open");
       openingsGroup.visible = true;
       btnNext.textContent = NEXT_LABELS[2];
       btnNext.style.display = "";
@@ -4508,7 +4732,6 @@ function goToStep(n) {
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
       roofPanel.classList.add("open");
-      $("roofToolPanel").classList.add("open");
       // Gable assumes a rectangular footprint — hide it for free-form and force flat.
       {
         const gableTile = document.querySelector('.roof-option[data-roof="gable"]');
@@ -4532,10 +4755,8 @@ function goToStep(n) {
 
     case 4: // Generate / Frame
       if (!frameStale && frameGroup) {
-        // Cached frame is still valid — just show it.
-        if (roomGroup) roomGroup.visible = false;
-        if (roofGroup) roofGroup.visible = false;
-        openingsGroup.visible = false;
+        // Cached frame is still valid — just show it. syncOverlay already
+        // handled the design-group visibility above.
         frameGroup.visible = true;
         infoPanel.classList.add("open");
         btnNext.textContent = NEXT_LABELS[4];
@@ -4761,17 +4982,13 @@ async function generateFrame() {
   hideDims();
   btnNext.style.display = "none";
   panel.classList.remove("open");
-  leftPanel.classList.remove("open");
   infoPanel.classList.remove("open");
   roofPanel.classList.remove("open");
-  $("roofToolPanel").classList.remove("open");
   $("iwPanel").classList.remove("open");
   hint.style.display = "none";
 
-  // Hide design geometry immediately while generating
-  if (roomGroup) roomGroup.visible = false;
-  if (roofGroup) roofGroup.visible = false;
-  openingsGroup.visible = false;
+  // Design groups already hidden by setStep(4) → syncOverlay (or kept visible
+  // when the dev-mode overlay is on — we respect that).
 
   // Show loading overlay
   const overlay = $("loadingOverlay");
@@ -4806,10 +5023,7 @@ async function generateFrame() {
     const json = await res.json();
     if (json.error) { alert("Error: " + json.error); return; }
 
-    // Hide wall room + roof, remove any previous frame
-    if (roomGroup) roomGroup.visible = false;
-    if (roofGroup) roofGroup.visible = false;
-    openingsGroup.visible = false;
+    // Remove any previous frame; design-group visibility is governed by syncOverlay.
     if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
     panel.classList.remove("open");
 
@@ -4856,6 +5070,7 @@ async function generateFrame() {
     frameGroup = new THREE.Group();
     frameGroup.add(mesh);
     scene.add(frameGroup);
+    syncOverlay();
 
     // Populate info panel with stats
     if (json.stats) {
@@ -4921,6 +5136,13 @@ renderer.domElement.addEventListener("pointerleave", () => { hideFFHoverHint(); 
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;   // right = OrbitControls pan, middle = dolly
   if (!houseTypePicked) return;
+
+  // Measure tool intercepts every left-click — step handlers and orbit stay
+  // in place for right-drag panning.
+  if (measureActive) {
+    measurePointerDown = { x: e.clientX, y: e.clientY };
+    return;
+  }
 
   // Scale-worker hit-test takes precedence over step-specific handlers.
   if (scaleWorker && scaleWorker.visible && scaleWorkerMesh) {
@@ -5143,6 +5365,18 @@ document.addEventListener("pointerup", (e) => {
 });
 
 renderer.domElement.addEventListener("pointermove", (e) => {
+  // Measure tool — live preview line + label from the first committed point to
+  // the (snapped) cursor. Runs before any step-specific handler so it owns
+  // the canvas while active.
+  if (measureActive) {
+    const pt = groundHit(e);
+    if (pt) {
+      const snapped = measureSnap(new THREE.Vector3(pt.x, pt.y, 0));
+      drawMeasure(measurePoints.length === 1 ? snapped : null);
+    }
+    return;
+  }
+
   // Free-form footprint: snap dot + ghost preview while drawing; hover hint when idle
   if (currentStep === 0 && houseMode === 'free') {
     const pt = groundHit(e);
@@ -5185,6 +5419,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     if (selectedIW >= 0) {
       hideDot();
       hideSnapBars();
+      hideFaceIndicator();
       hideIWHoverHint();
       return;
     }
@@ -5195,17 +5430,22 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         showIWGhost(iwDrawStart, end);
         moveDot(end);
         showSnapBars(end);
+        updateFaceIndicator(end);
         hideIWHoverHint();
       } else {
         const snapped = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
-        moveDot(snapped);
-        showSnapBars(snapped);
         // Hover hint: over a wall (but not when cursor is in its endpoint-snap zone)
         const onEndpoint = snapped.snappedX && snapped.snappedY;
         const hovered = onEndpoint ? -1 : iwWallAtEvent(e);
         iwHoverPointer.x = e.clientX; iwHoverPointer.y = e.clientY;
         if (hovered >= 0) {
+          // Cursor is over a wall — the click will edit, not draw. Hide every
+          // draw affordance so the user isn't distracted by a snap tower that
+          // won't be used.
           renderer.domElement.style.cursor = "pointer";
+          hideDot();
+          hideSnapBars();
+          hideFaceIndicator();
           if (hovered !== iwHoverIdx) {
             hideIWHoverHint();
             iwHoverIdx = hovered;
@@ -5215,6 +5455,9 @@ renderer.domElement.addEventListener("pointermove", (e) => {
           }
         } else {
           renderer.domElement.style.cursor = "crosshair";
+          moveDot(snapped);
+          showSnapBars(snapped);
+          updateFaceIndicator(snapped);
           hideIWHoverHint();
         }
       }
@@ -5413,6 +5656,22 @@ renderer.domElement.addEventListener("pointermove", (e) => {
 });
 
 renderer.domElement.addEventListener("pointerup", (e) => {
+  // Measure tool — commit a click if the cursor didn't drag (separates click
+  // from orbit-rotate / pan). Takes precedence over every step-specific path.
+  if (measureActive && measurePointerDown) {
+    const dx = e.clientX - measurePointerDown.x;
+    const dy = e.clientY - measurePointerDown.y;
+    measurePointerDown = null;
+    if (dx * dx + dy * dy > 25) return;
+    const pt = groundHit(e);
+    if (!pt) return;
+    const snapped = measureSnap(new THREE.Vector3(pt.x, pt.y, 0));
+    if (measurePoints.length >= 2) measurePoints = [];  // third click starts fresh
+    measurePoints.push(snapped);
+    drawMeasure();
+    return;
+  }
+
   let step0DragEnded = false;
   if (dragging) {
     dragging = null;
@@ -5533,9 +5792,15 @@ renderer.domElement.addEventListener("pointerup", (e) => {
       return;
     }
 
-    // Empty ground → start a new wall. Deselect first so the cursor snaps back
-    // to crosshair and the snap UI re-arms.
-    if (selectedIW >= 0) deselectIW();
+    // Empty ground.
+    //   If a wall is currently selected, clicking away only exits edit mode —
+    //   the next click starts a new wall. One-click-does-both felt too eager.
+    //   Otherwise start drawing immediately.
+    if (selectedIW >= 0) {
+      deselectIW();
+      hideIWHoverHint();
+      return;
+    }
     hideIWHoverHint();
     iwDrawStart = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
   }
@@ -5746,7 +6011,11 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Shift" && currentStep === 0 && houseMode === 'free') ffShiftHeld = true;
   if (e.key === "Escape") {
     // Escape cancels the current action only — never wipes the house. Priority:
-    //   in-progress draw > active selection > no-op.
+    //   measure tool > in-progress draw > active selection > no-op.
+    if (measureActive) {
+      setMeasureActive(false);
+      return;
+    }
     if (currentStep === 0 && houseMode === 'box' && mode === M.P2) {
       // First corner placed, waiting for second — drop c1 and the ghost.
       c1 = null;
@@ -5866,6 +6135,161 @@ for (let i = 0; i < 5; i++) {
   });
 }
 
+/* ────────────────── measure tool ──────────────────
+   A two-click ruler. Active state → first ground click seeds a start point,
+   second click completes the measurement and shows the distance. A third click
+   starts fresh (completed measurement is replaced). Esc or clicking the button
+   again exits and clears. Snaps to existing nodes (exterior corners, interior
+   wall endpoints, free-form endpoints) before falling back to a coarse grid.
+*/
+let measureActive = false;
+let measurePoints = [];          // THREE.Vector3[]  — 0, 1, or 2 committed points
+let measurePointerDown = null;   // {x,y} screen — click-vs-drag
+const measureGroup = new THREE.Group();
+measureGroup.renderOrder = 996;
+scene.add(measureGroup);
+
+function clearMeasureVisuals() {
+  while (measureGroup.children.length) {
+    const c = measureGroup.children[0];
+    measureGroup.remove(c);
+    if (c.geometry) c.geometry.dispose();
+    if (c.material && c.material.dispose && !c.material.isBuiltIn) c.material.dispose();
+  }
+}
+
+function measureSnap(pt) {
+  // Priority: corner > edge > grid. Corners checked at a wider radius than
+  // edges so they reliably win at a vertex (where both corner and edges are
+  // in range). Radii are screen-aware to stay comfortable at any zoom.
+  const corners = [];
+  const edges = [];   // [x0, y0, x1, y1]
+  if (c1 && c2) {
+    const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+    const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+    const t = +inT.value;
+    // Outer corners + outer edges
+    corners.push([x0, y0], [x1, y0], [x1, y1], [x0, y1]);
+    edges.push([x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0]);
+    // Inner corners + inner edges (useful for measuring interior dimensions)
+    corners.push([x0 + t, y0 + t], [x1 - t, y0 + t], [x1 - t, y1 - t], [x0 + t, y1 - t]);
+    edges.push(
+      [x0 + t, y0 + t, x1 - t, y0 + t],
+      [x1 - t, y0 + t, x1 - t, y1 - t],
+      [x1 - t, y1 - t, x0 + t, y1 - t],
+      [x0 + t, y1 - t, x0 + t, y0 + t],
+    );
+  }
+  for (const w of footprintWalls) {
+    corners.push([w.x0, w.y0], [w.x1, w.y1]);
+    edges.push([w.x0, w.y0, w.x1, w.y1]);
+  }
+  for (const iw of interiorWalls) {
+    corners.push([iw.x0, iw.y0], [iw.x1, iw.y1]);
+    edges.push([iw.x0, iw.y0, iw.x1, iw.y1]);
+  }
+
+  const wpp = worldPerPixel();
+  const cornerR = Math.max(500, 40 * wpp);
+  const edgeR   = Math.max(300, 22 * wpp);
+
+  // 1 — corners
+  let bestC = null, bestCD = cornerR;
+  for (const [x, y] of corners) {
+    const d = Math.hypot(pt.x - x, pt.y - y);
+    if (d < bestCD) { bestCD = d; bestC = [x, y]; }
+  }
+  if (bestC) return new THREE.Vector3(bestC[0], bestC[1], 0);
+
+  // 2 — edges (perpendicular projection onto the nearest segment)
+  let bestE = null, bestED = edgeR;
+  for (const [ax, ay, bx, by] of edges) {
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1) continue;
+    let u = ((pt.x - ax) * dx + (pt.y - ay) * dy) / len2;
+    u = Math.max(0, Math.min(1, u));
+    const px = ax + u * dx, py = ay + u * dy;
+    const d = Math.hypot(pt.x - px, pt.y - py);
+    if (d < bestED) { bestED = d; bestE = [px, py]; }
+  }
+  if (bestE) return new THREE.Vector3(bestE[0], bestE[1], 0);
+
+  // 3 — grid fallback (coarser than the IW 10 cm grid because measure is free-form)
+  return new THREE.Vector3(snap(pt.x), snap(pt.y), 0);
+}
+
+const measureLineMat = new THREE.LineBasicMaterial({ color: 0xF9BC06, depthTest: false, transparent: true, opacity: 0.95 });
+const measureDotMat = new THREE.MeshBasicMaterial({ color: 0xF9BC06, depthTest: false });
+function drawMeasure(hoverPt) {
+  clearMeasureVisuals();
+  const pts = [...measurePoints];
+  if (hoverPt && pts.length === 1) pts.push(hoverPt);
+  if (!pts.length) return;
+
+  for (const p of measurePoints) {
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(80, 24), measureDotMat);
+    dot.position.set(p.x, p.y, 5);
+    dot.renderOrder = 997;
+    measureGroup.add(dot);
+  }
+  if (pts.length === 2) {
+    const [a, b] = pts;
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(a.x, a.y, 4),
+      new THREE.Vector3(b.x, b.y, 4),
+    ]);
+    const line = new THREE.Line(geo, measureLineMat);
+    line.renderOrder = 997;
+    measureGroup.add(line);
+    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    if (dist > 50) {
+      const label = makeTextSprite((dist / 1000).toFixed(2) + " m", "#F9BC06", 44, "rgba(40, 40, 40, 0.82)");
+      label.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, 25);
+      label.renderOrder = 998;
+      measureGroup.add(label);
+    }
+  }
+}
+
+function setMeasureActive(on) {
+  measureActive = on;
+  $("toolMeasure").classList.toggle("active", on);
+  measurePoints = [];
+  measurePointerDown = null;
+  clearMeasureVisuals();
+  if (on) {
+    // Measure is mutually exclusive with every other tool — kill any active
+    // drag, selection, or highlighted tile so the canvas is clean for the
+    // two-click ruler. Individual tools' handlers also call
+    // setMeasureActive(false) before they activate, keeping the exclusion
+    // symmetric.
+    activeTool = null;
+    document.querySelectorAll(".tool-item.active").forEach(t => {
+      if (t.id !== "toolMeasure") t.classList.remove("active");
+    });
+    if (draggingOpening) {
+      draggingOpening = null;
+      if (ghostOpening) { scene.remove(ghostOpening); ghostOpening = null; }
+      dragGhost.style.display = "none";
+    }
+    deselectIW();
+    deselectOpening();
+    clearMultiSelection();
+    renderer.domElement.style.cursor = "crosshair";
+    hint.classList.add("small");
+    hint.style.display = "";
+    hint.innerHTML = "Click two points to measure • Esc to exit";
+  } else {
+    // Hand cursor state back to whatever the current step expects.
+    renderer.domElement.style.cursor = "";
+  }
+}
+
+$("toolMeasure").addEventListener("click", () => {
+  setMeasureActive(!measureActive);
+});
+
 // Openings drag-and-drop from tool panel
 const dragGhost = $("dragGhost");
 const GHOST_SVGS = {
@@ -5873,9 +6297,10 @@ const GHOST_SVGS = {
   door: '<svg viewBox="0 0 40 40" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round"><rect x="8" y="4" width="24" height="32" rx="2"/><circle cx="27" cy="22" r="2" fill="white" stroke="none"/></svg>',
 };
 
-document.querySelectorAll(".tool-item").forEach(el => {
+document.querySelectorAll('.tool-item[data-tool="window"], .tool-item[data-tool="door"]').forEach(el => {
   el.addEventListener("pointerdown", (e) => {
     e.preventDefault();
+    if (measureActive) setMeasureActive(false);   // Measure + drag-tool are mutually exclusive
     const tool = el.dataset.tool;
     draggingOpening = { type: tool };
     activeTool = null;
@@ -5892,6 +6317,7 @@ document.querySelectorAll(".tool-item").forEach(el => {
 // Roof type selection
 document.querySelectorAll(".roof-option").forEach(el => {
   el.addEventListener("click", () => {
+    if (measureActive) setMeasureActive(false);
     if (roofType === el.dataset.roof) return;
     markFrameStale();
     roofType = el.dataset.roof;
@@ -5991,9 +6417,7 @@ function startDrawing() {
   activeTool = null;
   tip.style.display = "none";
   panel.classList.remove("open");
-  leftPanel.classList.remove("open");
   roofPanel.classList.remove("open");
-  $("roofToolPanel").classList.remove("open");
   $("iwPanel").classList.remove("open");
   btnUndo.style.display = "none";
   btnRedo.style.display = "none";

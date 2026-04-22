@@ -598,26 +598,114 @@ def _exterior_wall_specs(x0, y0, x1, y1, h, t, roof_type, flat_slope,
     return specs
 
 
+def _compute_iw_joints(interior_walls_list, iw_t, ix0=None, iy0=None, ix1=None, iy1=None):
+    """Per-interior-wall retraction per end (side 0 = (x0,y0), side 1 = (x1,y1)).
+
+    Matches the frontend's computeIwJoints. Retracts by iw_t / 2 when the wall
+    end butts into (T) another interior wall's mid-span, or coincides with
+    another's endpoint and loses the longer-wall tiebreak. Ends flush with an
+    exterior inner face stay put.
+    """
+    EPS = 1.0
+
+    def on_ext_face(x, y):
+        if ix0 is None:
+            return False
+        on_v = (abs(x - ix0) < EPS or abs(x - ix1) < EPS) and iy0 - EPS <= y <= iy1 + EPS
+        on_h = (abs(y - iy0) < EPS or abs(y - iy1) < EPS) and ix0 - EPS <= x <= ix1 + EPS
+        return on_v or on_h
+
+    def point_vs_wall(px, py, w):
+        wy0, wy1 = float(w["y0"]), float(w["y1"])
+        wx0, wx1 = float(w["x0"]), float(w["x1"])
+        is_horiz = abs(wy1 - wy0) < 1
+        if is_horiz:
+            if abs(py - wy0) > EPS:
+                return None
+            xmn, xmx = min(wx0, wx1), max(wx0, wx1)
+            if abs(px - xmn) < EPS or abs(px - xmx) < EPS:
+                return "endpoint"
+            if xmn + EPS < px < xmx - EPS:
+                return "mid"
+            return None
+        if abs(px - wx0) > EPS:
+            return None
+        ymn, ymx = min(wy0, wy1), max(wy0, wy1)
+        if abs(py - ymn) < EPS or abs(py - ymx) < EPS:
+            return "endpoint"
+        if ymn + EPS < py < ymx - EPS:
+            return "mid"
+        return None
+
+    def wall_len(w):
+        return ((float(w["x1"]) - float(w["x0"])) ** 2 +
+                (float(w["y1"]) - float(w["y0"])) ** 2) ** 0.5
+
+    retractions = [[0.0, 0.0] for _ in interior_walls_list]
+    for i, w in enumerate(interior_walls_list):
+        my_len = wall_len(w)
+        ends = [(float(w["x0"]), float(w["y0"]), 0), (float(w["x1"]), float(w["y1"]), 1)]
+        for x, y, side in ends:
+            if on_ext_face(x, y):
+                continue
+            mid = 0
+            endpoint_hits = []  # (idx, len)
+            for j, w2 in enumerate(interior_walls_list):
+                if j == i:
+                    continue
+                rel = point_vs_wall(x, y, w2)
+                if rel == "mid":
+                    mid += 1
+                elif rel == "endpoint":
+                    endpoint_hits.append((j, wall_len(w2)))
+            if mid > 0:
+                retractions[i][side] = iw_t / 2
+                continue
+            if endpoint_hits:
+                winner_idx, winner_len = i, my_len
+                for j, L in endpoint_hits:
+                    if L > winner_len + EPS or (abs(L - winner_len) < EPS and j < winner_idx):
+                        winner_idx, winner_len = j, L
+                if winner_idx != i:
+                    retractions[i][side] = iw_t / 2
+    return retractions
+
+
 def _interior_wall_specs(interior_walls_list, iw_t, h, iw_to_ridge,
                           ridge_along_x, ridge_h,
                           gbl_half_span, gbl_h_eave, gbl_h_apex,
-                          gbl_center_x, gbl_center_y):
-    """Pure-Python interior wall specs (simple boxes, or gable-profile when iw_to_ridge)."""
+                          gbl_center_x, gbl_center_y,
+                          ext_ix0=None, ext_iy0=None, ext_ix1=None, ext_iy1=None):
+    """Pure-Python interior wall specs (simple boxes, or gable-profile when iw_to_ridge).
+
+    Applies joint retractions at each end so T-junctions and L-corners render
+    cleanly against the current iw_t (and automatically re-resolve on change).
+    """
+    joints = _compute_iw_joints(interior_walls_list, iw_t,
+                                 ix0=ext_ix0, iy0=ext_iy0, ix1=ext_ix1, iy1=ext_iy1)
     specs = []
-    for iw in interior_walls_list:
+    for i, iw in enumerate(interior_walls_list):
         ix0, iy0 = float(iw["x0"]), float(iw["y0"])
         ix1, iy1 = float(iw["x1"]), float(iw["y1"])
         is_horiz = abs(iy1 - iy0) < 1
+        r0, r1 = joints[i]
+        # Retractions at the lower / upper coord ends.
         if is_horiz:
-            bx0 = min(ix0, ix1)
-            bx1 = max(ix0, ix1)
+            low_retract  = r0 if ix0 <= ix1 else r1
+            high_retract = r1 if ix0 <= ix1 else r0
+            bx0 = min(ix0, ix1) + low_retract
+            bx1 = max(ix0, ix1) - high_retract
             by0 = iy0 - iw_t / 2
             by1 = iy0 + iw_t / 2
         else:
+            low_retract  = r0 if iy0 <= iy1 else r1
+            high_retract = r1 if iy0 <= iy1 else r0
             bx0 = ix0 - iw_t / 2
             bx1 = ix0 + iw_t / 2
-            by0 = min(iy0, iy1)
-            by1 = max(iy0, iy1)
+            by0 = min(iy0, iy1) + low_retract
+            by1 = max(iy0, iy1) - high_retract
+        if bx1 - bx0 < 1 or by1 - by0 < 1:
+            continue
 
         if iw_to_ridge:
             # Pentagon/trapezoid profile that follows the gable underside.
@@ -706,10 +794,14 @@ def _compute_geometry_specs(data):
 
     wall_specs = _exterior_wall_specs(x0, y0, x1, y1, h, t, roof_type, flat_slope,
                                        roof_t, ridge_h, ridge_along_x)
+    # Inner footprint (where interior walls actually live) — used to detect "end
+    # lands on exterior face" for joint retraction.
     wall_specs += _interior_wall_specs(interior_walls, iw_t, h, iw_to_ridge,
                                         ridge_along_x, ridge_h,
                                         gbl_half_span, gbl_h_eave, gbl_h_apex,
-                                        gbl_center_x, gbl_center_y)
+                                        gbl_center_x, gbl_center_y,
+                                        ext_ix0=x0 + t, ext_iy0=y0 + t,
+                                        ext_ix1=x1 - t, ext_iy1=y1 - t)
 
     door_specs = []
     window_specs = []
