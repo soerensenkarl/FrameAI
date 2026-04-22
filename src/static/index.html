@@ -1084,7 +1084,7 @@
 </button>
 <div class="dev-panel glass" id="devPanel">
   <span class="panel-title">Settings</span>
-  <label class="dev-opt"><input type="checkbox" id="testModeCb"> Test Mode</label>
+  <label class="dev-opt"><input type="checkbox" id="testModeCb" checked> Test Mode</label>
   <label class="dev-opt"><input type="checkbox" id="devModeCb"> Dev Mode</label>
   <div class="dev-options" id="devOptions">
     <label class="dev-opt"><input type="checkbox" id="devSimpleCb"> Use test_simple.gh</label>
@@ -1864,6 +1864,10 @@ $("testModeCb").addEventListener("change", e => {
   window._testMode = e.target.checked;
   btnAddComment.classList.toggle("visible", e.target.checked && !annotating);
 });
+// Honor the default-checked state on load (change event doesn't fire for
+// initial HTML `checked`).
+window._testMode = $("testModeCb").checked;
+if (window._testMode) btnAddComment.classList.add("visible");
 
 function sizeAnnotateCanvas() {
   const dpr = Math.min(devicePixelRatio, 2);
