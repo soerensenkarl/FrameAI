@@ -160,6 +160,37 @@
     100% { box-shadow: 0 0 0 0   rgba(249, 188, 6, 0);    }
   }
 
+  /* First-visit tutorial tip next to the compass/top-view button */
+  .compass-tip {
+    position: fixed;
+    top: 34px;
+    left: 90px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px 9px 10px;
+    background: rgba(249, 188, 6, 0.14);
+    border: 1px solid rgba(249, 188, 6, 0.55);
+    border-radius: 999px;
+    color: #F9BC06;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    z-index: 11;
+    pointer-events: none;
+    white-space: nowrap;
+    animation: compassTipBounce 1.4s ease-in-out infinite;
+  }
+  .compass-tip.hidden { display: none; }
+  .compass-tip svg { width: 20px; height: 20px; stroke: #F9BC06; fill: none; flex-shrink: 0; }
+  @keyframes compassTipBounce {
+    0%, 100% { transform: translateX(0);    }
+    50%      { transform: translateX(-6px); }
+  }
+
 
   /* Buttons */
   .btn-icon {
@@ -983,6 +1014,15 @@
   </svg>
 </button>
 
+<!-- First-visit tip: click the compass to leave top view (shown once on step 2) -->
+<div class="compass-tip hidden" id="compassTip">
+  <svg viewBox="0 0 24 24" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="22" y1="12" x2="4" y2="12"/>
+    <polyline points="10 6 4 12 10 18"/>
+  </svg>
+  <span>Press to switch to perspective view</span>
+</div>
+
 <!-- Top bar row -->
 <div class="toprow" id="toprow">
   <button class="btn-icon glass" id="btnUndo" style="display:none" title="Undo (Ctrl+Z)">
@@ -1254,7 +1294,7 @@ renderer.toneMappingExposure = 0.8;
 
 /* ────────────────── ground ────────────────── */
 const GRID = 30000;
-const grid = new THREE.GridHelper(GRID, 60, 0x1a1a1a, 0x141414);
+const grid = new THREE.GridHelper(GRID, 60, 0x2a2a2a, 0x222222);
 grid.rotation.x = Math.PI / 2;
 scene.add(grid);
 
@@ -3826,6 +3866,7 @@ function rebuildIWEndpointMarkers() {
 
 function selectIW(idx) {
   deselectIW();
+  cancelIWDraw();
   selectedIW = idx;
   rebuildInteriorWalls();
   const iw = interiorWalls[idx];
@@ -3841,6 +3882,8 @@ function selectIW(idx) {
     $("iwLengthVal").textContent = (lenMm / 1000).toFixed(2) + " m";
     $("iwInspector").style.display = "flex";
     positionIWInspector();
+    // Selecting a wall drops out of draw mode.
+    renderer.domElement.style.cursor = "";
   }
 }
 
@@ -3873,6 +3916,8 @@ function deselectIW() {
   selectedIW = -1;
   $("iwInspector").style.display = "none";
   hideFFDim();
+  // Re-arm the draw tool while we're still on the IW step.
+  if (currentStep === 1) renderer.domElement.style.cursor = "crosshair";
 }
 
 function deleteSelectedIW() {
@@ -3883,6 +3928,7 @@ function deleteSelectedIW() {
   $("iwInspector").style.display = "none";
   rebuildInteriorWalls();
   hideFFDim();
+  if (currentStep === 1) renderer.domElement.style.cursor = "crosshair";
   pushHistory();
 }
 
@@ -4305,6 +4351,7 @@ function goToStep(n) {
   deselectIW();
   if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; hideFFHoverHint(); }
   if (n !== 1) { cancelIWDraw(); iwEndpointGroup.visible = false; hideIWHoverHint(); }
+  if (n !== 2) hideCompassTip();
   hideArrows();
   hideDot();
   hideSnapBars();
@@ -4426,6 +4473,8 @@ function goToStep(n) {
       btnNext.style.display = "";
       if (firstVisit) {
         showIntroThenSmall();
+        // Tutorial: point at the compass so the user knows how to leave top view.
+        if (isTopView) showCompassTip();
       } else {
         hint.classList.add("small");
         hint.innerHTML = "Drag a window or door onto a wall";
@@ -4568,7 +4617,11 @@ function disableTopView() {
 
 $("btnTopView").addEventListener("click", () => {
   if (isTopView) disableTopView(); else enableTopView();
+  hideCompassTip();
 });
+
+function hideCompassTip() { $("compassTip").classList.add("hidden"); }
+function showCompassTip() { $("compassTip").classList.remove("hidden"); }
 
 /* ────────────────── undo / redo ────────────────── */
 const undoStack = [];
@@ -5439,12 +5492,18 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     iwPointerDown = null;
     if (dx * dx + dy * dy > 25) return; // moved > 5px → was orbiting
 
+    // Draw tool is disabled while a wall is selected: first left-click just
+    // deselects and re-enables the tool; the user's next click starts drawing.
+    if (selectedIW >= 0) {
+      deselectIW();
+      return;
+    }
+
     const pt = groundHit(e);
     if (!pt) return;
 
     if (!iwDrawStart) {
       // First click — start drawing
-      deselectIW();
       hideIWHoverHint();
       iwDrawStart = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
     } else {

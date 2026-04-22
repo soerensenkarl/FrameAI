@@ -76,3 +76,62 @@ def test_frame_angled_wall():
     assert resp.status_code == 200, resp.data.decode()
     data = resp.get_json()
     assert data["member_count"] >= 4
+
+
+# ── pure-Python spec computation (runs with or without Rhino) ──
+
+def _sample_frame_request(**overrides):
+    base = {
+        "x0": 0.0, "y0": 0.0, "x1": 4000.0, "y1": 3000.0,
+        "height": 2400, "thickness": 195, "roofThickness": 295,
+        "roofType": "flat",
+        "flatSlopeH": [0, 0],
+        "openings": [],
+        "interiorWalls": [],
+        "interiorThickness": 95,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_compute_specs_flat_roof_bundle_shape():
+    from app import _compute_geometry_specs
+    specs = _compute_geometry_specs(_sample_frame_request())
+    assert set(specs.keys()) == {"walls", "roof", "doors", "windows", "dev_simple"}
+    assert len(specs["walls"]) == 4  # four exterior walls
+    assert len(specs["roof"]) == 1   # single flat box
+    assert specs["roof"][0]["kind"] == "box"
+    import json; json.dumps(specs)  # must be JSON-serializable
+
+
+def test_compute_specs_gable_produces_pentagon_walls():
+    from app import _compute_geometry_specs
+    specs = _compute_geometry_specs(_sample_frame_request(
+        roofType="gable", ridgeH=1500))
+    extruded = [w for w in specs["walls"] if w["kind"] == "extruded"]
+    assert len(extruded) == 2, "gable should have 2 pentagonal end walls"
+    assert len(specs["roof"]) == 2  # two half-slabs
+
+
+def test_compute_specs_flat_sloped_uses_planar_solid():
+    from app import _compute_geometry_specs
+    specs = _compute_geometry_specs(_sample_frame_request(
+        flatSlopeH=[0, 800]))
+    assert specs["roof"][0]["kind"] == "planar_solid"
+
+
+def test_generate_frame_endpoint_end_to_end():
+    resp = _client().post("/generate-frame", json=_sample_frame_request())
+    assert resp.status_code == 200, resp.data.decode()
+    data = resp.get_json()
+    assert "vertices" in data and "faces" in data
+    assert data["stats"]["member_count"] > 0
+
+
+def test_solve_frame_accepts_spec_bundle():
+    from app import _compute_geometry_specs
+    specs = _compute_geometry_specs(_sample_frame_request())
+    resp = _client().post("/solve-frame", json=specs)
+    assert resp.status_code == 200, resp.data.decode()
+    data = resp.get_json()
+    assert "vertices" in data and data["stats"]["member_count"] > 0
