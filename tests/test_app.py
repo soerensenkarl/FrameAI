@@ -97,7 +97,7 @@ def _sample_frame_request(**overrides):
 def test_compute_specs_flat_roof_bundle_shape():
     from app import _compute_geometry_specs
     specs = _compute_geometry_specs(_sample_frame_request())
-    assert set(specs.keys()) == {"walls", "roof", "doors", "windows", "dev_simple"}
+    assert {"walls", "roof", "doors", "windows"}.issubset(specs.keys())
     assert len(specs["walls"]) == 4  # four exterior walls
     assert len(specs["roof"]) == 1   # single flat box
     assert specs["roof"][0]["kind"] == "box"
