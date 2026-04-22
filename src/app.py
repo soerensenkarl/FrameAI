@@ -673,7 +673,7 @@ def _compute_iw_joints(interior_walls_list, iw_t, ix0=None, iy0=None, ix1=None, 
 
 def _interior_wall_specs(interior_walls_list, iw_t, h, iw_to_ridge,
                           ridge_along_x, ridge_h,
-                          gbl_half_span, gbl_h_eave, gbl_h_apex,
+                          gbl_half_span, gbl_h_eave_under, gbl_h_apex_under,
                           gbl_center_x, gbl_center_y,
                           ext_ix0=None, ext_iy0=None, ext_ix1=None, ext_iy1=None):
     """Pure-Python interior wall specs (simple boxes, or gable-profile when iw_to_ridge).
@@ -714,7 +714,7 @@ def _interior_wall_specs(interior_walls_list, iw_t, h, iw_to_ridge,
                     dist = min(gbl_half_span, abs(yw - gbl_center_y))
                 else:
                     dist = min(gbl_half_span, abs(xw - gbl_center_x))
-                return gbl_h_eave + ridge_h * (1 - dist / gbl_half_span)
+                return gbl_h_eave_under + ridge_h * (1 - dist / gbl_half_span)
 
             if is_horiz:
                 y_wall = iy0
@@ -727,7 +727,7 @@ def _interior_wall_specs(interior_walls_list, iw_t, h, iw_to_ridge,
                 ]
                 # Peak only if ridge is perpendicular to the wall and crosses it
                 if (not ridge_along_x) and bx0 + 1 < gbl_center_x < bx1 - 1:
-                    pts.append([gbl_center_x, by0, gbl_h_apex])
+                    pts.append([gbl_center_x, by0, gbl_h_apex_under])
                 pts.append([bx0, by0, z_left])
                 pts.append([bx0, by0, 0])
                 direction = [0, iw_t, 0]
@@ -741,7 +741,7 @@ def _interior_wall_specs(interior_walls_list, iw_t, h, iw_to_ridge,
                     [bx0, by1, z_top],
                 ]
                 if ridge_along_x and by0 + 1 < gbl_center_y < by1 - 1:
-                    pts.append([bx0, gbl_center_y, gbl_h_apex])
+                    pts.append([bx0, gbl_center_y, gbl_h_apex_under])
                 pts.append([bx0, by0, z_bot])
                 pts.append([bx0, by0, 0])
                 direction = [iw_t, 0, 0]
@@ -784,12 +784,16 @@ def _compute_geometry_specs(data):
     if roof_type == "gable":
         gbl_half_span = (d / 2) if ridge_along_x else (w / 2)
         gbl_eave_lift = roof_t - ridge_h * t / gbl_half_span
-        gbl_h_eave = h + gbl_eave_lift
-        gbl_h_apex = h + ridge_h + gbl_eave_lift
+        # Interior walls with iwToRidge stop at the roof UNDERSIDE (one slab
+        # below roof top), matching the frontend. The exterior gable pentagon
+        # walls go all the way up to the roof TOP and compute their own apex
+        # locally in _exterior_wall_specs.
+        gbl_h_eave_under = h + gbl_eave_lift - roof_t
+        gbl_h_apex_under = h + ridge_h + gbl_eave_lift - roof_t
         gbl_center_x = (x0 + x1) / 2
         gbl_center_y = (y0 + y1) / 2
     else:
-        gbl_half_span = gbl_h_eave = gbl_h_apex = 0
+        gbl_half_span = gbl_h_eave_under = gbl_h_apex_under = 0
         gbl_center_x = gbl_center_y = 0
 
     wall_specs = _exterior_wall_specs(x0, y0, x1, y1, h, t, roof_type, flat_slope,
@@ -798,7 +802,7 @@ def _compute_geometry_specs(data):
     # lands on exterior face" for joint retraction.
     wall_specs += _interior_wall_specs(interior_walls, iw_t, h, iw_to_ridge,
                                         ridge_along_x, ridge_h,
-                                        gbl_half_span, gbl_h_eave, gbl_h_apex,
+                                        gbl_half_span, gbl_h_eave_under, gbl_h_apex_under,
                                         gbl_center_x, gbl_center_y,
                                         ext_ix0=x0 + t, ext_iy0=y0 + t,
                                         ext_ix1=x1 - t, ext_iy1=y1 - t)
