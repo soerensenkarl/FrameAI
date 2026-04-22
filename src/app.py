@@ -84,16 +84,28 @@ def requires_rhino(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         if RHINO_AVAILABLE:
-            try:
-                return fn(*args, **kwargs)
-            except Exception as e:
-                if _is_rhino_not_licensed(e):
-                    import traceback
-                    traceback.print_exc()
-                    return jsonify({
-                        "error": "Rhino license is unavailable right now. Most common cause: Rhino 8 (the GUI app) is open on the server PC and is holding the single license. Close Rhino there and retry in a few seconds."
-                    }), 503
-                raise
+            # Retry once on a NotLicensed blip — Rhino GUI and rhinoinside
+            # share one Cloud Zoo seat, and periodic re-validation can
+            # miss for a moment. A short pause usually clears it.
+            import time
+            last_exc = None
+            for attempt in range(2):
+                try:
+                    return fn(*args, **kwargs)
+                except Exception as e:
+                    if _is_rhino_not_licensed(e):
+                        last_exc = e
+                        if attempt == 0:
+                            time.sleep(0.8)
+                            continue
+                        import traceback
+                        traceback.print_exc()
+                        return jsonify({
+                            "error": "Rhino license unavailable after retry. Rhino GUI on the server PC may be contending for the seat — close it and retry, or wait a moment and try again."
+                        }), 503
+                    raise
+            if last_exc is not None:
+                raise last_exc
         if RHINO_PROXY_URL:
             return _proxy_to_rhino()
         return jsonify({
