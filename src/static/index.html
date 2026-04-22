@@ -1286,6 +1286,19 @@
       <span>House transparency <span id="devOpacityVal">100%</span></span>
       <input type="range" id="devOpacity" min="0" max="100" value="100" step="1">
     </label>
+    <label class="dev-opt"><input type="checkbox" id="devEdgeEnable" checked> Frame edge outline</label>
+    <label class="dev-opt" style="flex-direction:column; align-items:stretch; gap:4px;">
+      <span>Edge opacity <span id="devEdgeOpacityVal">20%</span></span>
+      <input type="range" id="devEdgeOpacity" min="0" max="100" value="20" step="1">
+    </label>
+    <label class="dev-opt" style="flex-direction:column; align-items:stretch; gap:4px;">
+      <span>Edge crease threshold <span id="devEdgeThresholdVal">20&deg;</span></span>
+      <input type="range" id="devEdgeThreshold" min="0" max="90" value="20" step="1">
+    </label>
+    <label class="dev-opt" style="flex-direction:column; align-items:stretch; gap:4px;">
+      <span>Edge darkness <span id="devEdgeDarknessVal">100%</span></span>
+      <input type="range" id="devEdgeDarkness" min="0" max="100" value="100" step="1">
+    </label>
   </div>
 </div>
 
@@ -1366,7 +1379,7 @@ scene.add(grid);
    vertically (wall tops, vertical edges), not just on the ground plane.
    Ground-plane callers send z=2 and the sphere sits just above the floor. */
 const dot = new THREE.Mesh(
-  new THREE.SphereGeometry(30, 20, 16),
+  new THREE.SphereGeometry(20, 20, 16),
   new THREE.MeshBasicMaterial({ color: 0xF9BC06, depthTest: false })
 );
 dot.renderOrder = 999;
@@ -1374,14 +1387,34 @@ dot.position.set(0, 0, 2);
 dot.visible = false;
 scene.add(dot);
 
+// Geometry radius of the roving dot (matches the SphereGeometry above).
+const DOT_GEOM_RADIUS = 20;
+// Target on-screen radius when zoomed in. Sphere scales with zoom (smaller when
+// close, bigger when zoomed out) but caps at the geometry size so it never
+// looks larger than it was designed to.
+const DOT_TARGET_PX = 10;
+
+function dotZoomScale() {
+  const targetWorld = Math.min(DOT_GEOM_RADIUS, DOT_TARGET_PX * worldPerPixelAt(dot.position));
+  return targetWorld / DOT_GEOM_RADIUS;
+}
+
+let dotSnapMode = false;   // tracked so the per-frame update preserves the lock-on 2.2× boost
 function moveDot(snapped) {
   // Respect a z on the snap point when present; fall back to the floor-hover
   // height for 2D callers (wall drawing, box placement, etc).
   const z = (snapped.z !== undefined && snapped.z !== 0) ? snapped.z : 2;
   dot.position.set(snapped.x, snapped.y, z);
-  const s = snapped.snapped ? 2.2 : 1;   // grow when locked onto a snap target
-  dot.scale.set(s, s, s);
+  dotSnapMode = !!snapped.snapped;
+  applyDotScale();
   dot.visible = true;
+}
+
+function applyDotScale() {
+  const base = dotZoomScale();
+  const lock = dotSnapMode ? 2.2 : 1;
+  const s = base * lock;
+  dot.scale.set(s, s, s);
 }
 
 function hideDot() {
@@ -2061,6 +2094,9 @@ let signX = 1, signY = 1;   // draw direction for input rebuild
 let ghostGroup = null;
 let roomGroup  = null;
 let frameGroup = null;
+// Cached frame mesh vertices (Vector3[]) — populated when /generate-frame returns
+// so the measure tool can snap to every corner of every stud/plate/beam.
+let frameVertices = [];
 
 // Footprint mode: 'box' (two-corner rectangle) or 'free' (per-wall drawing)
 let houseMode = 'box';
@@ -2127,7 +2163,9 @@ function syncOverlay() {
   if (roomGroup)     roomGroup.visible     = (n <= 3)              || (overlay && inFrame);
   if (frameGroup)    frameGroup.visible    = inFrame;
   openingsGroup.visible                     = (n >= 2 && n <= 3)    || (overlay && inFrame);
-  iwGroup.visible                           = (n >= 1 && n <= 3)    || (overlay && inFrame);
+  // Interior walls stay visible from step 0 onward so the user can see how
+  // their design is developing while editing the exterior shell.
+  iwGroup.visible                           = (n <= 3)               || (overlay && inFrame);
   if (roofGroup)     roofGroup.visible     = (n === 3)              || (overlay && inFrame);
 }
 $("devOverlayCb").addEventListener("change", e => {
@@ -2146,6 +2184,61 @@ $("devOpacity").addEventListener("input", e => {
     m.depthWrite = op >= 1;
     m.needsUpdate = true;
   }
+});
+
+// ── Frame edge overlay config ──
+// Preview-only. The edge mesh is parented to the frame mesh and rebuilt when
+// the threshold changes (EdgesGeometry is computed once). Opacity/darkness
+// just update the shared material without recomputing geometry.
+const frameEdgeCfg = { enabled: true, opacity: 0.20, threshold: 20, darkness: 1.0 };
+const frameEdgeMat = new THREE.LineBasicMaterial({
+  color: 0x000000, transparent: true, opacity: frameEdgeCfg.opacity,
+});
+let frameEdgesMesh = null;
+
+function applyEdgeDarkness() {
+  // 0 → white-ish, 1 → black. Map linearly in grayscale.
+  const g = Math.max(0, Math.min(1, 1 - frameEdgeCfg.darkness));
+  frameEdgeMat.color.setRGB(g, g, g);
+}
+applyEdgeDarkness();
+
+function rebuildFrameEdges() {
+  if (!frameGroup) return;
+  const mesh = frameGroup.children.find(c => c.geometry && c.isMesh);
+  if (!mesh) return;
+  if (frameEdgesMesh) {
+    mesh.remove(frameEdgesMesh);
+    frameEdgesMesh.geometry.dispose();
+    frameEdgesMesh = null;
+  }
+  if (!frameEdgeCfg.enabled) return;
+  const geo = new THREE.EdgesGeometry(mesh.geometry, frameEdgeCfg.threshold);
+  frameEdgesMesh = new THREE.LineSegments(geo, frameEdgeMat);
+  mesh.add(frameEdgesMesh);
+}
+
+$("devEdgeEnable").addEventListener("change", e => {
+  frameEdgeCfg.enabled = e.target.checked;
+  rebuildFrameEdges();
+});
+$("devEdgeOpacity").addEventListener("input", e => {
+  const v = +e.target.value;
+  $("devEdgeOpacityVal").textContent = v + "%";
+  frameEdgeCfg.opacity = v / 100;
+  frameEdgeMat.opacity = frameEdgeCfg.opacity;
+});
+$("devEdgeThreshold").addEventListener("input", e => {
+  const v = +e.target.value;
+  $("devEdgeThresholdVal").textContent = v + "°";
+  frameEdgeCfg.threshold = v;
+  rebuildFrameEdges();
+});
+$("devEdgeDarkness").addEventListener("input", e => {
+  const v = +e.target.value;
+  $("devEdgeDarknessVal").textContent = v + "%";
+  frameEdgeCfg.darkness = v / 100;
+  applyEdgeDarkness();
 });
 
 /* ────────── Test Mode: comment + annotate ────────── */
@@ -2764,7 +2857,9 @@ function buildRoom(a, b, h, t, wMat, eMat, fMat, wallCutouts) {
   const fw = w - 2 * t, fd = d - 2 * t;
   if (fw > 0 && fd > 0) {
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(fw, fd), fMat);
-    floor.position.set(x0 + w / 2, y0 + d / 2, 1);
+    // Preview only — lifted 10 cm off z=0 to avoid z-fighting with the world
+    // grid helper on the ground plane. Backend geometry is untouched.
+    floor.position.set(x0 + w / 2, y0 + d / 2, 100);
     floor.receiveShadow = true;
     g.add(floor);
   }
@@ -3699,6 +3794,7 @@ function finishOpeningDrag(e) {
 function buildRoof() {
   if (roofGroup) { scene.remove(roofGroup); roofGroup = null; }
   if (!c1 || !c2) return;
+  if (roofType === "none") return;   // walls-only mode — no roof geometry
 
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
@@ -4360,7 +4456,15 @@ const FF_ENDPOINT_SNAP = 900;
 // radius shrank to a few pixels when zoomed out, which made hitting a node
 // feel unreliable.
 function worldPerPixel() {
-  const dist = Math.max(100, cam.position.distanceTo(orbit.target));
+  // Generic "how zoomed out are we" reading, measured at the orbit target.
+  return worldPerPixelAt(orbit.target);
+}
+// Position-aware — world mm per screen pixel at a specific world point. Use
+// this for scaling on-screen elements (snap sphere, markers) that live away
+// from orbit.target: zooming into a frame corner puts the sphere much closer
+// to the camera than the target, and the scale has to reflect *that* distance.
+function worldPerPixelAt(pos) {
+  const dist = Math.max(100, cam.position.distanceTo(pos));
   const vFov = cam.fov * Math.PI / 180;
   const h = renderer.domElement.clientHeight || 1;
   return (2 * dist * Math.tan(vFov / 2)) / h;
@@ -4737,7 +4841,8 @@ function goToStep(n) {
     case 3: // Roof
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
-      roofPanel.classList.add("open");
+      // Thickness panel only matters when a roof is selected.
+      roofPanel.classList.toggle("open", roofType !== "none");
       // Gable assumes a rectangular footprint — hide it for free-form and force flat.
       {
         const gableTile = document.querySelector('.roof-option[data-roof="gable"]');
@@ -4836,11 +4941,20 @@ $("tileFree").addEventListener("click", (e) => {
 });
 
 /* ────────────────── top view toggle ────────────────── */
+// Step-aware opacity: whichever wall category the user is NOT editing fades
+// to 30% so the active layer reads clearly.
+//   Step 0 (Exterior): interior walls fade, exterior full.
+//   Step 1 (Interior) not in top view: exterior fades, interior full.
+//   Otherwise: both full.
 function updateExtWallOpacity() {
-  const ghost = currentStep === 1 && !isTopView;
-  wallMat.transparent = ghost;
-  wallMat.opacity = ghost ? 0.5 : 1.0;
+  const extGhost = currentStep === 1 && !isTopView;
+  const intGhost = currentStep === 0;
+  wallMat.transparent = extGhost;
+  wallMat.opacity = extGhost ? 0.3 : 1.0;
   wallMat.needsUpdate = true;
+  iwMat.transparent = intGhost;
+  iwMat.opacity = intGhost ? 0.3 : 1.0;
+  iwMat.needsUpdate = true;
 }
 
 function enableTopView() {
@@ -5031,6 +5145,7 @@ async function generateFrame() {
 
     // Remove any previous frame; design-group visibility is governed by syncOverlay.
     if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
+    frameVertices = [];
     panel.classList.remove("open");
 
     // Build Three.js mesh from server triangles + normals
@@ -5038,6 +5153,8 @@ async function generateFrame() {
     const nVerts = json.vertices.length;
     const pos = new Float32Array(nVerts * 3);
     const nrm = new Float32Array(nVerts * 3);
+    // Cache the vertex list too so Measure can snap to each member corner.
+    const snapVerts = new Array(nVerts);
     for (let i = 0; i < nVerts; i++) {
       pos[i * 3]     = json.vertices[i][0];
       pos[i * 3 + 1] = json.vertices[i][1];
@@ -5045,7 +5162,11 @@ async function generateFrame() {
       nrm[i * 3]     = json.normals[i][0];
       nrm[i * 3 + 1] = json.normals[i][1];
       nrm[i * 3 + 2] = json.normals[i][2];
+      snapVerts[i] = new THREE.Vector3(
+        json.vertices[i][0], json.vertices[i][1], json.vertices[i][2]
+      );
     }
+    frameVertices = snapVerts;
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     geo.setAttribute("normal",   new THREE.BufferAttribute(nrm, 3));
 
@@ -5076,6 +5197,7 @@ async function generateFrame() {
     frameGroup = new THREE.Group();
     frameGroup.add(mesh);
     scene.add(frameGroup);
+    rebuildFrameEdges();
     syncOverlay();
 
     // Populate info panel with stats
@@ -6179,9 +6301,10 @@ function measureRaycast(e) {
   ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
   rc.setFromCamera(ndc, cam);
   const targets = [];
-  if (roomGroup) roomGroup.traverse(c => { if (c.isMesh) targets.push(c); });
-  if (iwGroup)   iwGroup.traverse(c => { if (c.isMesh) targets.push(c); });
-  if (roofGroup) roofGroup.traverse(c => { if (c.isMesh) targets.push(c); });
+  if (roomGroup)  roomGroup.traverse(c => { if (c.isMesh) targets.push(c); });
+  if (iwGroup)    iwGroup.traverse(c => { if (c.isMesh) targets.push(c); });
+  if (roofGroup)  roofGroup.traverse(c => { if (c.isMesh) targets.push(c); });
+  if (frameGroup) frameGroup.traverse(c => { if (c.isMesh) targets.push(c); });
   const hits = rc.intersectObjects(targets, false);
   if (hits.length) return hits[0].point.clone();
   const gp = groundHit(e);
@@ -6231,17 +6354,29 @@ function measureSnap(hit3D) {
   for (const w of footprintWalls) addWallSnapset(w.x0, w.y0, w.x1, w.y1);
   for (const iw of interiorWalls) addWallSnapset(iw.x0, iw.y0, iw.x1, iw.y1);
 
+  // Frame-member corners — every vertex of every generated stud/plate/beam is
+  // a snap candidate. Only active while the frame is actually visible so we
+  // don't snap into invisible stale geometry from a prior generate.
+  const frameOn = frameGroup && frameGroup.visible && frameVertices.length;
+
   // Screen-aware radii (world mm). worldPerPixel is measured at orbit.target
   // which lives near the floor; good enough for the whole scene at normal zoom.
   const wpp = worldPerPixel();
   const cornerR = Math.max(500, 40 * wpp);
   const edgeR   = Math.max(300, 22 * wpp);
 
-  // 1 — corners
+  // 1 — corners (design geometry)
   let bestC = null, bestCD = cornerR;
   for (const v of corners) {
     const d = v.distanceTo(hit3D);
     if (d < bestCD) { bestCD = d; bestC = v; }
+  }
+  // 1b — corners (frame vertices). Kept in the same radius/priority bucket.
+  if (frameOn) {
+    for (const v of frameVertices) {
+      const d = v.distanceTo(hit3D);
+      if (d < bestCD) { bestCD = d; bestC = v; }
+    }
   }
   if (bestC) {
     const out = bestC.clone();
@@ -6324,6 +6459,12 @@ function measureSnapAligned(hit3D) {
 
 const measureLineMat = new THREE.LineBasicMaterial({ color: 0xF9BC06, depthTest: false, transparent: true, opacity: 0.95 });
 const measureDotMat = new THREE.MeshBasicMaterial({ color: 0xF9BC06, depthTest: false });
+const MEASURE_DOT_RADIUS = 28;           // geometry radius for committed markers
+const MEASURE_DOT_TARGET_PX = 13;        // target pixel radius at close zoom
+function measureDotZoomScaleAt(pos) {
+  const t = Math.min(MEASURE_DOT_RADIUS, MEASURE_DOT_TARGET_PX * worldPerPixelAt(pos));
+  return t / MEASURE_DOT_RADIUS;
+}
 function drawMeasure(hoverPt) {
   clearMeasureVisuals();
   const pts = [...measurePoints];
@@ -6333,10 +6474,12 @@ function drawMeasure(hoverPt) {
   // Spherical "committed" markers — visible from any angle, unlike the
   // flat circles they used to be. Only the committed points get markers;
   // the live-preview end follows the roving snap sphere (the shared `dot`).
+  // Tagged so the render loop can rescale them with zoom, same as the dot.
   for (const p of measurePoints) {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(45, 20, 16), measureDotMat);
+    const m = new THREE.Mesh(new THREE.SphereGeometry(MEASURE_DOT_RADIUS, 20, 16), measureDotMat);
     m.position.set(p.x, p.y, (p.z !== undefined ? p.z : 0));
     m.renderOrder = 997;
+    m.userData.zoomDot = true;
     measureGroup.add(m);
   }
   if (pts.length === 2) {
@@ -6423,16 +6566,18 @@ document.querySelectorAll('.tool-item[data-tool="window"], .tool-item[data-tool=
   });
 });
 
-// Roof type selection
+// Roof type selection. Clicking the currently-active tile toggles it OFF
+// (roofType = "none") so users who want walls only can opt out of a roof.
 document.querySelectorAll(".roof-option").forEach(el => {
   el.addEventListener("click", () => {
     if (measureActive) setMeasureActive(false);
-    if (roofType === el.dataset.roof) return;
     markFrameStale();
-    roofType = el.dataset.roof;
+    roofType = (roofType === el.dataset.roof) ? "none" : el.dataset.roof;
     if (roofType === "gable") flatSlopeH = [0, 0];
     document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
     $("roofIwToRidgeRow").style.display = roofType === "gable" ? "" : "none";
+    // Thickness panel is only meaningful when there's a roof to thicken.
+    roofPanel.classList.toggle("open", currentStep === 3 && roofType !== "none");
     rebuildScene();
     pushHistory();
   });
@@ -6493,6 +6638,7 @@ function startDrawing() {
   if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; }
   if (roomGroup)  { scene.remove(roomGroup);  roomGroup = null; }
   if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
+  frameVertices = [];
   if (roofGroup)  { scene.remove(roofGroup);  roofGroup = null; }
   markFrameStale();
   clearOpenings();
@@ -6555,6 +6701,18 @@ onResize();
   positionFFInspector();
   positionIWInspector();
   updateDistributePanelPosition();
+  // Keep the snap sphere + committed measurement markers looking consistent
+  // in screen space as the user zooms — shrink when zoomed in, cap at the
+  // geometry radius when zoomed way out.
+  if (dot.visible) applyDotScale();
+  if (measureGroup.children.length) {
+    measureGroup.traverse(c => {
+      if (c.userData && c.userData.zoomDot) {
+        const ms = measureDotZoomScaleAt(c.position);
+        c.scale.set(ms, ms, ms);
+      }
+    });
+  }
   if (scaleWorker) {
     tickScaleWorkerWalk();
     tickScaleWorkerRestage();
