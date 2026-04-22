@@ -420,7 +420,7 @@
   .panel.open { display: flex; }
 
   /* Opening inspector floats next to the selected opening */
-  #openingInspector, #ffInspector {
+  #openingInspector, #ffInspector, #iwInspector {
     right: auto;
     top: auto;
     transform: none;
@@ -1050,7 +1050,6 @@
     <label style="flex:1">To ridge</label>
     <input type="checkbox" id="inIwToRidge" class="ios-toggle">
   </div>
-  <button class="btn-delete" id="btnDeleteIW" style="display:none">Delete Wall</button>
 </div>
 
 <!-- Roof tool panel (left — tiles) -->
@@ -1110,8 +1109,18 @@
   <button class="btn-delete" id="btnDeleteFF">Delete Wall</button>
 </div>
 
+<!-- Interior wall inspector (shown when an interior wall is right-click selected in step 1) -->
+<div class="panel glass" id="iwInspector" style="display:none">
+  <span class="panel-title">Wall</span>
+  <div class="f"><label>Length</label><div class="fr"><span class="u" id="iwLengthVal" style="font-size:14px;color:#fff">—</span></div></div>
+  <button class="btn-delete" id="btnDeleteIW">Delete Wall</button>
+</div>
+
 <!-- Free-form wall hover hint -->
 <div class="ff-hover-hint" id="ffHoverHint">Right-click to edit</div>
+
+<!-- Interior wall hover hint -->
+<div class="ff-hover-hint" id="iwHoverHint">Right-click to edit</div>
 
 <!-- Opening inspector (shown when an opening is selected in step 1) -->
 <div class="panel glass" id="openingInspector">
@@ -1490,6 +1499,11 @@ slopeArrows[1].userData.slopeEdge = 1;
 // Footprint height arrow (drag to change wall height in step 0)
 const heightArrow = makeUpArrow();
 heightArrow.userData.isHeight = true;
+
+// Vertical arrows billboard around world Z each frame so their face always
+// points at the camera (same trick the scale worker uses). Without this they
+// go edge-on when the camera orbits perpendicular to their baked face normal.
+const VERTICAL_ARROWS = [ridgeArrow, slopeArrows[0], slopeArrows[1], heightArrow];
 
 // Opening slide handle (shown when an opening is selected in step 2)
 function makeSlideHandle() {
@@ -2121,7 +2135,7 @@ const stepVisited = [false, false, false, false, false, false];  // track first 
 // Intro hints shown centered on first visit to each tab
 const stepIntroHints = [
   "Click to place your house",
-  "Click on a wall to start drawing interior walls",
+  "Click to draw interior walls • Right-click to edit",
   "Drag windows and doors onto walls \u2022 click to edit",
   "Pick a roof style for your house",
   "Generate the timber frame",
@@ -3488,7 +3502,7 @@ function buildRoof() {
   const h = +inH.value;
   const t = +inT.value;
   const w = x1 - x0, d = y1 - y0;
-  const overhang = 200;
+  const overhang = 0;
   const roofT = +inTR.value;
 
   roofGroup = new THREE.Group();
@@ -3774,13 +3788,41 @@ function rebuildInteriorWalls() {
     edges.applyMatrix4(m);
     iwGroup.add(edges);
   });
+  rebuildIWEndpointMarkers();
+}
+
+// Visible snap markers for interior wall drawing — existing wall endpoints
+// plus the four inner-footprint corners. Rebuilt whenever IWs change.
+const iwEndpointMat = new THREE.MeshBasicMaterial({ color: 0xF9BC06, depthTest: false, transparent: true, opacity: 0.8 });
+const iwEndpointGroup = new THREE.Group();
+iwEndpointGroup.renderOrder = 997;
+scene.add(iwEndpointGroup);
+
+function rebuildIWEndpointMarkers() {
+  while (iwEndpointGroup.children.length) iwEndpointGroup.remove(iwEndpointGroup.children[0]);
+  if (currentStep !== 1) { iwEndpointGroup.visible = false; return; }
+  iwEndpointGroup.visible = true;
+  const seen = new Set();
+  const add = (x, y) => {
+    const key = Math.round(x) + "," + Math.round(y);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const m = new THREE.Mesh(new THREE.CircleGeometry(80, 20), iwEndpointMat);
+    m.position.set(x, y, 3);
+    iwEndpointGroup.add(m);
+  };
+  for (const iw of interiorWalls) { add(iw.x0, iw.y0); add(iw.x1, iw.y1); }
+  const b = getInnerBounds();
+  if (b && isFinite(b.ix0) && b.ix1 > b.ix0 && b.iy1 > b.iy0) {
+    add(b.ix0, b.iy0); add(b.ix1, b.iy0);
+    add(b.ix1, b.iy1); add(b.ix0, b.iy1);
+  }
 }
 
 function selectIW(idx) {
   deselectIW();
   selectedIW = idx;
   rebuildInteriorWalls();
-  $("btnDeleteIW").style.display = "";
   const iw = interiorWalls[idx];
   if (iw) {
     const len = Math.hypot(iw.x1 - iw.x0, iw.y1 - iw.y0);
@@ -3790,7 +3832,32 @@ function selectIW(idx) {
       len,
       { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" }
     );
+    const lenMm = Math.round(len);
+    $("iwLengthVal").textContent = (lenMm / 1000).toFixed(2) + " m";
+    $("iwInspector").style.display = "flex";
+    positionIWInspector();
   }
+}
+
+function positionIWInspector() {
+  if (selectedIW < 0) return;
+  const iw = interiorWalls[selectedIW];
+  if (!iw) return;
+  const mid = new THREE.Vector3((iw.x0 + iw.x1) / 2, (iw.y0 + iw.y1) / 2, (+inH.value) / 2);
+  mid.project(cam);
+  const r = renderer.domElement.getBoundingClientRect();
+  const sx = (mid.x * 0.5 + 0.5) * r.width + r.left;
+  const sy = (-mid.y * 0.5 + 0.5) * r.height + r.top;
+  const panel = $("iwInspector");
+  const pw = panel.offsetWidth || 220;
+  const ph = panel.offsetHeight || 150;
+  let px = sx + 28;
+  let py = sy - ph / 2;
+  if (px + pw > window.innerWidth - 10) px = sx - pw - 28;
+  px = Math.max(10, px);
+  py = Math.max(10, Math.min(py, window.innerHeight - ph - 10));
+  panel.style.left = px + "px";
+  panel.style.top = py + "px";
 }
 
 function deselectIW() {
@@ -3799,7 +3866,7 @@ function deselectIW() {
     rebuildInteriorWalls();
   }
   selectedIW = -1;
-  $("btnDeleteIW").style.display = "none";
+  $("iwInspector").style.display = "none";
   hideFFDim();
 }
 
@@ -3808,8 +3875,9 @@ function deleteSelectedIW() {
   markFrameStale();
   interiorWalls.splice(selectedIW, 1);
   selectedIW = -1;
-  $("btnDeleteIW").style.display = "none";
+  $("iwInspector").style.display = "none";
   rebuildInteriorWalls();
+  hideFFDim();
   pushHistory();
 }
 
@@ -3845,6 +3913,27 @@ function getInnerBounds() {
 // Snap a point to the nearest interior wall face or exterior wall inner face, then grid
 function snapIWPoint(pt) {
   const b = getInnerBounds();
+
+  // Endpoint-priority snap: existing IW endpoints + inner-footprint corners, inside a
+  // wider radius than the grid so landing on a target is easy. Mirrors ffSnapPoint.
+  const endpoints = [];
+  for (const iw of interiorWalls) { endpoints.push([iw.x0, iw.y0], [iw.x1, iw.y1]); }
+  if (b && isFinite(b.ix0) && b.ix1 > b.ix0 && b.iy1 > b.iy0) {
+    endpoints.push([b.ix0, b.iy0], [b.ix1, b.iy0], [b.ix1, b.iy1], [b.ix0, b.iy1]);
+  }
+  let bestEp = null, bestEpD = FF_ENDPOINT_SNAP;
+  for (const [ex, ey] of endpoints) {
+    const d = Math.hypot(pt.x - ex, pt.y - ey);
+    if (d < bestEpD) { bestEpD = d; bestEp = [ex, ey]; }
+  }
+  if (bestEp) {
+    const v = new THREE.Vector3(bestEp[0], bestEp[1], 0);
+    v.snappedX = true;
+    v.snappedY = true;
+    v.bounds = b;
+    return v;
+  }
+
   const threshold = 250; // snap distance to wall faces
   let x = pt.x, y = pt.y;
   let snappedX = false, snappedY = false;
@@ -3939,6 +4028,36 @@ function cancelIWDraw() {
   iwPointerDown = null;
   if (iwGhostMesh) { scene.remove(iwGhostMesh); iwGhostMesh = null; }
   hideFFDim();
+}
+
+// Hover-to-tip state for interior walls (mirrors the free-form wall behavior)
+let iwHoverIdx = -1;
+let iwHoverTimer = null;
+let iwHoverPointer = { x: 0, y: 0 };
+const iwHoverHintEl = () => document.getElementById("iwHoverHint");
+function hideIWHoverHint() {
+  if (iwHoverTimer) { clearTimeout(iwHoverTimer); iwHoverTimer = null; }
+  iwHoverIdx = -1;
+  const el = iwHoverHintEl();
+  if (el) el.style.display = "none";
+}
+function showIWHoverHint() {
+  const el = iwHoverHintEl();
+  if (!el) return;
+  el.style.left = (iwHoverPointer.x + 14) + "px";
+  el.style.top = (iwHoverPointer.y + 14) + "px";
+  el.style.display = "block";
+}
+function iwWallAtEvent(e) {
+  if (!iwGroup) return -1;
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  rc.setFromCamera(ndc, cam);
+  const meshes = [];
+  iwGroup.traverse(c => { if (c.isMesh && c.userData.isInteriorWall) meshes.push(c); });
+  const hits = rc.intersectObjects(meshes);
+  return hits.length ? hits[0].object.userData.iwIdx : -1;
 }
 
 /* ────────────────── free-form draw helpers ────────────────── */
@@ -4180,6 +4299,7 @@ function goToStep(n) {
   clearMultiSelection();
   deselectIW();
   if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; hideFFHoverHint(); }
+  if (n !== 1) { cancelIWDraw(); iwEndpointGroup.visible = false; hideIWHoverHint(); }
   hideArrows();
   hideDot();
   hideSnapBars();
@@ -4206,7 +4326,7 @@ function goToStep(n) {
   // Small hints shown after intro dismisses (or on revisit)
   const stepSmallHints = [
     "Drag arrows or edit dimensions",
-    "Click to draw \u2022 Click wall to delete",
+    "Click to draw \u2022 Right-click to edit",
     "Drag to add \u2022 Click to inspect",
     "Choose a roof type",
     "",
@@ -4283,11 +4403,12 @@ function goToStep(n) {
       btnNext.textContent = NEXT_LABELS[1];
       btnNext.style.display = "";
       if (!isTopView) enableTopView();
+      rebuildIWEndpointMarkers();
       if (firstVisit) {
         showIntroThenSmall();
       } else {
         hint.classList.add("small");
-        hint.innerHTML = "Click to draw interior walls";
+        hint.innerHTML = "Click to draw • Right-click to edit";
       }
       break;
 
@@ -4709,7 +4830,7 @@ renderer.domElement.addEventListener("contextmenu", (e) => {
   if (currentStep === 0 && houseMode === 'free') e.preventDefault();
   if (currentStep === 1) e.preventDefault();
 });
-renderer.domElement.addEventListener("pointerleave", () => hideFFHoverHint());
+renderer.domElement.addEventListener("pointerleave", () => { hideFFHoverHint(); hideIWHoverHint(); });
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button === 2 && currentStep === 0 && houseMode === 'free') {
     ffRightDown = { x: e.clientX, y: e.clientY };
@@ -4975,7 +5096,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     return;
   }
 
-  // Interior wall snap dot + ghost preview
+  // Interior wall snap dot + ghost preview; hover hint when idle
   if (currentStep === 1) {
     const pt = groundHit(e);
     if (pt) {
@@ -4984,10 +5105,26 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         showIWGhost(iwDrawStart, end);
         moveDot(end);
         showSnapBars(end);
+        hideIWHoverHint();
       } else {
         const snapped = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
         moveDot(snapped);
         showSnapBars(snapped);
+        // Hover hint: over a wall (but not when cursor is in its endpoint-snap zone)
+        const onEndpoint = snapped.snappedX && snapped.snappedY;
+        const hovered = onEndpoint ? -1 : iwWallAtEvent(e);
+        iwHoverPointer.x = e.clientX; iwHoverPointer.y = e.clientY;
+        if (hovered >= 0) {
+          if (hovered !== iwHoverIdx) {
+            hideIWHoverHint();
+            iwHoverIdx = hovered;
+            iwHoverTimer = setTimeout(showIWHoverHint, 500);
+          } else if (iwHoverHintEl().style.display === "block") {
+            showIWHoverHint();  // follow cursor
+          }
+        } else {
+          hideIWHoverHint();
+        }
       }
     }
     return;
@@ -5286,37 +5423,24 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     } else {
       deselectIW();
     }
+    hideIWHoverHint();
     return;
   }
 
-  // ── Interior Walls step: only act on click (not drag/orbit) ──
+  // ── Interior Walls left-click: draw only (never select). Right-click handles selection. ──
   if (currentStep === 1 && iwPointerDown) {
     const dx = e.clientX - iwPointerDown.x;
     const dy = e.clientY - iwPointerDown.y;
     iwPointerDown = null;
     if (dx * dx + dy * dy > 25) return; // moved > 5px → was orbiting
 
-    // Raycast to check if clicking an existing IW mesh
-    const r = renderer.domElement.getBoundingClientRect();
-    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-    rc.setFromCamera(ndc, cam);
-    const iwMeshes = [];
-    iwGroup.traverse(c => { if (c.isMesh) iwMeshes.push(c); });
-    const iwHits = rc.intersectObjects(iwMeshes);
-    if (iwHits.length && iwHits[0].object.userData.isInteriorWall) {
-      deselectIW();
-      selectIW(iwHits[0].object.userData.iwIdx);
-      return;
-    }
-
-    // Ground hit for drawing
     const pt = groundHit(e);
     if (!pt) return;
 
     if (!iwDrawStart) {
       // First click — start drawing
       deselectIW();
+      hideIWHoverHint();
       iwDrawStart = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
     } else {
       // Second click — finish wall
@@ -5560,7 +5684,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && currentStep === 1 && iwDrawStart) {
     cancelIWDraw();
     hint.classList.add("small");
-    hint.innerHTML = "Click to draw interior walls";
+    hint.innerHTML = "Click to draw • Right-click to edit";
   }
   if (e.key === "Delete" && currentStep === 1 && selectedIW >= 0) {
     deleteSelectedIW();
@@ -5797,6 +5921,7 @@ onResize();
   orbit.update();
   updateInspectorPosition();
   positionFFInspector();
+  positionIWInspector();
   updateDistributePanelPosition();
   if (scaleWorker) {
     tickScaleWorkerWalk();
@@ -5808,6 +5933,12 @@ onResize();
       scaleWorker.rotation.z = Math.atan2(dx, -dy);
     }
     updateScaleWorkerPill();
+  }
+  for (const a of VERTICAL_ARROWS) {
+    if (!a.visible) continue;
+    const dx = cam.position.x - a.position.x;
+    const dy = cam.position.y - a.position.y;
+    a.rotation.z = Math.atan2(dx, -dy);
   }
   renderer.render(scene, cam);
 })();
