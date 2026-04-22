@@ -196,6 +196,122 @@
     border-top: 1px solid rgba(255,255,255,0.1);
   }
   .dev-options.open { display: flex; }
+
+  /* ── Test-mode feedback ── */
+  .btn-add-comment {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    padding: 12px 20px;
+    background: #F9BC06;
+    color: #0a0a0a;
+    border: none;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    display: none;
+    z-index: 95;
+    transition: background .15s, transform .15s;
+  }
+  .btn-add-comment:hover { background: #e5ab00; transform: translateY(-1px); }
+  .btn-add-comment.visible { display: inline-block; }
+  #annotateCanvas {
+    position: fixed;
+    inset: 0;
+    display: none;
+    z-index: 80;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  #annotateCanvas.active { display: block; }
+  .comment-panel {
+    position: fixed;
+    right: 20px;
+    top: 20px;
+    width: 320px;
+    padding: 22px;
+    display: none;
+    flex-direction: column;
+    gap: 14px;
+    z-index: 90;
+    max-height: calc(100vh - 40px);
+  }
+  .comment-panel.open { display: flex; }
+  .comment-hint {
+    margin: 0;
+    font-size: 12px;
+    color: rgba(255,255,255,0.6);
+    line-height: 1.4;
+  }
+  #commentText {
+    min-height: 140px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: #fff;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+    outline: none;
+  }
+  #commentText:focus { border-color: #F9BC06; }
+  .comment-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .btn-primary {
+    background: #F9BC06;
+    color: #0a0a0a;
+    border: none;
+    border-radius: 999px;
+    padding: 9px 18px;
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-primary:hover { background: #e5ab00; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 999px;
+    padding: 9px 16px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+  .comment-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 40px;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(20,20,20,0.95);
+    color: #fff;
+    padding: 12px 22px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    border: 1px solid rgba(249,188,6,0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s, transform .2s;
+    z-index: 200;
+  }
+  .comment-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
   .btn-next {
     padding: 7px 22px;
     background: #F9BC06;
@@ -967,6 +1083,7 @@
 </button>
 <div class="dev-panel glass" id="devPanel">
   <span class="panel-title">Settings</span>
+  <label class="dev-opt"><input type="checkbox" id="testModeCb"> Test Mode</label>
   <label class="dev-opt"><input type="checkbox" id="devModeCb"> Dev Mode</label>
   <div class="dev-options" id="devOptions">
     <label class="dev-opt"><input type="checkbox" id="devSimpleCb"> Use test_simple.gh</label>
@@ -976,6 +1093,21 @@
     </label>
   </div>
 </div>
+
+<!-- Test-mode: comment/annotate -->
+<button class="btn-add-comment" id="btnAddComment" title="Leave feedback">+ Add Comment</button>
+<canvas id="annotateCanvas"></canvas>
+<div class="comment-panel glass" id="commentPanel">
+  <span class="panel-title">Leave Feedback</span>
+  <p class="comment-hint">Draw on the scene with your mouse, and/or write a comment below.</p>
+  <textarea id="commentText" placeholder="What's on your mind?"></textarea>
+  <div class="comment-actions">
+    <button class="btn-secondary" id="btnClearDraw">Clear drawing</button>
+    <button class="btn-secondary" id="btnCancelComment">Cancel</button>
+    <button class="btn-primary" id="btnSendComment">Send</button>
+  </div>
+</div>
+<div class="comment-toast" id="commentToast"></div>
 
 <!-- Cursor tooltip -->
 <div class="tip" id="tip"></div>
@@ -1001,7 +1133,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 /* ────────────────── renderer ────────────────── */
 const vp = document.getElementById("viewport");
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setClearColor(0x0a0a0a);
 renderer.toneMapping = THREE.NeutralToneMapping;
@@ -1714,6 +1846,179 @@ $("devOpacity").addEventListener("input", e => {
     m.needsUpdate = true;
   }
 });
+
+/* ────────── Test Mode: comment + annotate ────────── */
+const btnAddComment  = $("btnAddComment");
+const annotateCanvas = $("annotateCanvas");
+const commentPanel   = $("commentPanel");
+const commentText    = $("commentText");
+const commentToast   = $("commentToast");
+let annotateCtx = null;
+let annotating = false;
+let annotateDrawing = false;
+let annotateHasStrokes = false;
+let annotatePrev = { x: 0, y: 0 };
+
+$("testModeCb").addEventListener("change", e => {
+  window._testMode = e.target.checked;
+  btnAddComment.classList.toggle("visible", e.target.checked && !annotating);
+});
+
+function sizeAnnotateCanvas() {
+  const dpr = Math.min(devicePixelRatio, 2);
+  annotateCanvas.width  = Math.round(window.innerWidth  * dpr);
+  annotateCanvas.height = Math.round(window.innerHeight * dpr);
+  annotateCanvas.style.width  = window.innerWidth  + "px";
+  annotateCanvas.style.height = window.innerHeight + "px";
+  annotateCtx = annotateCanvas.getContext("2d");
+  annotateCtx.scale(dpr, dpr);
+  annotateCtx.strokeStyle = "#E53935";
+  annotateCtx.lineWidth = 3.5;
+  annotateCtx.lineCap = "round";
+  annotateCtx.lineJoin = "round";
+}
+
+function enterAnnotation() {
+  annotating = true;
+  annotateHasStrokes = false;
+  sizeAnnotateCanvas();
+  annotateCanvas.classList.add("active");
+  commentPanel.classList.add("open");
+  btnAddComment.classList.remove("visible");
+  orbit.enabled = false;
+  // Freeze any in-flight drag state that might otherwise re-engage
+  if (typeof dragging !== "undefined") dragging = null;
+}
+
+function exitAnnotation() {
+  annotating = false;
+  if (annotateCtx) {
+    // Clear is a no-op on unscaled dims; use the raw canvas size
+    annotateCtx.setTransform(1, 0, 0, 1, 0, 0);
+    annotateCtx.clearRect(0, 0, annotateCanvas.width, annotateCanvas.height);
+  }
+  annotateCanvas.classList.remove("active");
+  commentPanel.classList.remove("open");
+  commentText.value = "";
+  annotateHasStrokes = false;
+  orbit.enabled = true;
+  if (window._testMode) btnAddComment.classList.add("visible");
+}
+
+function showToast(msg) {
+  commentToast.textContent = msg;
+  commentToast.classList.add("show");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => commentToast.classList.remove("show"), 2400);
+}
+
+btnAddComment.addEventListener("click", enterAnnotation);
+$("btnCancelComment").addEventListener("click", exitAnnotation);
+$("btnClearDraw").addEventListener("click", () => {
+  if (!annotateCtx) return;
+  annotateCtx.setTransform(1, 0, 0, 1, 0, 0);
+  annotateCtx.clearRect(0, 0, annotateCanvas.width, annotateCanvas.height);
+  const dpr = Math.min(devicePixelRatio, 2);
+  annotateCtx.scale(dpr, dpr);
+  annotateCtx.strokeStyle = "#E53935";
+  annotateCtx.lineWidth = 3.5;
+  annotateCtx.lineCap = "round";
+  annotateCtx.lineJoin = "round";
+  annotateHasStrokes = false;
+});
+
+annotateCanvas.addEventListener("pointerdown", e => {
+  if (!annotating) return;
+  annotateDrawing = true;
+  annotatePrev.x = e.clientX;
+  annotatePrev.y = e.clientY;
+  annotateCanvas.setPointerCapture(e.pointerId);
+  // Dot for single-tap
+  annotateCtx.beginPath();
+  annotateCtx.arc(e.clientX, e.clientY, 2, 0, Math.PI * 2);
+  annotateCtx.fillStyle = "#E53935";
+  annotateCtx.fill();
+  annotateHasStrokes = true;
+});
+annotateCanvas.addEventListener("pointermove", e => {
+  if (!annotating || !annotateDrawing) return;
+  annotateCtx.beginPath();
+  annotateCtx.moveTo(annotatePrev.x, annotatePrev.y);
+  annotateCtx.lineTo(e.clientX, e.clientY);
+  annotateCtx.stroke();
+  annotatePrev.x = e.clientX;
+  annotatePrev.y = e.clientY;
+  annotateHasStrokes = true;
+});
+annotateCanvas.addEventListener("pointerup", e => {
+  annotateDrawing = false;
+  try { annotateCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+});
+annotateCanvas.addEventListener("pointercancel", () => { annotateDrawing = false; });
+
+window.addEventListener("resize", () => {
+  if (!annotating) return;
+  // Preserve existing strokes on resize
+  const prev = document.createElement("canvas");
+  prev.width = annotateCanvas.width;
+  prev.height = annotateCanvas.height;
+  prev.getContext("2d").drawImage(annotateCanvas, 0, 0);
+  sizeAnnotateCanvas();
+  annotateCtx.setTransform(1, 0, 0, 1, 0, 0);
+  annotateCtx.drawImage(prev, 0, 0, annotateCanvas.width, annotateCanvas.height);
+  const dpr = Math.min(devicePixelRatio, 2);
+  annotateCtx.scale(dpr, dpr);
+});
+
+$("btnSendComment").addEventListener("click", async () => {
+  const text = (commentText.value || "").trim();
+  if (!text && !annotateHasStrokes) {
+    showToast("Write something or draw on the scene first.");
+    return;
+  }
+  const sendBtn = $("btnSendComment");
+  sendBtn.disabled = true;
+  sendBtn.textContent = "Sending…";
+  try {
+    // Force a fresh render so toDataURL captures current pixels.
+    renderer.render(scene, cam);
+    const webgl = renderer.domElement;
+    const composite = document.createElement("canvas");
+    composite.width = webgl.width;
+    composite.height = webgl.height;
+    const cctx = composite.getContext("2d");
+    cctx.drawImage(webgl, 0, 0);
+    cctx.drawImage(annotateCanvas, 0, 0, composite.width, composite.height);
+    const imageDataUrl = composite.toDataURL("image/png");
+
+    const state = {
+      step: currentStep,
+      houseMode: (typeof houseMode !== "undefined") ? houseMode : null,
+      url: window.location.href,
+      userAgent: navigator.userAgent,
+      viewport: { w: window.innerWidth, h: window.innerHeight },
+    };
+
+    const res = await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, image: imageDataUrl, state }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json.error) {
+      showToast("Send failed: " + (json.error || res.status));
+      return;
+    }
+    exitAnnotation();
+    showToast("Thanks! Feedback sent.");
+  } catch (err) {
+    showToast("Send failed: " + err.message);
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Send";
+  }
+});
+
 const stepEls = [$("step0"), $("step1"), $("step2"), $("step3"), $("step4"), $("step5")];
 const infoPanel = $("infoPanel");
 const NEXT_LABELS = ["Walls \u2192", "Openings \u2192", "Roof \u2192", "Generate \u2192", "Buy \u2192"];

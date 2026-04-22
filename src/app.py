@@ -23,6 +23,7 @@ import Rhino.Geometry as rg
 import math
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "output")
+FEEDBACK_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "feedback")
 
 # Opening dimensions (must match frontend constants)
 WINDOW_W, WINDOW_H, WINDOW_SILL = 1000, 1000, 900
@@ -924,6 +925,51 @@ def solve_gh():
             "faces": tris,
             "result_count": len(outputs.get("MeshOut", [])),
         })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/feedback", methods=["POST"])
+def submit_feedback():
+    import base64
+    import json as _json
+    from datetime import datetime
+
+    try:
+        data = request.get_json(force=True) or {}
+        text = (data.get("text") or "").strip()
+        image_data_url = data.get("image") or ""
+        state = data.get("state")
+
+        if not text and not image_data_url:
+            return jsonify({"error": "empty feedback"}), 400
+
+        os.makedirs(FEEDBACK_DIR, exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        target = os.path.join(FEEDBACK_DIR, stamp)
+        # Disambiguate if a second feedback lands in the same second
+        suffix = 0
+        while os.path.exists(target):
+            suffix += 1
+            target = os.path.join(FEEDBACK_DIR, f"{stamp}_{suffix}")
+        os.makedirs(target)
+
+        if text:
+            with open(os.path.join(target, "comment.txt"), "w", encoding="utf-8") as f:
+                f.write(text)
+
+        if image_data_url.startswith("data:image/png;base64,"):
+            b64 = image_data_url.split(",", 1)[1]
+            with open(os.path.join(target, "annotation.png"), "wb") as f:
+                f.write(base64.b64decode(b64))
+
+        if state is not None:
+            with open(os.path.join(target, "state.json"), "w", encoding="utf-8") as f:
+                _json.dump(state, f, indent=2)
+
+        return jsonify({"success": True, "id": os.path.basename(target)})
     except Exception as e:
         import traceback
         traceback.print_exc()
