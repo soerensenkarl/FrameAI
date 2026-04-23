@@ -647,6 +647,7 @@ def _compute_iw_joints(interior_walls_list, iw_t, ix0=None, iy0=None, ix1=None, 
     retractions = [[0.0, 0.0] for _ in interior_walls_list]
     for i, w in enumerate(interior_walls_list):
         my_len = wall_len(w)
+        my_is_horiz = abs(float(w["y1"]) - float(w["y0"])) < 1
         ends = [(float(w["x0"]), float(w["y0"]), 0), (float(w["x1"]), float(w["y1"]), 1)]
         for x, y, side in ends:
             if on_ext_face(x, y):
@@ -660,7 +661,11 @@ def _compute_iw_joints(interior_walls_list, iw_t, ix0=None, iy0=None, ix1=None, 
                 if rel == "mid":
                     mid += 1
                 elif rel == "endpoint":
-                    endpoint_hits.append((j, wall_len(w2)))
+                    # Only perpendicular L-corners — collinear end-to-end walls
+                    # don't conflict and need no retraction.
+                    w2_is_horiz = abs(float(w2["y1"]) - float(w2["y0"])) < 1
+                    if my_is_horiz != w2_is_horiz:
+                        endpoint_hits.append((j, wall_len(w2)))
             if mid > 0:
                 retractions[i][side] = iw_t / 2
                 continue
@@ -669,8 +674,9 @@ def _compute_iw_joints(interior_walls_list, iw_t, ix0=None, iy0=None, ix1=None, 
                 for j, L in endpoint_hits:
                     if L > winner_len + EPS or (abs(L - winner_len) < EPS and j < winner_idx):
                         winner_idx, winner_len = j, L
-                if winner_idx != i:
-                    retractions[i][side] = iw_t / 2
+                # Loser retracts by t/2 (stops at winner's face).
+                # Winner extends by t/2 into the corner to close the gap.
+                retractions[i][side] = iw_t / 2 if winner_idx != i else -iw_t / 2
     return retractions
 
 

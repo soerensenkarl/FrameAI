@@ -4356,6 +4356,7 @@ function computeIwJoints(walls, iwT) {
   const retract = walls.map(() => [0, 0]);
   walls.forEach((w, i) => {
     const myLen = wallLen(w);
+    const myIsHoriz = Math.abs(w.y1 - w.y0) < 1;
     const ends = [ { x: w.x0, y: w.y0, side: 0 }, { x: w.x1, y: w.y1, side: 1 } ];
     for (const { x, y, side } of ends) {
       if (onExteriorFace(x, y)) continue;   // flush with exterior inner face — no retract
@@ -4365,11 +4366,17 @@ function computeIwJoints(walls, iwT) {
         if (j === i) return;
         const rel = pointVsWall(x, y, w2);
         if (rel === 'mid') mid++;
-        else if (rel === 'endpoint') endpointHits.push({ idx: j, len: wallLen(w2) });
+        else if (rel === 'endpoint') {
+          // Only perpendicular L-corners — collinear end-to-end walls don't conflict.
+          const w2IsHoriz = Math.abs(w2.y1 - w2.y0) < 1;
+          if (myIsHoriz !== w2IsHoriz) endpointHits.push({ idx: j, len: wallLen(w2) });
+        }
       });
       if (mid > 0) { retract[i][side] = iwT / 2; continue; }
       if (endpointHits.length > 0) {
         // Longest wins; tiebreak by lower index.
+        // Loser retracts by t/2 (stops at winner's face).
+        // Winner extends by t/2 into the corner to close the gap.
         let winnerIdx = i, winnerLen = myLen;
         for (const h of endpointHits) {
           if (h.len > winnerLen + EPS ||
@@ -4377,7 +4384,7 @@ function computeIwJoints(walls, iwT) {
             winnerIdx = h.idx; winnerLen = h.len;
           }
         }
-        if (winnerIdx !== i) retract[i][side] = iwT / 2;
+        retract[i][side] = (winnerIdx !== i) ? iwT / 2 : -iwT / 2;
       }
     }
   });
