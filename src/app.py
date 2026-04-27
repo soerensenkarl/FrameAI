@@ -594,6 +594,14 @@ def _exterior_wall_specs(x0, y0, x1, y1, h, t, roof_type, flat_slope,
 
     is_flat_sloped = roof_type == "flat" and (flat_slope[0] != 0 or flat_slope[1] != 0)
 
+    if roof_type == "gable":
+        gbl_half_span = (d / 2) if ridge_along_x else (w / 2)
+        gbl_eave_lift = roof_t - ridge_h * t / gbl_half_span
+        h_eave = h + gbl_eave_lift
+        h_apex = h + ridge_h + gbl_eave_lift
+    else:
+        h_eave = h_apex = 0  # unused
+
     specs = []
     for i, (ox, oy, sx, sy) in enumerate(wall_specs_raw):
         if sx <= 0 or sy <= 0:
@@ -604,11 +612,42 @@ def _exterior_wall_specs(x0, y0, x1, y1, h, t, roof_type, flat_slope,
         )
 
         if is_gable_wall:
-            # GH fills boxes with framing; the gable triangle above h is left
-            # to roof framing. Box height = h (matches long walls); the small
-            # eave lift is absorbed by the roof, not the wall frame.
-            specs.append({"kind": "box",
-                          "x": [ox, ox + sx], "y": [oy, oy + sy], "z": [0, h]})
+            # Pentagonal wall (rectangle + triangle to ridge). Both gable walls
+            # place their profile at the OUTER face and extrude INWARD, so GH
+            # sees a consistent reference face on every gable. (Earlier bug:
+            # east/north profiles sat on the inner face and extruded outward,
+            # which offset the framing by one wall thickness on those sides.)
+            if ridge_along_x:
+                # West (i=2) outer = ox; east (i=3) outer = ox+sx.
+                far_side = (i == 3)
+                outer_x = (ox + sx) if far_side else ox
+                dir_x = -sx if far_side else sx
+                mid = sy / 2
+                pts = [
+                    [outer_x, oy,        0],
+                    [outer_x, oy + sy,   0],
+                    [outer_x, oy + sy,   h_eave],
+                    [outer_x, oy + mid,  h_apex],
+                    [outer_x, oy,        h_eave],
+                    [outer_x, oy,        0],
+                ]
+                direction = [dir_x, 0, 0]
+            else:
+                # South (i=0) outer = oy; north (i=1) outer = oy+sy.
+                far_side = (i == 1)
+                outer_y = (oy + sy) if far_side else oy
+                dir_y = -sy if far_side else sy
+                mid = sx / 2
+                pts = [
+                    [ox,        outer_y, 0],
+                    [ox + sx,   outer_y, 0],
+                    [ox + sx,   outer_y, h_eave],
+                    [ox + mid,  outer_y, h_apex],
+                    [ox,        outer_y, h_eave],
+                    [ox,        outer_y, 0],
+                ]
+                direction = [0, dir_y, 0]
+            specs.append({"kind": "extruded", "pts": pts, "dir": direction, "cap": True})
             continue
 
         if is_flat_sloped:
