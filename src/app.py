@@ -1,5 +1,6 @@
 """Flask app – wall framing via rhinoinside."""
 import io
+import math
 import os
 import tempfile
 from functools import wraps
@@ -117,8 +118,6 @@ def requires_rhino(fn):
     return wrapper
 
 
-import math
-
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "output")
 FEEDBACK_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "feedback")
 
@@ -128,6 +127,14 @@ DOOR_W, DOOR_H = 900, 2100
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), "static"))
+# Sessions are signed cookies — set FRAMEAI_SECRET_KEY in prod (run_prod.bat).
+# The dev fallback is fine for local-only testing on port 5001.
+app.secret_key = os.environ.get("FRAMEAI_SECRET_KEY", "dev-only-change-in-prod")
+from datetime import timedelta
+app.permanent_session_lifetime = timedelta(days=30)
+
+import accounts
+accounts.init_app(app)
 
 
 # ── helpers ──
@@ -148,6 +155,73 @@ def _mesh_to_triangles(mesh):
         if f.IsQuad:
             tris.append([f.A, f.C, f.D])
     return verts, normals, tris
+
+
+def _brep_crease_segments(breps, threshold_deg=20.0):
+    """Extract crease-edge line segments from a list of Breps.
+
+    An edge is emitted when:
+      - it's naked (only one adjacent face), OR
+      - the dihedral angle between its two adjacent faces exceeds threshold_deg.
+
+    This bypasses mesh-triangulation entirely — boolean-cut members no longer
+    spray fan-triangulated edges across their "flat" faces, since we're reading
+    topology from the clean Brep rather than the tessellated mesh.
+    Returns a list of [[x,y,z], [x,y,z]] pairs.
+    """
+    segments = []
+    threshold_dot = math.cos(math.radians(threshold_deg))
+
+    for brep in breps:
+        if brep is None:
+            continue
+        for edge in brep.Edges:
+            adj = edge.AdjacentFaces()
+            unique_faces = list(set(int(i) for i in adj))
+
+            is_crease = False
+            if len(unique_faces) < 2:
+                is_crease = True  # naked / non-manifold
+            else:
+                face0 = brep.Faces[unique_faces[0]]
+                face1 = brep.Faces[unique_faces[1]]
+                # Sample each face normal at its parametric center — fine for
+                # planar faces (timber members are all planar-faced).
+                d0u, d0v = face0.Domain(0), face0.Domain(1)
+                d1u, d1v = face1.Domain(0), face1.Domain(1)
+                n0 = face0.NormalAt(0.5 * (d0u.Min + d0u.Max),
+                                    0.5 * (d0v.Min + d0v.Max))
+                n1 = face1.NormalAt(0.5 * (d1u.Min + d1u.Max),
+                                    0.5 * (d1v.Min + d1v.Max))
+                s0 = -1.0 if face0.OrientationIsReversed else 1.0
+                s1 = -1.0 if face1.OrientationIsReversed else 1.0
+                dot = s0 * s1 * (n0.X * n1.X + n0.Y * n1.Y + n0.Z * n1.Z)
+                is_crease = (dot < threshold_dot)
+
+            if not is_crease:
+                continue
+
+            # Straight timber edges: endpoints are enough. For curved edges,
+            # tessellate so the polyline tracks the curve.
+            if edge.IsLinear():
+                p0, p1 = edge.PointAtStart, edge.PointAtEnd
+                segments.append([
+                    [float(p0.X), float(p0.Y), float(p0.Z)],
+                    [float(p1.X), float(p1.Y), float(p1.Z)],
+                ])
+            else:
+                params = edge.DivideByCount(12, True)
+                if params is None:
+                    continue
+                pts = [edge.PointAt(t) for t in params]
+                for i in range(len(pts) - 1):
+                    a, b = pts[i], pts[i + 1]
+                    segments.append([
+                        [float(a.X), float(a.Y), float(a.Z)],
+                        [float(b.X), float(b.Y), float(b.Z)],
+                    ])
+
+    return segments
 
 
 def _member_long_axis(brep):
@@ -392,8 +466,14 @@ def _solid_from_profile(profile_pts, direction):
     return None
 
 
-def _roof_specs(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None, t=0, roof_t=295):
-    """Pure-Python roof geometry specs. No RhinoCommon."""
+def _roof_specs(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None,
+                 t=0, roof_t=295, eave_oh=0, gable_oh=0):
+    """Pure-Python roof geometry specs. No RhinoCommon.
+
+    eave_oh / gable_oh extend the gable slab outward past the wall footprint
+    (perpendicular to and along the ridge, respectively). Both default to 0
+    which means flush with the outer wall faces.
+    """
     # "none" → walls only, no roof members generated.
     if roof_type == "none":
         return []
@@ -408,51 +488,55 @@ def _roof_specs(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None, t=0
         slab = roof_t
         specs = []
         if w >= d:
-            # Ridge along X. Roof extent in Y is [y0, y1] (flush with outer
-            # long-wall faces) and in X is [x0+t, x1-t] (inside of pentagon
-            # gable walls). s lifts the whole roof so the bottom plane passes
+            # Ridge along X. s lifts the slab so its bottom plane passes
             # through the inner-top corner of the long walls.
             mid_y = (y0 + y1) / 2
             half_span = d / 2
             s = slab - ridge_h * t / half_span
-            eave_z = h + s
             ridge_z = h + ridge_h + s
-            x_len = w - 2 * t
+            slope = ridge_h / half_span                # vertical drop per unit y past ridge
+            y_eave_s = y0 - eave_oh
+            y_eave_n = y1 + eave_oh
+            eave_z = h + s - eave_oh * slope           # extrapolated past the wall edge
+            x_ref = x0 - gable_oh
+            x_len = w + 2 * gable_oh
             direction = [x_len, 0, 0]
-            x_ref = x0 + t
             specs.append({"kind": "planar_solid", "dir": direction, "profile": [
-                [x_ref, y0,    eave_z],
-                [x_ref, mid_y, ridge_z],
-                [x_ref, mid_y, ridge_z - slab],
-                [x_ref, y0,    eave_z - slab],
+                [x_ref, y_eave_s, eave_z],
+                [x_ref, mid_y,    ridge_z],
+                [x_ref, mid_y,    ridge_z - slab],
+                [x_ref, y_eave_s, eave_z - slab],
             ]})
             specs.append({"kind": "planar_solid", "dir": direction, "profile": [
-                [x_ref, mid_y, ridge_z],
-                [x_ref, y1,    eave_z],
-                [x_ref, y1,    eave_z - slab],
-                [x_ref, mid_y, ridge_z - slab],
+                [x_ref, mid_y,    ridge_z],
+                [x_ref, y_eave_n, eave_z],
+                [x_ref, y_eave_n, eave_z - slab],
+                [x_ref, mid_y,    ridge_z - slab],
             ]})
         else:
             # Ridge along Y.
             mid_x = (x0 + x1) / 2
             half_span = w / 2
             s = slab - ridge_h * t / half_span
-            eave_z = h + s
             ridge_z = h + ridge_h + s
-            y_len = d - 2 * t
+            slope = ridge_h / half_span
+            x_eave_w = x0 - eave_oh
+            x_eave_e = x1 + eave_oh
+            eave_z = h + s - eave_oh * slope
+            y_ref = y0 - gable_oh
+            y_len = d + 2 * gable_oh
             direction = [0, y_len, 0]
-            y_ref = y0 + t
             specs.append({"kind": "planar_solid", "dir": direction, "profile": [
-                [x0,    y_ref, eave_z],
-                [mid_x, y_ref, ridge_z],
-                [mid_x, y_ref, ridge_z - slab],
-                [x0,    y_ref, eave_z - slab],
+                [x_eave_w, y_ref, eave_z],
+                [mid_x,    y_ref, ridge_z],
+                [mid_x,    y_ref, ridge_z - slab],
+                [x_eave_w, y_ref, eave_z - slab],
             ]})
             specs.append({"kind": "planar_solid", "dir": direction, "profile": [
-                [mid_x, y_ref, ridge_z],
-                [x1,    y_ref, eave_z],
-                [x1,    y_ref, eave_z - slab],
-                [mid_x, y_ref, ridge_z - slab],
+                [mid_x,    y_ref, ridge_z],
+                [x_eave_e, y_ref, eave_z],
+                [x_eave_e, y_ref, eave_z - slab],
+                [mid_x,    y_ref, ridge_z - slab],
             ]})
         return specs
 
@@ -510,14 +594,6 @@ def _exterior_wall_specs(x0, y0, x1, y1, h, t, roof_type, flat_slope,
 
     is_flat_sloped = roof_type == "flat" and (flat_slope[0] != 0 or flat_slope[1] != 0)
 
-    if roof_type == "gable":
-        gbl_half_span = (d / 2) if ridge_along_x else (w / 2)
-        gbl_eave_lift = roof_t - ridge_h * t / gbl_half_span
-        h_eave = h + gbl_eave_lift
-        h_apex = h + ridge_h + gbl_eave_lift
-    else:
-        h_eave = h_apex = 0  # unused
-
     specs = []
     for i, (ox, oy, sx, sy) in enumerate(wall_specs_raw):
         if sx <= 0 or sy <= 0:
@@ -528,32 +604,11 @@ def _exterior_wall_specs(x0, y0, x1, y1, h, t, roof_type, flat_slope,
         )
 
         if is_gable_wall:
-            # Pentagonal wall: rectangle + triangle up to ridge
-            if ridge_along_x:
-                # Gable ends are west/east: profile in YZ, extruded along X
-                mid = sy / 2
-                pts = [
-                    [ox, oy, 0],
-                    [ox, oy + sy, 0],
-                    [ox, oy + sy, h_eave],
-                    [ox, oy + mid, h_apex],
-                    [ox, oy, h_eave],
-                    [ox, oy, 0],
-                ]
-                direction = [sx, 0, 0]
-            else:
-                # Gable ends are south/north: profile in XZ, extruded along Y
-                mid = sx / 2
-                pts = [
-                    [ox, oy, 0],
-                    [ox + sx, oy, 0],
-                    [ox + sx, oy, h_eave],
-                    [ox + mid, oy, h_apex],
-                    [ox, oy, h_eave],
-                    [ox, oy, 0],
-                ]
-                direction = [0, sy, 0]
-            specs.append({"kind": "extruded", "pts": pts, "dir": direction, "cap": True})
+            # GH fills boxes with framing; the gable triangle above h is left
+            # to roof framing. Box height = h (matches long walls); the small
+            # eave lift is absorbed by the roof, not the wall frame.
+            specs.append({"kind": "box",
+                          "x": [ox, ox + sx], "y": [oy, oy + sy], "z": [0, h]})
             continue
 
         if is_flat_sloped:
@@ -828,9 +883,12 @@ def _compute_geometry_specs(data):
             continue
         (door_specs if op["type"] == "door" else window_specs).append(spec)
 
+    eave_oh = max(0.0, float(data.get("eaveOH", 0)))
+    gable_oh = max(0.0, float(data.get("gableOH", 0)))
     roof_spec_list = _roof_specs(x0, y0, x1, y1, h, roof_type,
                                   ridge_h=ridge_h if roof_type == "gable" else None,
-                                  flat_slope=flat_slope, t=t, roof_t=roof_t)
+                                  flat_slope=flat_slope, t=t, roof_t=roof_t,
+                                  eave_oh=eave_oh, gable_oh=gable_oh)
 
     try:
         material_factor = float(data.get("materialFactor", 3.1))
@@ -1090,6 +1148,11 @@ def _solve_and_respond(specs):
 
     verts, normals, tangents, tris = _members_to_triangles(mesh_geoms, breps_out)
 
+    # Crease edges from the clean Brep topology — renders true member edges
+    # without the triangulation artifacts that plague mesh-based EdgesGeometry
+    # on boolean-cut window-adjacent members.
+    crease_edges = _brep_crease_segments(breps_out)
+
     # Prefer stats straight from the GH definition (cross_sec_out / count_out /
     # total_length_out — parallel lists, one entry per cross-section).
     # Fall back to brep-bbox scanning when the data params are missing / empty.
@@ -1219,6 +1282,7 @@ def _solve_and_respond(specs):
         "normals": normals,
         "tangents": tangents,
         "faces": tris,
+        "crease_edges": crease_edges,
         "result_count": len(mesh_geoms),
         "design_saved": input_saved,
         "frame_brep_saved": frame_brep_saved,

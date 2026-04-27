@@ -104,13 +104,28 @@ def test_compute_specs_flat_roof_bundle_shape():
     import json; json.dumps(specs)  # must be JSON-serializable
 
 
-def test_compute_specs_gable_produces_pentagon_walls():
+def test_compute_specs_gable_produces_box_walls():
+    """GH fills boxes with framing; gable triangle is left to the roof slab."""
     from app import _compute_geometry_specs
     specs = _compute_geometry_specs(_sample_frame_request(
         roofType="gable", ridgeH=1500))
-    extruded = [w for w in specs["walls"] if w["kind"] == "extruded"]
-    assert len(extruded) == 2, "gable should have 2 pentagonal end walls"
+    assert all(w["kind"] == "box" for w in specs["walls"])
+    assert len(specs["walls"]) == 4
     assert len(specs["roof"]) == 2  # two half-slabs
+
+
+def test_compute_specs_gable_with_overhangs():
+    """eaveOH / gableOH extend the gable slab outward past the wall footprint."""
+    from app import _compute_geometry_specs
+    base = _sample_frame_request(roofType="gable", ridgeH=1500)
+    base["eaveOH"] = 500
+    base["gableOH"] = 300
+    specs = _compute_geometry_specs(base)
+    expected_x_ref = base["x0"] - 300
+    expected_dir_x = (base["x1"] - base["x0"]) + 2 * 300
+    for r in specs["roof"]:
+        assert r["profile"][0][0] == expected_x_ref
+        assert r["dir"][0] == expected_dir_x
 
 
 def test_compute_specs_flat_sloped_uses_planar_solid():
