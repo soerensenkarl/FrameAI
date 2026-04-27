@@ -540,32 +540,53 @@ def _roof_specs(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None,
             ]})
         return specs
 
-    # Flat roof — flush with outer wall footprint (no eaves).
+    # Flat roof. eave_oh extends along the slope axis (where rain runs off);
+    # gable_oh extends along the perpendicular axis. For w >= d the slope axis
+    # is Y; for d > w it's X.
     slab = roof_t
     f, b = flat_slope[0], flat_slope[1]
     if f == 0 and b == 0:
-        return [{"kind": "box", "x": [x0, x1], "y": [y0, y1], "z": [h, h + slab]}]
+        if w >= d:
+            return [{"kind": "box",
+                     "x": [x0 - gable_oh, x1 + gable_oh],
+                     "y": [y0 - eave_oh,  y1 + eave_oh],
+                     "z": [h, h + slab]}]
+        else:
+            return [{"kind": "box",
+                     "x": [x0 - eave_oh,  x1 + eave_oh],
+                     "y": [y0 - gable_oh, y1 + gable_oh],
+                     "z": [h, h + slab]}]
 
-    # Sloped flat roof: tilted slab. Slope is anchored at the wall footprint;
-    # cross-section is a parallelogram extruded perpendicular to the slope axis.
+    # Sloped flat roof: tilted slab. Eave_oh extends past the slope ends and
+    # extrapolates the same slope outward (so the slab plane stays continuous).
     if w >= d:
         # Slope along Y, extrude along X.
+        slope_y = (b - f) / d
+        f_oh = f - eave_oh * slope_y
+        b_oh = b + eave_oh * slope_y
+        x_ref = x0 - gable_oh
+        x_len = w + 2 * gable_oh
         profile = [
-            [x0, y0, h + f],
-            [x0, y0, h + slab + f],
-            [x0, y1, h + slab + b],
-            [x0, y1, h + b],
+            [x_ref, y0 - eave_oh, h + f_oh],
+            [x_ref, y0 - eave_oh, h + slab + f_oh],
+            [x_ref, y1 + eave_oh, h + slab + b_oh],
+            [x_ref, y1 + eave_oh, h + b_oh],
         ]
-        direction = [w, 0, 0]
+        direction = [x_len, 0, 0]
     else:
         # Slope along X, extrude along Y.
+        slope_x = (b - f) / w
+        f_oh = f - eave_oh * slope_x
+        b_oh = b + eave_oh * slope_x
+        y_ref = y0 - gable_oh
+        y_len = d + 2 * gable_oh
         profile = [
-            [x0, y0, h + f],
-            [x0, y0, h + slab + f],
-            [x1, y0, h + slab + b],
-            [x1, y0, h + b],
+            [x0 - eave_oh, y_ref, h + f_oh],
+            [x0 - eave_oh, y_ref, h + slab + f_oh],
+            [x1 + eave_oh, y_ref, h + slab + b_oh],
+            [x1 + eave_oh, y_ref, h + b_oh],
         ]
-        direction = [0, d, 0]
+        direction = [0, y_len, 0]
     return [{"kind": "planar_solid", "profile": profile, "dir": direction}]
 
 
