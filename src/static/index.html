@@ -498,7 +498,7 @@
     pointer-events: auto;
     z-index: 20;
   }
-  #distributePanel.open { display: block; }
+  #distributePanel.open { display: flex; gap: 6px; }
 
   #scaleWorkerPill {
     position: fixed;
@@ -569,6 +569,16 @@
   }
   #distributePanel .btn-distribute:hover:not(:disabled) { background: #e5ab00; }
   #distributePanel .btn-distribute:disabled { opacity: 0.45; cursor: not-allowed; }
+  #distributePanel #btnDeleteOpening {
+    background: rgba(28, 28, 30, 0.92);
+    color: #fafafa;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  #distributePanel #btnDeleteOpening:hover:not(:disabled) {
+    background: rgba(255, 90, 90, 0.85);
+    border-color: rgba(255, 90, 90, 0.85);
+    color: #fff;
+  }
 
   /* Free-form wall hover hint */
   .ff-hover-hint {
@@ -1087,9 +1097,323 @@
     text-align: right;
     min-width: 60px;
   }
+
+  /* ── Login modal ── */
+  .login-veil {
+    position: fixed; inset: 0;
+    background: rgba(10, 10, 10, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 1000;
+  }
+  .login-veil.open { display: flex; }
+  .login-card {
+    position: relative;
+    width: 320px;
+    padding: 24px 22px 20px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .login-close {
+    position: absolute;
+    top: 8px; right: 10px;
+    background: transparent; border: none;
+    color: rgba(255,255,255,0.4);
+    font-size: 22px; line-height: 1;
+    width: 26px; height: 26px;
+    cursor: pointer;
+    border-radius: 6px;
+    font-family: inherit;
+    padding: 0;
+  }
+  .login-close:hover { color: #fafafa; background: rgba(255,255,255,0.06); }
+  .login-title {
+    font-size: 18px; font-weight: 600; color: #fafafa;
+    text-align: center; margin-bottom: 2px;
+  }
+  .login-sub {
+    font-size: 12px; color: rgba(255,255,255,0.45);
+    text-align: center; margin-bottom: 6px;
+  }
+  .login-card input {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: #fafafa;
+    padding: 9px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .login-card input:focus { border-color: rgba(249,188,6,0.6); }
+  .login-card button {
+    background: #F9BC06;
+    color: #0a0a0a;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .login-card button:hover { background: #ffc91a; }
+  .login-card button:disabled { opacity: 0.5; cursor: default; }
+  .login-error {
+    font-size: 12px;
+    color: #ff7a6b;
+    min-height: 14px;
+    text-align: center;
+  }
+
+  /* ── Top-right cluster (save + user pill) ── */
+  .topright {
+    position: fixed;
+    top: 20px; right: 20px;
+    display: flex; align-items: center; gap: 8px;
+    z-index: 10;
+  }
+  .topright > * { position: static !important; }
+
+  .btn-save {
+    display: none;
+    align-items: center; gap: 7px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.55);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 14px;
+    font-family: inherit;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .btn-save.shown { display: inline-flex; }
+  .btn-save:hover { color: #fafafa; border-color: rgba(255,255,255,0.45); }
+  .btn-save.dirty {
+    color: #F9BC06;
+    border-color: #F9BC06;
+    background: transparent;
+  }
+  .btn-save.dirty:hover { color: #ffc91a; border-color: #ffc91a; }
+  .btn-save svg { width: 14px; height: 14px; }
+  .btn-save.saving { opacity: 0.6; cursor: default; }
+
+  /* ── Hover tooltip ── */
+  #ui-tooltip {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    max-width: 220px;
+    padding: 7px 11px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: rgba(255,255,255,0.82);
+    background: rgba(22,22,24,0.96);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  #ui-tooltip.visible { opacity: 1; }
+
+  /* ── User pill (top-right) ── */
+  .user-pill {
+    display: none;
+    align-items: center; gap: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+    cursor: pointer;
+  }
+  .user-pill.shown { display: flex; }
+  .user-pill .user-name { font-weight: 500; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-pill .user-proj {
+    color: rgba(255,255,255,0.45);
+    font-size: 12px;
+    padding-left: 8px;
+    border-left: 1px solid rgba(255,255,255,0.12);
+    max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .user-pill .user-proj.dirty::after { content: " •"; color: #F9BC06; }
+  .user-pill svg { width: 12px; height: 12px; opacity: 0.5; }
+  .user-pill.guest svg { display: none; }
+  .user-pill.guest .user-name { color: rgba(255,255,255,0.55); font-weight: 500; }
+
+  .user-menu {
+    position: fixed;
+    top: 60px; right: 20px;
+    width: 180px;
+    padding: 6px;
+    display: none; flex-direction: column;
+    z-index: 11;
+  }
+  .user-menu.open { display: flex; }
+  .user-menu button {
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.85);
+    font-size: 13px;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .user-menu button:hover { background: rgba(255,255,255,0.06); }
+  .user-menu .menu-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 4px 0; }
+
+  /* ── Projects panel (right slide-in) ── */
+  .projects-panel {
+    position: fixed;
+    top: 80px; right: 20px;
+    width: 320px;
+    max-height: calc(100vh - 100px);
+    padding: 16px 16px 14px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 12;
+  }
+  .projects-panel.open { display: flex; }
+  .projects-panel .panel-title {
+    font-size: 13px; font-weight: 600;
+    color: rgba(255,255,255,0.9);
+    margin-bottom: 4px;
+  }
+  .projects-close {
+    position: absolute;
+    top: 8px; right: 10px;
+    background: transparent; border: none;
+    color: rgba(255,255,255,0.4);
+    font-size: 22px; line-height: 1;
+    width: 26px; height: 26px;
+    cursor: pointer;
+    border-radius: 6px;
+    font-family: inherit;
+    padding: 0;
+  }
+  .projects-close:hover { color: #fafafa; background: rgba(255,255,255,0.06); }
+  .projects-save-row { display: flex; gap: 6px; }
+  .projects-save-row input {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    color: #fafafa;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    min-width: 0;
+  }
+  .projects-save-row input:focus { border-color: rgba(249,188,6,0.6); }
+  .projects-save-row button {
+    background: #F9BC06; color: #0a0a0a;
+    border: none; border-radius: 6px;
+    padding: 7px 12px; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+    white-space: nowrap;
+  }
+  .projects-save-row button:hover { background: #ffc91a; }
+  .projects-save-row button.ghost {
+    background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.85);
+  }
+  .projects-save-row button.ghost:hover { background: rgba(255,255,255,0.12); }
+  .projects-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 2px 0 4px; }
+  .projects-list {
+    display: flex; flex-direction: column; gap: 2px;
+    overflow-y: auto;
+    margin: 0 -8px;
+    padding: 0 8px;
+  }
+  .project-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .project-row:hover { background: rgba(255,255,255,0.05); }
+  .project-row.current { background: rgba(249,188,6,0.10); }
+  .project-row .pname {
+    flex: 1; min-width: 0;
+    font-size: 13px; color: #fafafa;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .project-row .pdate { font-size: 11px; color: rgba(255,255,255,0.4); white-space: nowrap; }
+  .project-row .pdelete {
+    background: transparent; border: none;
+    color: rgba(255,255,255,0.3);
+    cursor: pointer; padding: 2px 6px; font-size: 16px; line-height: 1;
+    border-radius: 4px;
+    font-family: inherit;
+  }
+  .project-row .pdelete:hover { color: #ff7a6b; background: rgba(255,255,255,0.06); }
+  .projects-empty {
+    font-size: 12px; color: rgba(255,255,255,0.4);
+    text-align: center; padding: 12px 0;
+  }
 </style>
 </head>
 <body>
+
+<!-- Login modal -->
+<div class="login-veil" id="loginVeil">
+  <div class="login-card glass">
+    <button class="login-close" id="loginClose" title="Close (Esc)" aria-label="Close">×</button>
+    <div class="login-title" id="loginTitle">Welcome to FrameAI</div>
+    <div class="login-sub" id="loginSub">New here? Just pick a name and password.</div>
+    <input type="text" id="loginName" placeholder="Name" autocomplete="username" maxlength="60">
+    <input type="password" id="loginPw" placeholder="Password" autocomplete="current-password" maxlength="200">
+    <div class="login-error" id="loginError"></div>
+    <button id="loginBtn">Continue</button>
+  </div>
+</div>
+
+<!-- Top-right cluster: Save button + user pill -->
+<div class="topright">
+  <button class="btn-save" id="btnSaveTop" title="Save design (Ctrl+S)">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 3h8l2 2v8a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>
+      <path d="M5 3v3h5V3"/>
+      <rect x="5" y="9" width="6" height="5"/>
+    </svg>
+    <span id="btnSaveTopLabel">Save</span>
+  </button>
+  <div class="user-pill glass" id="userPill" title="Account">
+    <span class="user-name" id="userName"></span>
+    <span class="user-proj" id="userProj"></span>
+    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 5 6 8 9 5"/></svg>
+  </div>
+</div>
+
+<div class="user-menu glass" id="userMenu">
+  <button id="menuProjects">My Projects</button>
+  <button id="menuNew">New Design</button>
+  <div class="menu-divider"></div>
+  <button id="menuSignOut">Sign out</button>
+</div>
+
+<!-- Projects panel -->
+<div class="projects-panel glass" id="projectsPanel">
+  <button class="projects-close" id="projectsClose" title="Close (Esc)" aria-label="Close">×</button>
+  <span class="panel-title">My Projects</span>
+  <div class="projects-save-row">
+    <input type="text" id="projectName" placeholder="Project name" maxlength="120">
+    <button id="btnSaveProject">Save</button>
+    <button id="btnSaveAsProject" class="ghost" title="Save as a new project">+</button>
+  </div>
+  <div class="projects-divider"></div>
+  <div class="projects-list" id="projectsList">
+    <div class="projects-empty">Loading…</div>
+  </div>
+</div>
 
 <!-- Top-view toggle -->
 <button class="btn-icon glass" id="btnTopView" title="Top view">
@@ -1145,10 +1469,10 @@
 <!-- Dimension panel -->
 <div class="panel glass" id="panel">
   <span class="panel-title">Dimensions</span>
-  <div class="f" id="rowW"><label>Width</label>  <div class="fr"><input type="number" id="inW" value="4000" min="2000" max="30000" step="10"><span class="u">mm</span></div></div>
-  <div class="f" id="rowD"><label>Depth</label>  <div class="fr"><input type="number" id="inD" value="3000" min="2000" max="20000" step="10"><span class="u">mm</span></div></div>
-  <div class="f"><label>Wall Height</label>    <div class="fr"><input type="number" id="inH" value="2400" min="2000" max="5000" step="10"><span class="u">mm</span></div></div>
-  <div class="f"><label>Thickness</label> <div class="fr"><select id="inT"><option value="95">95</option><option value="120">120</option><option value="145">145</option><option value="195" selected>195</option><option value="245">245</option><option value="295">295</option></select><span class="u">mm</span></div></div>
+  <div class="f" id="rowW"><label data-tip="Outer width of the house footprint">Width</label>  <div class="fr"><input type="number" id="inW" value="4000" min="2000" max="30000" step="10"><span class="u">mm</span></div></div>
+  <div class="f" id="rowD"><label data-tip="Outer depth (length) of the house footprint">Depth</label>  <div class="fr"><input type="number" id="inD" value="3000" min="2000" max="20000" step="10"><span class="u">mm</span></div></div>
+  <div class="f"><label data-tip="Floor-to-top-of-wall height. The roof sits on top of this.">Wall Height</label>    <div class="fr"><input type="number" id="inH" value="2400" min="2000" max="5000" step="10"><span class="u">mm</span></div></div>
+  <div class="f"><label data-tip="Cross-section width of the outer wall timber posts">Thickness</label> <div class="fr"><select id="inT"><option value="95">95</option><option value="120">120</option><option value="145">145</option><option value="195" selected>195</option><option value="245">245</option><option value="295">295</option></select><span class="u">mm</span></div></div>
 </div>
 
 <!-- Drag ghost that follows cursor -->
@@ -1161,20 +1485,20 @@
 <div class="leftbar glass" id="leftBar">
   <div class="leftbar-step" id="leftBarStep">
     <!-- Step 2: openings (drag onto walls) -->
-    <div class="tool-item" data-tool="window" data-step-for="2">
+    <div class="tool-item" data-tool="window" data-step-for="2" data-tip="Drag onto a wall to place a window opening">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="8" width="30" height="24" rx="2"/><line x1="20" y1="8" x2="20" y2="32"/><line x1="5" y1="20" x2="35" y2="20"/></svg>
       Window
     </div>
-    <div class="tool-item" data-tool="door" data-step-for="2">
+    <div class="tool-item" data-tool="door" data-step-for="2" data-tip="Drag onto a wall to place a door opening">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="8" y="4" width="24" height="32" rx="2"/><circle cx="27" cy="22" r="2" fill="currentColor" stroke="none"/></svg>
       Door
     </div>
     <!-- Step 3: roof tiles -->
-    <div class="roof-option" data-roof="flat" data-step-for="3">
+    <div class="roof-option" data-roof="flat" data-step-for="3" data-tip="Flat roof — horizontal top structure with no slope">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="16" width="28" height="18" rx="1"/><line x1="4" y1="16" x2="36" y2="16" stroke-width="2.2"/></svg>
       Flat
     </div>
-    <div class="roof-option" data-roof="gable" data-step-for="3">
+    <div class="roof-option" data-roof="gable" data-step-for="3" data-tip="Gable roof — pitched with a central ridge beam running the length of the house">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6,34 6,20 20,6 34,20 34,34"/></svg>
       Gable
     </div>
@@ -1200,9 +1524,9 @@
   <p style="font-size:12px; color:rgba(255,255,255,0.5); margin:0 0 8px">
     Click start point on a wall,<br>then click end point.
   </p>
-  <div class="f"><label>Thickness</label> <div class="fr"><select id="inTI"><option value="70">70</option><option value="95">95</option><option value="120" selected>120</option><option value="145">145</option><option value="195">195</option></select><span class="u">mm</span></div></div>
-  <div class="f" style="gap:8px" title="Extend interior walls up to the underside of the roof (gable only)">
-    <label style="flex:1">To ridge</label>
+  <div class="f"><label data-tip="Cross-section width of the interior wall timber posts">Thickness</label> <div class="fr"><select id="inTI"><option value="70">70</option><option value="95">95</option><option value="120" selected>120</option><option value="145">145</option><option value="195">195</option></select><span class="u">mm</span></div></div>
+  <div class="f" style="gap:8px">
+    <label style="flex:1" data-tip="Extends interior walls vertically up to the underside of the roof ridge. Gable roofs only.">To ridge</label>
     <input type="checkbox" id="inIwToRidge" class="ios-toggle">
   </div>
 </div>
@@ -1212,9 +1536,9 @@
 
 <div class="panel glass" id="roofPanel">
   <span class="panel-title">Roof</span>
-  <div class="f"><label>Thickness</label> <div class="fr"><select id="inTR"><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option></select><span class="u">mm</span></div></div>
-  <div class="f" id="roofIwToRidgeRow" style="gap:8px; display:none" title="Extend interior walls up to the underside of the roof">
-    <label style="flex:1">Interior walls to ridge</label>
+  <div class="f"><label data-tip="Cross-section width of the roof timber rafters">Thickness</label> <div class="fr"><select id="inTR"><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option></select><span class="u">mm</span></div></div>
+  <div class="f" id="roofIwToRidgeRow" style="gap:8px; display:none">
+    <label style="flex:1" data-tip="Extends all interior walls up through the roof space to the ridge beam. Useful for open-plan lofts or rooms under the roof.">Interior walls to ridge</label>
     <input type="checkbox" id="inIwToRidgeRoof" class="ios-toggle">
   </div>
 </div>
@@ -1264,13 +1588,14 @@
 <!-- Interior wall hover hint -->
 <div class="ff-hover-hint" id="iwHoverHint">Click to edit</div>
 
-<!-- Opening inspector (shown when an opening is selected in step 1) -->
-<div class="panel glass" id="openingInspector">
-  <button class="btn-delete" id="btnDeleteOpening">Delete</button>
-</div>
-<!-- Multi-select distribute panel (shift-click 2+ openings in step 2) -->
+<!-- Opening inspector (legacy — kept empty so existing open/close calls remain harmless) -->
+<div class="panel glass" id="openingInspector"></div>
+<!-- Opening actions panel — appears when 1+ openings are selected in step 2.
+     Delete lives here too so all per-selection actions sit in one row. -->
 <div id="distributePanel">
+  <button class="btn-distribute" id="btnCenterOpenings">Center</button>
   <button class="btn-distribute" id="btnDistributeOpenings">Distribute evenly</button>
+  <button class="btn-distribute" id="btnDeleteOpening">Delete</button>
 </div>
 <!-- Scale worker dismiss pill (appears when the scale figure is clicked) -->
 <div id="scaleWorkerSpeech"></div>
@@ -1315,14 +1640,21 @@
 </button>
 <div class="dev-panel glass" id="devPanel">
   <span class="panel-title">Settings</span>
-  <label class="dev-opt"><input type="checkbox" id="testModeCb" checked> Test Mode</label>
-  <label class="dev-opt"><input type="checkbox" id="devModeCb"> Dev Mode</label>
+  <label class="dev-opt" data-tip="Shows a real-time cost estimate and frame preview as you design"><input type="checkbox" id="testModeCb" checked> Test Mode</label>
+  <label class="dev-opt" data-tip="Unlocks advanced tools: free-form walls, transparency, and axis gizmo"><input type="checkbox" id="devModeCb"> Dev Mode</label>
   <div class="dev-options" id="devOptions">
-    <label class="dev-opt"><input type="checkbox" id="devOverlayCb"> Overlay design on frame</label>
-    <label class="dev-opt"><input type="checkbox" id="devAxisCb"> World axis gizmo</label>
+    <label class="dev-opt" data-tip="Renders the house shell semi-transparent over the generated timber frame so you can see how they align"><input type="checkbox" id="devOverlayCb"> Overlay design on frame</label>
+    <label class="dev-opt" data-tip="Shows a 3D compass in the corner indicating the X, Y, and Z axes"><input type="checkbox" id="devAxisCb"> World axis gizmo</label>
     <label class="dev-opt" style="flex-direction:column; align-items:stretch; gap:4px;">
-      <span>House transparency <span id="devOpacityVal">100%</span></span>
+      <span data-tip="Fades the house shell so you can see inside or inspect the timber frame underneath">House transparency <span id="devOpacityVal">100%</span></span>
       <input type="range" id="devOpacity" min="0" max="100" value="100" step="1">
+    </label>
+    <label class="dev-opt" style="flex-direction:column; align-items:stretch; gap:4px;">
+      <span style="display:flex;align-items:center;justify-content:space-between;">
+        <span data-tip="Cuts the view horizontally — drag slider to set the cut height">Clip plane <span id="devClipVal" style="color:rgba(255,255,255,0.4)">off</span></span>
+        <input type="checkbox" id="devClipCb" style="accent-color:#F9BC06;margin-left:8px">
+      </span>
+      <input type="range" id="devClipSlider" min="0" max="5000" value="2400" step="10" disabled style="opacity:0.35;accent-color:#F9BC06;width:100%">
     </label>
   </div>
   <label class="dev-opt"><input type="checkbox" id="adminModeCb"> Admin</label>
@@ -1402,7 +1734,10 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setClearColor(0x0a0a0a);
 renderer.toneMapping = THREE.NeutralToneMapping;
 renderer.toneMappingExposure = 1.0;
+renderer.localClippingEnabled = true;
 vp.appendChild(renderer.domElement);
+
+const clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 2400);
 
 /* ────────────────── scene / camera ────────────────── */
 const scene = new THREE.Scene();
@@ -1448,7 +1783,7 @@ const DOT_GEOM_RADIUS = 20;
 // Target on-screen radius when zoomed in. Sphere scales with zoom (smaller when
 // close, bigger when zoomed out) but caps at the geometry size so it never
 // looks larger than it was designed to.
-const DOT_TARGET_PX = 10;
+const DOT_TARGET_PX = 18;
 
 function dotZoomScale() {
   const targetWorld = Math.min(DOT_GEOM_RADIUS, DOT_TARGET_PX * worldPerPixelAt(dot.position));
@@ -1641,7 +1976,7 @@ const doorMat = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.5
 const doorFrameMat = new THREE.LineBasicMaterial({ color: 0x6b5335 });
 const ghostOpeningMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.35, roughness: 0.5, side: THREE.DoubleSide, depthTest: false });
 const ghostOpeningEdgeMat = new THREE.LineBasicMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.5 });
-const roofMat = new THREE.MeshStandardMaterial({ color: 0xc8bfb0, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
+const roofMat = new THREE.MeshStandardMaterial({ color: 0xc8bfb0, roughness: 0.7, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 const roofEdgeMat = new THREE.LineBasicMaterial({ color: 0x999999 });
 
 /* ────────────────── drag arrows ────────────────── */
@@ -1759,6 +2094,7 @@ function hideArrows() {
   ridgeArrow.visible = false;
   slopeArrows[0].visible = false;
   slopeArrows[1].visible = false;
+  for (const a of roofArrows) a.visible = false;
   heightArrow.visible = false;
   setArrowHover(null);
 }
@@ -1780,6 +2116,20 @@ ridgeArrow.userData.isRidge = true;
 const slopeArrows = [makeUpArrow(), makeUpArrow()];
 slopeArrows[0].userData.slopeEdge = 0;
 slopeArrows[1].userData.slopeEdge = 1;
+
+// Roof overhang arrows: 4 horizontal arrows, one per side of the building,
+// for dragging eave/gable overhangs. Direction (eave vs gable) depends on
+// ridge orientation and is set in positionRoofArrows. Indices map to:
+// 0=south, 1=north, 2=west, 3=east — same convention as footprint arrows.
+const roofArrows = [];
+for (let i = 0; i < 4; i++) {
+  const a = makeArrowMesh();
+  a.visible = false;
+  a.userData.roofSide = i;
+  rotateArrowGeo(a, "z", ARROW_ROT_Z[i]);
+  scene.add(a);
+  roofArrows.push(a);
+}
 
 // Footprint height arrow (drag to change wall height in step 0)
 const heightArrow = makeUpArrow();
@@ -1841,16 +2191,36 @@ function makeSlideHandle() {
 const slideHandle = makeSlideHandle();
 let draggingSlide = -1;  // openings index while slide handle is being dragged
 
+// Anchor the slide handle. With no arg or empty selection, falls back to the
+// current opening selection (single OR multi). Multi-select anchors at the
+// centroid of selected openings — dragging from there shifts the whole group.
 function positionSlideHandle(idx) {
-  const o = openings[idx];
-  if (!o) { slideHandle.visible = false; return; }
-  const info = wallInfo(o.wallIdx);
+  // Resolve which openings the handle represents.
+  let indices;
+  if (typeof idx === "number" && idx >= 0) {
+    indices = [idx];
+  } else if (typeof selectedOpeningIndices === "function") {
+    indices = selectedOpeningIndices();
+  } else {
+    indices = selectedOpening >= 0 ? [selectedOpening] : [];
+  }
+  if (!indices.length) { slideHandle.visible = false; return; }
+  // Multi-select only makes sense when the openings share a wall (same axis).
+  const firstWall = openings[indices[0]].wallIdx;
+  if (!indices.every(i => openings[i].wallIdx === firstWall)) {
+    slideHandle.visible = false; return;
+  }
+  const info = wallInfo(firstWall);
   if (!info) { slideHandle.visible = false; return; }
+  // Anchor at the centroid of selected openings along the wall.
+  let avgPos = 0;
+  for (const i of indices) avgPos += openings[i].posAlong;
+  avgPos /= indices.length;
   // Place on ground just outside the wall (beyond outer face), offset along outward normal.
   const tVal = +inT.value;
   const outPush = (info.isInterior ? 750 : (tVal / 2 + 750));
-  const px = info.origin.x + info.along.x * o.posAlong + info.outward.x * outPush;
-  const py = info.origin.y + info.along.y * o.posAlong + info.outward.y * outPush;
+  const px = info.origin.x + info.along.x * avgPos + info.outward.x * outPush;
+  const py = info.origin.y + info.along.y * avgPos + info.outward.y * outPush;
   slideHandle.position.set(px, py, 5);
   slideHandle.rotation.set(0, 0, Math.atan2(info.along.y, info.along.x));
   slideHandle.visible = true;
@@ -1875,6 +2245,9 @@ const LIM = {
 };
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 let flatSlopeH = [0, 0];  // [edge0, edge1] height offsets for flat roof slope
+let eaveOH = 0;           // gable-roof eave overhang (mirrored, both sides)
+let gableOH = 0;          // gable-roof gable overhang (mirrored, both sides)
+const OH_MAX = 1500;      // max overhang in mm
 
 function defaultRidgeH() {
   if (!c1 || !c2) return 500;
@@ -1888,11 +2261,12 @@ function getRidgeH() {
 
 function positionRoofArrows() {
   // Arrows are roof-editing handles (ridge height for gable, edge slope for
-  // flat). Hide them whenever no roof is selected — no geometry to edit.
+  // flat, eave/gable overhang for gable). Hide whenever no roof is selected.
   if (!c1 || !c2 || currentStep !== 3 || roofType === "none") {
     ridgeArrow.visible = false;
     slopeArrows[0].visible = false;
     slopeArrows[1].visible = false;
+    for (const a of roofArrows) a.visible = false;
     return;
   }
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
@@ -1905,13 +2279,51 @@ function positionRoofArrows() {
   if (roofType === "gable") {
     const t = +inT.value;
     const rh = getRidgeH();
-    const s = roofT - rh * t / (ridgeAlongX ? d / 2 : w / 2);
+    const halfSpan = ridgeAlongX ? d / 2 : w / 2;
+    const s = roofT - rh * t / halfSpan;
     ridgeArrow.position.set((x0 + x1) / 2, (y0 + y1) / 2, h + rh + s);
     ridgeArrow.visible = true;
     slopeArrows[0].visible = false;
     slopeArrows[1].visible = false;
+
+    // Overhang arrows: 0=S, 1=N, 2=W, 3=E. Role (eave vs gable) flips with
+    // ridge orientation. Eave arrows sit at the slab underside out past the
+    // wall; gable arrows sit at ridge height out past the gable wall.
+    const slope = rh / halfSpan;
+    const eaveZ = h + s - eaveOH * slope;
+    const off = 350;
+    // Tilt eave arrows to lie parallel to the sloped roof surface. Gable
+    // arrows stay flat (the roof is horizontal along the ridge axis).
+    const slopeAngle = Math.atan(slope);
+    for (const a of roofArrows) a.rotation.set(0, 0, 0);
+    if (ridgeAlongX) {
+      // S/N = eave, W/E = gable
+      roofArrows[0].position.set((x0 + x1) / 2, y0 - eaveOH - off, eaveZ);
+      roofArrows[1].position.set((x0 + x1) / 2, y1 + eaveOH + off, eaveZ);
+      roofArrows[2].position.set(x0 - gableOH - off, (y0 + y1) / 2, h + rh + s);
+      roofArrows[3].position.set(x1 + gableOH + off, (y0 + y1) / 2, h + rh + s);
+      roofArrows[0].userData.role = roofArrows[1].userData.role = "eave";
+      roofArrows[2].userData.role = roofArrows[3].userData.role = "gable";
+      // Tilt south/north arrows around world X so the outward-pointing tip
+      // aims along the slope (down-and-out instead of straight out).
+      roofArrows[0].rotation.x =  slopeAngle;   // -Y outward → tilts to -Z
+      roofArrows[1].rotation.x = -slopeAngle;   // +Y outward → tilts to -Z
+    } else {
+      // W/E = eave, S/N = gable
+      roofArrows[2].position.set(x0 - eaveOH - off, (y0 + y1) / 2, eaveZ);
+      roofArrows[3].position.set(x1 + eaveOH + off, (y0 + y1) / 2, eaveZ);
+      roofArrows[0].position.set((x0 + x1) / 2, y0 - gableOH - off, h + rh + s);
+      roofArrows[1].position.set((x0 + x1) / 2, y1 + gableOH + off, h + rh + s);
+      roofArrows[2].userData.role = roofArrows[3].userData.role = "eave";
+      roofArrows[0].userData.role = roofArrows[1].userData.role = "gable";
+      // West/east arrows tilt around world Y for the same effect.
+      roofArrows[2].rotation.y = -slopeAngle;   // -X outward → tilts to -Z
+      roofArrows[3].rotation.y =  slopeAngle;   // +X outward → tilts to -Z
+    }
+    for (const a of roofArrows) a.visible = true;
   } else {
     ridgeArrow.visible = false;
+    for (const a of roofArrows) a.visible = false;
     // Place arrows at each end perpendicular to ridge axis, on top of roof slab
     if (ridgeAlongX) {
       slopeArrows[0].position.set((x0 + x1) / 2, y0, h + roofT + flatSlopeH[0]);
@@ -1929,6 +2341,7 @@ let dragging = null;  // { idx, axis, sign }
 let draggingRidge = false;
 let draggingSlopeEdge = -1;  // 0 or 1 when dragging a flat roof slope arrow
 let draggingHeight = false;
+let draggingRoofOH = null;   // { side, role } when dragging an eave/gable overhang arrow
 
 /* ────────────────── dimension lines ────────────────── */
 let dimGroup = null;
@@ -2442,16 +2855,36 @@ $("devOpacity").addEventListener("input", e => {
   }
 });
 
+$("devClipCb").addEventListener("change", e => {
+  const on = e.target.checked;
+  const slider = $("devClipSlider");
+  slider.disabled = !on;
+  slider.style.opacity = on ? "1" : "0.35";
+  const h = +slider.value;
+  $("devClipVal").textContent = on ? (h / 1000).toFixed(2) + " m" : "off";
+  scene.traverse(o => { if (o.isMesh) o.material.clippingPlanes = on ? [clipPlane] : []; });
+});
+
+$("devClipSlider").addEventListener("input", e => {
+  const h = +e.target.value;
+  clipPlane.constant = h;
+  $("devClipVal").textContent = (h / 1000).toFixed(2) + " m";
+});
+
 // ── Frame edge overlay ──
 // Preview-only faint black outline on frame member corners. Parented to the
 // frame mesh (created in rebuildFrameEdges after /generate-frame returns).
-const FRAME_EDGE_THRESHOLD = 20;  // degrees — picks up ~90° member corners
+// Server emits crease edges straight from the Brep topology, so we no longer
+// depend on EdgesGeometry (which sprayed triangulation artifacts across
+// boolean-cut window-adjacent members). The EdgesGeometry branch is kept as
+// a fallback for any response that predates the crease_edges field.
+const FRAME_EDGE_THRESHOLD = 20;
 const frameEdgeMat = new THREE.LineBasicMaterial({
   color: 0x000000, transparent: true, opacity: 0.20,
 });
 let frameEdgesMesh = null;
 
-function rebuildFrameEdges() {
+function rebuildFrameEdges(creaseSegments) {
   if (!frameGroup) return;
   const mesh = frameGroup.children.find(c => c.geometry && c.isMesh);
   if (!mesh) return;
@@ -2460,7 +2893,20 @@ function rebuildFrameEdges() {
     frameEdgesMesh.geometry.dispose();
     frameEdgesMesh = null;
   }
-  const geo = new THREE.EdgesGeometry(mesh.geometry, FRAME_EDGE_THRESHOLD);
+
+  let geo;
+  if (Array.isArray(creaseSegments) && creaseSegments.length) {
+    const verts = new Float32Array(creaseSegments.length * 6);
+    for (let i = 0; i < creaseSegments.length; i++) {
+      const [a, b] = creaseSegments[i];
+      verts[i * 6]     = a[0]; verts[i * 6 + 1] = a[1]; verts[i * 6 + 2] = a[2];
+      verts[i * 6 + 3] = b[0]; verts[i * 6 + 4] = b[1]; verts[i * 6 + 5] = b[2];
+    }
+    geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  } else {
+    geo = new THREE.EdgesGeometry(mesh.geometry, FRAME_EDGE_THRESHOLD);
+  }
   frameEdgesMesh = new THREE.LineSegments(geo, frameEdgeMat);
   mesh.add(frameEdgesMesh);
 }
@@ -2724,7 +3170,7 @@ function scaleWorkerShouldShow() {
 }
 
 function isWorkerDragActive() {
-  return !!(dragging || draggingRidge || draggingSlopeEdge >= 0 || draggingHeight || draggingSlide >= 0);
+  return !!(dragging || draggingRidge || draggingSlopeEdge >= 0 || draggingHeight || draggingSlide >= 0 || draggingRoofOH);
 }
 
 function positionScaleWorker() {
@@ -3486,7 +3932,7 @@ function rebuildRoom() {
 }
 
 /* ────────────────── openings ────────────────── */
-const WINDOW_W = 1000, WINDOW_H = 1000, WINDOW_SILL = 900;
+const WINDOW_W = 900, WINDOW_H = 1300, WINDOW_SILL = 800;
 const DOOR_W = 900, DOOR_H = 2100;
 const FF_WALL_OFFSET = 1000;  // free-form wall indices: FF_WALL_OFFSET + i (segregates from box 0-3 and interior 4+)
 
@@ -3672,6 +4118,7 @@ function selectOpening(idx) {
   const info = o && wallInfo(o.wallIdx);
   if (info) showOpeningDims(info, o.posAlong, o.type, { width: o.width, height: o.height, sill: o.sill }, idx);
   positionSlideHandle(idx);
+  showDistributePanel();
 }
 
 function deselectOpening() {
@@ -3680,8 +4127,14 @@ function deselectOpening() {
   selectedOpening = -1;
   $("openingInspector").classList.remove("open");
   hideOpeningDims();
-  slideHandle.visible = false;
-  setSlideHandleHover(false);
+  if (!multiSelected.length) {
+    slideHandle.visible = false;
+    setSlideHandleHover(false);
+    hideDistributePanel();
+  } else {
+    // A multi-selection is still active — re-anchor handle at the new centroid.
+    positionSlideHandle();
+  }
 }
 
 /* ───── multi-select (shift-click) ───── */
@@ -3690,7 +4143,13 @@ let multiSelected = [];  // opening indices; when .length >= 2, drives the distr
 function clearMultiSelection() {
   for (const i of multiSelected) removeSelectionHighlight(i);
   multiSelected = [];
-  hideDistributePanel();
+  if (selectedOpening < 0) {
+    hideDistributePanel();
+    slideHandle.visible = false;
+    setSlideHandleHover(false);
+  } else {
+    positionSlideHandle();
+  }
 }
 
 function toggleMultiSelection(idx) {
@@ -3701,11 +4160,11 @@ function toggleMultiSelection(idx) {
       // Tear down single-selection UI, but keep prev's highlight (it stays selected).
       $("openingInspector").classList.remove("open");
       hideOpeningDims();
-      slideHandle.visible = false;
       selectedOpening = -1;
       multiSelected = [prev, idx];
       applySelectionHighlight(idx);
       showDistributePanel();
+      positionSlideHandle();
     } else if (selectedOpening === idx) {
       // Shift-clicking the already-selected one — treat like deselect.
       deselectOpening();
@@ -3726,15 +4185,28 @@ function toggleMultiSelection(idx) {
       if (remaining !== undefined) {
         removeSelectionHighlight(remaining);  // cleared so selectOpening's re-apply is clean
         selectOpening(remaining);
+      } else {
+        slideHandle.visible = false;
       }
     } else {
       updateDistributePanelState();
+      positionSlideHandle();
     }
   } else {
     multiSelected.push(idx);
     applySelectionHighlight(idx);
     updateDistributePanelState();
+    positionSlideHandle();
   }
+}
+
+// Returns the indices of all currently-selected openings (1 if single-select,
+// N if shift-click multi-select, 0 if none). Single-select still wants the
+// actions panel so a one-window design can be centered too.
+function selectedOpeningIndices() {
+  if (multiSelected.length) return multiSelected.slice();
+  if (selectedOpening >= 0) return [selectedOpening];
+  return [];
 }
 
 function showDistributePanel() {
@@ -3746,20 +4218,36 @@ function hideDistributePanel() {
   $("distributePanel").classList.remove("open");
 }
 function updateDistributePanelState() {
-  const btn = $("btnDistributeOpenings");
-  if (multiSelected.length < 3) { btn.disabled = true; btn.title = "Select 3 or more openings to distribute"; return; }
-  const firstWall = openings[multiSelected[0]].wallIdx;
-  const sameWall = multiSelected.every(i => openings[i].wallIdx === firstWall);
-  btn.disabled = !sameWall;
-  btn.title = sameWall ? "Space openings evenly along the wall" : "All openings must be on the same wall";
+  const indices = selectedOpeningIndices();
+  const btnC = $("btnCenterOpenings");
+  const btnD = $("btnDistributeOpenings");
+  if (!indices.length) { btnC.disabled = true; btnD.disabled = true; return; }
+  const firstWall = openings[indices[0]].wallIdx;
+  const sameWall = indices.every(i => openings[i].wallIdx === firstWall);
+
+  btnC.disabled = !sameWall;
+  btnC.title = !sameWall
+    ? "Selected openings must be on the same wall"
+    : (indices.length === 1 ? "Center this opening on the wall"
+                            : "Center the group on the wall");
+
+  if (indices.length < 3) {
+    btnD.disabled = true;
+    btnD.title = "Select 3 or more openings to distribute";
+  } else {
+    btnD.disabled = !sameWall;
+    btnD.title = sameWall ? "Space openings evenly along the wall"
+                          : "All openings must be on the same wall";
+  }
 }
 function updateDistributePanelPosition() {
-  if (!multiSelected.length) return;
+  const indices = selectedOpeningIndices();
+  if (!indices.length) return;
   const panel = $("distributePanel");
   if (!panel.classList.contains("open")) return;
   const centroid = new THREE.Vector3();
   let count = 0;
-  for (const i of multiSelected) {
+  for (const i of indices) {
     const o = openings[i];
     if (!o || !o.mesh || !o.mesh.children[0]) continue;
     const wp = new THREE.Vector3();
@@ -3769,7 +4257,7 @@ function updateDistributePanelPosition() {
   }
   if (!count) return;
   centroid.divideScalar(count);
-  centroid.z += 800;  // lift above the openings so the button floats above them
+  centroid.z += 800;  // lift above the openings so the buttons float above them
   centroid.project(cam);
   const r = renderer.domElement.getBoundingClientRect();
   const sx = (centroid.x * 0.5 + 0.5) * r.width + r.left;
@@ -3783,10 +4271,11 @@ function updateDistributePanelPosition() {
 }
 
 function distributeSelectedOpenings() {
-  if (multiSelected.length < 3) return;
-  const firstWall = openings[multiSelected[0]].wallIdx;
-  if (!multiSelected.every(i => openings[i].wallIdx === firstWall)) return;
-  const sorted = multiSelected.slice().sort((a, b) => openings[a].posAlong - openings[b].posAlong);
+  const indices = selectedOpeningIndices();
+  if (indices.length < 3) return;
+  const firstWall = openings[indices[0]].wallIdx;
+  if (!indices.every(i => openings[i].wallIdx === firstWall)) return;
+  const sorted = indices.slice().sort((a, b) => openings[a].posAlong - openings[b].posAlong);
   const first = openings[sorted[0]].posAlong;
   const last  = openings[sorted[sorted.length - 1]].posAlong;
   const n = sorted.length;
@@ -3795,8 +4284,66 @@ function distributeSelectedOpenings() {
     rebuildSingleOpening(sorted[k]);
   }
   // rebuildSingleOpening only re-applies highlight to the single-selected idx; reapply for all multi.
-  for (const i of multiSelected) applySelectionHighlight(i);
+  for (const i of indices) applySelectionHighlight(i);
   updateDistributePanelPosition();
+  pushHistory();
+}
+
+// Center the selected configuration on its wall. For a single opening, it
+// lands at the wall midpoint. For multiple openings (must be on the same
+// wall) the relative spacing is preserved and the group's center is shifted
+// to the wall midpoint. Out-of-range positions are clamped to the wall's
+// usable span — for groups too wide to fully fit centered, the result is
+// the closest centered position that keeps everyone in-bounds.
+function centerSelectedOpenings() {
+  const indices = selectedOpeningIndices();
+  if (!indices.length) return;
+  const firstWall = openings[indices[0]].wallIdx;
+  if (!indices.every(i => openings[i].wallIdx === firstWall)) return;
+  const info = wallInfo(firstWall);
+  if (!info) return;
+  const tVal = +inT.value;
+
+  // Group span in posAlong space (left-edge of leftmost → right-edge of rightmost).
+  let leftEdge = Infinity, rightEdge = -Infinity;
+  for (const i of indices) {
+    const o = openings[i];
+    leftEdge  = Math.min(leftEdge,  o.posAlong - o.width / 2);
+    rightEdge = Math.max(rightEdge, o.posAlong + o.width / 2);
+  }
+  const groupCenter = (leftEdge + rightEdge) / 2;
+  let shift = info.length / 2 - groupCenter;
+
+  // Clamp the shift so no opening's clamped-down posAlong differs from the
+  // shifted value. This keeps relative spacing intact when feasible.
+  for (const i of indices) {
+    const o = openings[i];
+    const half = o.width / 2;
+    const edgePad = info.isInterior ? half : (half + tVal);
+    const lo = edgePad - o.posAlong;
+    const hi = (info.length - edgePad) - o.posAlong;
+    if (shift < lo) shift = lo;
+    if (shift > hi) shift = hi;
+  }
+
+  if (Math.abs(shift) < 0.5) return;  // already (effectively) centered
+
+  for (const i of indices) {
+    openings[i].posAlong += shift;
+    rebuildSingleOpening(i);
+  }
+  for (const i of indices) applySelectionHighlight(i);
+  // Single-selection UI affordances need their anchor positions recomputed.
+  if (selectedOpening >= 0 && indices.includes(selectedOpening)) {
+    const o = openings[selectedOpening];
+    const info2 = wallInfo(o.wallIdx);
+    if (info2) showOpeningDims(info2, o.posAlong, o.type,
+                               { width: o.width, height: o.height, sill: o.sill },
+                               selectedOpening);
+    positionSlideHandle(selectedOpening);
+  }
+  updateDistributePanelPosition();
+  pushHistory();
 }
 
 function showOpeningInspector(idx) {
@@ -4002,11 +4549,13 @@ function showOpeningDims(info, posAlong, type, overrides, openingIdx) {
     pts.push(pt(rightP, wz - tickSmall), pt(rightP, wz + tickSmall));
     labels.push({ p: posAlong, z: wz - 120, len: ow, axis: "ow", size: 44 });
 
-    // Height: INSIDE opening, along the vertical midline
-    pts.push(pt(posAlong - tickSmall, bot), pt(posAlong + tickSmall, bot));
-    pts.push(pt(posAlong, bot),             pt(posAlong, top));
-    pts.push(pt(posAlong - tickSmall, top), pt(posAlong + tickSmall, top));
-    labels.push({ p: posAlong + 180, z: (bot + top) / 2, len: oh, axis: "oh", size: 44 });
+    // Height: just outside the right edge of the opening so the label and
+    // dim line don't sit on top of the pane.
+    const hxRight = rightP + 250;
+    pts.push(pt(hxRight - tickSmall, bot), pt(hxRight + tickSmall, bot));
+    pts.push(pt(hxRight, bot),             pt(hxRight, top));
+    pts.push(pt(hxRight - tickSmall, top), pt(hxRight + tickSmall, top));
+    labels.push({ p: hxRight + 200, z: (bot + top) / 2, len: oh, axis: "oh", size: 44 });
 
     // Sill: outside left edge (closer, windows only)
     if (type === "window" && sill > 1) {
@@ -4224,62 +4773,66 @@ function buildRoof() {
       roofGroup.add(edges);
     }
   } else {
-    // Gable: no eaves. Roof ends at outer face of long walls (eave direction)
-    // and at the inside of the pentagon walls (ridge direction).
+    // Gable. Slab spans flush with outer wall faces by default; eaveOH and
+    // gableOH extend it outward (perpendicular to and along the ridge). Eave
+    // Z drops along the slope as the slab extends past the wall.
     const ridgeH = getRidgeH();
     const ridgeAlongX = w >= d;
     const halfSpan = ridgeAlongX ? d / 2 : w / 2;
     const s = roofT - ridgeH * t / halfSpan;
     const ridgeZ = h + ridgeH + s;
-    const eaveZ = h + s;
+    const slope = ridgeH / halfSpan;
+    const eaveZ = h + s - eaveOH * slope;
     let faces;
     if (ridgeAlongX) {
       const midY = y0 + d / 2;
-      const xL = x0 + t, xR = x1 - t;
+      const xL = x0 - gableOH, xR = x1 + gableOH;
+      const yS = y0 - eaveOH, yN = y1 + eaveOH;
       faces = [
         { // south face — eave at south, ridge at center
           top: [
-            [xL, y0, eaveZ],  [xR, y0, eaveZ],
+            [xL, yS, eaveZ],  [xR, yS, eaveZ],
             [xR, midY, ridgeZ],  [xL, midY, ridgeZ],
           ],
           bot: [
-            [xL, y0, eaveZ - roofT],  [xR, y0, eaveZ - roofT],
+            [xL, yS, eaveZ - roofT],  [xR, yS, eaveZ - roofT],
             [xR, midY, ridgeZ - roofT],  [xL, midY, ridgeZ - roofT],
           ],
         },
         { // north face
           top: [
             [xL, midY, ridgeZ],  [xR, midY, ridgeZ],
-            [xR, y1, eaveZ],  [xL, y1, eaveZ],
+            [xR, yN, eaveZ],  [xL, yN, eaveZ],
           ],
           bot: [
             [xL, midY, ridgeZ - roofT],  [xR, midY, ridgeZ - roofT],
-            [xR, y1, eaveZ - roofT],  [xL, y1, eaveZ - roofT],
+            [xR, yN, eaveZ - roofT],  [xL, yN, eaveZ - roofT],
           ],
         },
       ];
     } else {
       const midX = x0 + w / 2;
-      const yL = y0 + t, yR = y1 - t;
+      const yL = y0 - gableOH, yR = y1 + gableOH;
+      const xW = x0 - eaveOH, xE = x1 + eaveOH;
       faces = [
         { // west face
           top: [
-            [x0, yL, eaveZ],  [x0, yR, eaveZ],
+            [xW, yL, eaveZ],  [xW, yR, eaveZ],
             [midX, yR, ridgeZ],  [midX, yL, ridgeZ],
           ],
           bot: [
-            [x0, yL, eaveZ - roofT],  [x0, yR, eaveZ - roofT],
+            [xW, yL, eaveZ - roofT],  [xW, yR, eaveZ - roofT],
             [midX, yR, ridgeZ - roofT],  [midX, yL, ridgeZ - roofT],
           ],
         },
         { // east face
           top: [
             [midX, yL, ridgeZ],  [midX, yR, ridgeZ],
-            [x1, yR, eaveZ],  [x1, yL, eaveZ],
+            [xE, yR, eaveZ],  [xE, yL, eaveZ],
           ],
           bot: [
             [midX, yL, ridgeZ - roofT],  [midX, yR, ridgeZ - roofT],
-            [x1, yR, eaveZ - roofT],  [x1, yL, eaveZ - roofT],
+            [xE, yR, eaveZ - roofT],  [xE, yL, eaveZ - roofT],
           ],
         },
       ];
@@ -4314,6 +4867,7 @@ function buildRoof() {
     }
   }
 
+  roofGroup.position.z = 10;  // preview-only: lifts roof 10 mm to prevent z-fighting with wall tops
   scene.add(roofGroup);
 }
 
@@ -5401,6 +5955,7 @@ function captureState() {
     roofType,
     flatSlopeH: [...flatSlopeH],
     customRidgeH,
+    eaveOH, gableOH,
     inH: inH.value, inW: inW.value, inD: inD.value,
     inT: inT.value, inTI: inTI.value, inTR: inTR.value,
   };
@@ -5420,6 +5975,8 @@ function applyState(s) {
   roofType = s.roofType;
   flatSlopeH = [...s.flatSlopeH];
   customRidgeH = s.customRidgeH;
+  eaveOH = s.eaveOH || 0;
+  gableOH = s.gableOH || 0;
   inH.value = s.inH; inW.value = s.inW; inD.value = s.inD;
   inT.value = s.inT; inTI.value = s.inTI; inTR.value = s.inTR;
   // Rebuild openings from scratch
@@ -5478,6 +6035,90 @@ $("btnBuy").addEventListener("click", () => {
   workerSay("Can't do that yet — still under construction");
 });
 
+// Rebuild the frame mesh + cached stats from a /generate-frame response.
+// Pure data → scene; does NOT change the active step or open the info panel.
+// Caches the raw JSON on window._lastFrameJson so saved projects can persist
+// the generated frame and replay it after a reload.
+function applyFrameJson(json) {
+  if (!json || !Array.isArray(json.vertices)) return;
+
+  if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
+  frameVertices = [];
+
+  const geo = new THREE.BufferGeometry();
+  const nVerts = json.vertices.length;
+  const pos = new Float32Array(nVerts * 3);
+  const nrm = new Float32Array(nVerts * 3);
+  const snapVerts = new Array(nVerts);
+  for (let i = 0; i < nVerts; i++) {
+    pos[i * 3]     = json.vertices[i][0];
+    pos[i * 3 + 1] = json.vertices[i][1];
+    pos[i * 3 + 2] = json.vertices[i][2];
+    nrm[i * 3]     = json.normals[i][0];
+    nrm[i * 3 + 1] = json.normals[i][1];
+    nrm[i * 3 + 2] = json.normals[i][2];
+    snapVerts[i] = new THREE.Vector3(
+      json.vertices[i][0], json.vertices[i][1], json.vertices[i][2]
+    );
+  }
+  frameVertices = snapVerts;
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("normal",   new THREE.BufferAttribute(nrm, 3));
+
+  const tan = new Float32Array(nVerts * 3);
+  const hasTangents = Array.isArray(json.tangents) && json.tangents.length === nVerts;
+  for (let i = 0; i < nVerts; i++) {
+    if (hasTangents) {
+      tan[i * 3]     = json.tangents[i][0];
+      tan[i * 3 + 1] = json.tangents[i][1];
+      tan[i * 3 + 2] = json.tangents[i][2];
+    } else {
+      tan[i * 3]     = 0; tan[i * 3 + 1] = 0; tan[i * 3 + 2] = 1;
+    }
+  }
+  geo.setAttribute("aMemberTangent", new THREE.BufferAttribute(tan, 3));
+
+  const idx = [];
+  for (const f of json.faces) idx.push(f[0], f[1], f[2]);
+  geo.setIndex(idx);
+
+  const mesh = new THREE.Mesh(geo, frameMat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  frameGroup = new THREE.Group();
+  frameGroup.add(mesh);
+  scene.add(frameGroup);
+  rebuildFrameEdges(json.crease_edges);
+  syncOverlay();
+
+  if (json.stats) {
+    window._lastFrameStats = json.stats;
+    applyPriceFactor(json.stats);
+    const s = json.stats;
+    const fmt = (n) => n.toLocaleString("en", { maximumFractionDigits: 1 });
+    const totalMeters = (s.part_list || []).reduce((a, it) => a + (+it.meters || 0), 0);
+    $("infoMembers").textContent = s.member_count + " pcs.";
+    $("infoTotalLength").textContent = fmt(totalMeters) + " m";
+
+    const cl = $("infoCutList");
+    cl.innerHTML = "";
+    for (const item of (s.part_list || [])) {
+      const row = document.createElement("div");
+      row.className = "cut-row";
+      const countSpan = item.count != null
+        ? `<span class="cut-count">${item.count} pcs</span>` : "";
+      row.innerHTML = `<span class="cut-sec">${item.section}</span>`
+        + countSpan
+        + `<span class="cut-len">${item.meters} m</span>`;
+      cl.appendChild(row);
+    }
+  }
+
+  window._lastFrameJson = json;
+  markFrameFresh();
+}
+
 async function generateFrame() {
   if (!c1 || !c2) return;
 
@@ -5524,6 +6165,8 @@ async function generateFrame() {
         roofType: roofType,
         ridgeH: getRidgeH(),
         flatSlopeH: flatSlopeH,
+        eaveOH: eaveOH,
+        gableOH: gableOH,
         materialFactor: materialFactor,
         fabFactor: fabFactor,
       }),
@@ -5531,94 +6174,11 @@ async function generateFrame() {
     const json = await res.json();
     if (json.error) { alert("Error: " + json.error); return; }
 
-    // Remove any previous frame; design-group visibility is governed by syncOverlay.
-    if (frameGroup) { scene.remove(frameGroup); frameGroup = null; }
-    frameVertices = [];
-    panel.classList.remove("open");
-
-    // Build Three.js mesh from server triangles + normals
-    const geo = new THREE.BufferGeometry();
-    const nVerts = json.vertices.length;
-    const pos = new Float32Array(nVerts * 3);
-    const nrm = new Float32Array(nVerts * 3);
-    // Cache the vertex list too so Measure can snap to each member corner.
-    const snapVerts = new Array(nVerts);
-    for (let i = 0; i < nVerts; i++) {
-      pos[i * 3]     = json.vertices[i][0];
-      pos[i * 3 + 1] = json.vertices[i][1];
-      pos[i * 3 + 2] = json.vertices[i][2];
-      nrm[i * 3]     = json.normals[i][0];
-      nrm[i * 3 + 1] = json.normals[i][1];
-      nrm[i * 3 + 2] = json.normals[i][2];
-      snapVerts[i] = new THREE.Vector3(
-        json.vertices[i][0], json.vertices[i][1], json.vertices[i][2]
-      );
-    }
-    frameVertices = snapVerts;
-    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute("normal",   new THREE.BufferAttribute(nrm, 3));
-
-    // Per-member long-axis tangent (fallback to Z if server didn't emit)
-    const tan = new Float32Array(nVerts * 3);
-    const hasTangents = Array.isArray(json.tangents) && json.tangents.length === nVerts;
-    for (let i = 0; i < nVerts; i++) {
-      if (hasTangents) {
-        tan[i * 3]     = json.tangents[i][0];
-        tan[i * 3 + 1] = json.tangents[i][1];
-        tan[i * 3 + 2] = json.tangents[i][2];
-      } else {
-        tan[i * 3]     = 0;
-        tan[i * 3 + 1] = 0;
-        tan[i * 3 + 2] = 1;
-      }
-    }
-    geo.setAttribute("aMemberTangent", new THREE.BufferAttribute(tan, 3));
-
-    const idx = [];
-    for (const f of json.faces) idx.push(f[0], f[1], f[2]);
-    geo.setIndex(idx);
-
-    const mesh = new THREE.Mesh(geo, frameMat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-
-    frameGroup = new THREE.Group();
-    frameGroup.add(mesh);
-    scene.add(frameGroup);
-    rebuildFrameEdges();
-    syncOverlay();
-
-    // Populate info panel with stats. Stats are also cached so the admin
-    // fabrication-factor slider can re-run the cost math without a regenerate.
-    if (json.stats) {
-      window._lastFrameStats = json.stats;
-      applyPriceFactor(json.stats);
-      const s = json.stats;
-      const fmt = (n) => n.toLocaleString("en", { maximumFractionDigits: 1 });
-      const totalMeters = (s.part_list || []).reduce((a, it) => a + (+it.meters || 0), 0);
-      $("infoMembers").textContent = s.member_count + " pcs.";
-      $("infoTotalLength").textContent = fmt(totalMeters) + " m";
-
-      // Build part list rows: section · count · meters
-      const cl = $("infoCutList");
-      cl.innerHTML = "";
-      for (const item of s.part_list) {
-        const row = document.createElement("div");
-        row.className = "cut-row";
-        const countSpan = item.count != null
-          ? `<span class="cut-count">${item.count} pcs</span>` : "";
-        row.innerHTML = `<span class="cut-sec">${item.section}</span>`
-          + countSpan
-          + `<span class="cut-len">${item.meters} m</span>`;
-        cl.appendChild(row);
-      }
-    }
+    applyFrameJson(json);
     infoPanel.classList.add("open");
     btnNext.textContent = NEXT_LABELS[4];
     btnNext.style.display = "";
-
     hint.innerHTML = `Frame generated — ${json.result_count} members`;
-    markFrameFresh();
   } catch (err) {
     alert("Request failed: " + err.message);
   } finally {
@@ -5692,12 +6252,15 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     rc.setFromCamera(ndc, cam);
 
-    // Slide handle hit-test (takes precedence — sits on the ground by the selected opening)
-    if (slideHandle.visible && selectedOpening >= 0) {
+    // Slide handle hit-test (takes precedence — sits on the ground by the
+    // selection centroid). Multi-select drags shift all selected together.
+    if (slideHandle.visible && selectedOpeningIndices().length) {
       const handleParts = [];
       slideHandle.traverse(c => { if (c.isMesh) handleParts.push(c); });
       if (rc.intersectObjects(handleParts).length) {
-        draggingSlide = selectedOpening;
+        // Sentinel: ≥0 means "drag in progress". The drag handler reads
+        // selectedOpeningIndices() each frame so it works for single + multi.
+        draggingSlide = 1;
         orbit.enabled = false;
         renderer.domElement.style.cursor = "grabbing";
         setSlideHandleHover(true);
@@ -5798,6 +6361,18 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
       const hits = rc.intersectObjects(visSlopeArrows);
       if (hits.length) {
         draggingSlopeEdge = hits[0].object.userData.slopeEdge;
+        orbit.enabled = false;
+        renderer.domElement.style.cursor = "grabbing";
+        return;
+      }
+    }
+    // Check roof overhang arrows (gable only)
+    const visRoofArrows = roofArrows.filter(a => a.visible);
+    if (visRoofArrows.length) {
+      const hits = rc.intersectObjects(visRoofArrows);
+      if (hits.length) {
+        const obj = hits[0].object;
+        draggingRoofOH = { side: obj.userData.roofSide, role: obj.userData.role };
         orbit.enabled = false;
         renderer.domElement.style.cursor = "grabbing";
         return;
@@ -6002,6 +6577,37 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     return;
   }
 
+  // Roof overhang arrow dragging (eave/gable, mirrors to opposite side)
+  if (draggingRoofOH) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    // Project mouse onto the horizontal plane at the arrow's z so dragging
+    // tracks ground-plane motion (the value we're editing is XY-only).
+    const arrowPos = roofArrows[draggingRoofOH.side].position.clone();
+    const horizPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -arrowPos.z);
+    const hitPt = new THREE.Vector3();
+    if (rc.ray.intersectPlane(horizPlane, hitPt)) {
+      const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+      const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+      const off = 350;
+      // side 0=S, 1=N, 2=W, 3=E. Distance from outer wall face along outward normal.
+      let v = 0;
+      if (draggingRoofOH.side === 0)      v = y0 - hitPt.y - off;
+      else if (draggingRoofOH.side === 1) v = hitPt.y - y1 - off;
+      else if (draggingRoofOH.side === 2) v = x0 - hitPt.x - off;
+      else                                v = hitPt.x - x1 - off;
+      // 20 mm step (2 cm) — overhangs are read in cm-precision in real frames.
+      const snapped = clamp(Math.round(v / 20) * 20, 0, OH_MAX);
+      if (draggingRoofOH.role === "eave") eaveOH = snapped;
+      else                                gableOH = snapped;
+      markFrameStale();
+      rebuildScene();
+    }
+    return;
+  }
+
   // Height arrow dragging — project mouse to vertical plane through box center
   if (draggingHeight) {
     const r = renderer.domElement.getBoundingClientRect();
@@ -6063,7 +6669,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     rc.setFromCamera(ndc, cam);
-    const allRoofArrows = [ridgeArrow, ...slopeArrows].filter(a => a.visible);
+    const allRoofArrows = [ridgeArrow, ...slopeArrows, ...roofArrows].filter(a => a.visible);
     const hits = allRoofArrows.length ? rc.intersectObjects(allRoofArrows) : [];
     setArrowHover(hits.length ? hits[0].object : null);
     if (hits.length) {
@@ -6074,26 +6680,64 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     }
   }
 
-  // Opening slide-handle dragging — project to ground, map onto wall axis
+  // Opening slide-handle dragging — project to ground, map onto wall axis.
+  // Single-select: drag one opening (with snap + collision against neighbours).
+  // Multi-select: shift the whole group by a uniform delta (clamped per
+  // opening so none leaves the wall span).
   if (draggingSlide >= 0) {
-    const o = openings[draggingSlide];
-    const info = o && wallInfo(o.wallIdx);
+    const indices = selectedOpeningIndices();
+    if (!indices.length) return;
+    const firstWall = openings[indices[0]].wallIdx;
+    if (!indices.every(i => openings[i].wallIdx === firstWall)) return;
+    const info = wallInfo(firstWall);
     const pt = groundHit(e);
-    if (!o || !info || !pt) return;
-    // Parametrize along the wall
-    const dx = pt.x - info.origin.x, dy = pt.y - info.origin.y;
-    let p = dx * info.along.x + dy * info.along.y;
+    if (!info || !pt) return;
     const tVal = +inT.value;
-    const half = o.width / 2;
-    const edgePad = info.isInterior ? half : (half + tVal);
-    p = clamp(Math.round(p / 100) * 100, edgePad, info.length - edgePad);
-    p = resolveOpeningCollision(o.wallIdx, p, o.width, draggingSlide);
-    if (p !== o.posAlong) {
-      o.posAlong = p;
-      rebuildSingleOpening(draggingSlide);
-      showOpeningDims(info, p, o.type, { width: o.width, height: o.height, sill: o.sill }, draggingSlide);
-      updateInspectorPosition();
+    // Cursor position along the wall axis.
+    const dx = pt.x - info.origin.x, dy = pt.y - info.origin.y;
+    const cursorP = dx * info.along.x + dy * info.along.y;
+
+    if (indices.length === 1) {
+      const idx = indices[0];
+      const o = openings[idx];
+      const half = o.width / 2;
+      const edgePad = info.isInterior ? half : (half + tVal);
+      let p = clamp(Math.round(cursorP / 100) * 100, edgePad, info.length - edgePad);
+      p = resolveOpeningCollision(o.wallIdx, p, o.width, idx);
+      if (p !== o.posAlong) {
+        o.posAlong = p;
+        rebuildSingleOpening(idx);
+        showOpeningDims(info, p, o.type, { width: o.width, height: o.height, sill: o.sill }, idx);
+        updateInspectorPosition();
+        positionSlideHandle();
+      }
+      return;
     }
+
+    // Multi: compute shift from current centroid to cursor.
+    let centroid = 0;
+    for (const i of indices) centroid += openings[i].posAlong;
+    centroid /= indices.length;
+    let shift = Math.round((cursorP - centroid) / 100) * 100;
+    // Clamp shift so no opening crosses the wall ends.
+    for (const i of indices) {
+      const o = openings[i];
+      const half = o.width / 2;
+      const edgePad = info.isInterior ? half : (half + tVal);
+      const lo = edgePad - o.posAlong;
+      const hi = (info.length - edgePad) - o.posAlong;
+      if (shift < lo) shift = lo;
+      if (shift > hi) shift = hi;
+    }
+    if (shift === 0) return;
+    for (const i of indices) {
+      openings[i].posAlong += shift;
+      rebuildSingleOpening(i);
+    }
+    for (const i of indices) applySelectionHighlight(i);
+    hideOpeningDims();           // dim labels are per-opening; suppress during multi-drag
+    positionSlideHandle();
+    updateDistributePanelPosition();
     return;
   }
 
@@ -6205,6 +6849,12 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   }
   if (draggingSlopeEdge >= 0) {
     draggingSlopeEdge = -1;
+    orbit.enabled = true;
+    renderer.domElement.style.cursor = "";
+    pushHistory();
+  }
+  if (draggingRoofOH) {
+    draggingRoofOH = null;
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
     pushHistory();
@@ -6598,6 +7248,7 @@ document.addEventListener("keyup", (e) => {
 $("btnDeleteIW").addEventListener("click", deleteSelectedIW);
 $("btnDeleteFF").addEventListener("click", deleteSelectedFF);
 $("btnDistributeOpenings").addEventListener("click", distributeSelectedOpenings);
+$("btnCenterOpenings").addEventListener("click", centerSelectedOpenings);
 $("btnDismissScaleWorker").addEventListener("click", dismissScaleWorker);
 
 function setIwToRidge(v) {
@@ -6648,10 +7299,17 @@ $("oInspSill").addEventListener("input", () => {
   rebuildSingleOpening(selectedOpening);
 });
 $("btnDeleteOpening").addEventListener("click", () => {
-  if (selectedOpening < 0) return;
-  const idx = selectedOpening;
+  const indices = selectedOpeningIndices();
+  if (!indices.length) return;
+  // Sort descending so removing by index doesn't shift the indices we still
+  // need to remove.
+  const sorted = indices.slice().sort((a, b) => b - a);
+  // Tear down selection state before removing — both single and multi paths
+  // poke at openings[selectedOpening] / multiSelected and would otherwise
+  // dereference the just-removed entries.
   deselectOpening();
-  removeOpeningByIdx(idx);
+  if (multiSelected.length) clearMultiSelection();
+  for (const i of sorted) removeOpeningByIdx(i);
   rebuildScene();
   pushHistory();
 });
@@ -6986,6 +7644,7 @@ document.querySelectorAll(".roof-option").forEach(el => {
     markFrameStale();
     roofType = (roofType === el.dataset.roof) ? "none" : el.dataset.roof;
     if (roofType === "gable") flatSlopeH = [0, 0];
+    if (roofType !== "gable") { eaveOH = 0; gableOH = 0; }
     document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
     $("roofIwToRidgeRow").style.display = roofType === "gable" ? "" : "none";
     // Thickness panel is only meaningful when there's a roof to thicken.
@@ -7081,6 +7740,8 @@ function startDrawing() {
   roofType = "none";
   customRidgeH = null;
   flatSlopeH = [0, 0];
+  eaveOH = 0;
+  gableOH = 0;
   activeTool = null;
   tip.style.display = "none";
   panel.classList.remove("open");
@@ -7146,6 +7807,497 @@ onResize();
   }
   updateAxisGizmo();
   renderer.render(scene, cam);
+})();
+
+/* ────────────────── auth + saved projects ────────────────── */
+(function setupAccounts() {
+  const veil       = $("loginVeil");
+  const loginName  = $("loginName");
+  const loginPw    = $("loginPw");
+  const loginErr   = $("loginError");
+  const loginBtn   = $("loginBtn");
+  const userPill   = $("userPill");
+  const userName   = $("userName");
+  const userProj   = $("userProj");
+  const userMenu   = $("userMenu");
+  const projPanel  = $("projectsPanel");
+  const projList   = $("projectsList");
+  const projNameIn = $("projectName");
+  const btnSave    = $("btnSaveProject");
+  const btnSaveAs  = $("btnSaveAsProject");
+  const btnSaveTop = $("btnSaveTop");
+  const btnSaveTopLabel = $("btnSaveTopLabel");
+
+  let currentUser = null;
+  let currentProjectId = null;
+  let currentProjectName = null;
+  let projectDirty = false;
+  // When a guest clicks Save (or hits Ctrl+S) the modal pops with a save
+  // intent; on successful sign-up we resume the save automatically.
+  let pendingActionAfterLogin = null;
+
+  function showLogin(intent) {
+    const titleEl = document.getElementById("loginTitle");
+    const subEl = document.getElementById("loginSub");
+    if (intent === "save") {
+      if (titleEl) titleEl.textContent = "Save your design";
+      if (subEl) subEl.textContent = "Pick a name and password to keep this design.";
+    } else {
+      if (titleEl) titleEl.textContent = "Welcome to FrameAI";
+      if (subEl) subEl.textContent = "New here? Just pick a name and password.";
+    }
+    loginErr.textContent = "";
+    veil.classList.add("open");
+    setTimeout(() => loginName.focus(), 30);
+  }
+  function hideLogin() { veil.classList.remove("open"); }
+
+  function refreshPill() {
+    // Save button is always available — guests get prompted to sign up when
+    // they click it. The dirty highlight signals "click to save" most loudly
+    // when there are unsaved edits, and stays subtle otherwise.
+    btnSaveTop.classList.add("shown");
+    userPill.classList.add("shown");
+    if (!currentUser) {
+      userName.textContent = "Sign in";
+      userProj.style.display = "none";
+      userProj.textContent = "";
+      userPill.classList.add("guest");
+      btnSaveTop.classList.toggle("dirty", projectDirty);
+      btnSaveTopLabel.textContent = "Save design";
+      return;
+    }
+    userPill.classList.remove("guest");
+    userName.textContent = currentUser.name;
+    if (currentProjectName) {
+      userProj.style.display = "";
+      userProj.textContent = currentProjectName;
+      userProj.classList.toggle("dirty", projectDirty);
+    } else {
+      userProj.style.display = "none";
+      userProj.textContent = "";
+    }
+    btnSaveTop.classList.toggle("dirty", projectDirty || !currentProjectId);
+    btnSaveTopLabel.textContent = currentProjectId ? "Save" : "Save design";
+  }
+
+  function setCurrentProject(id, name) {
+    currentProjectId = id;
+    currentProjectName = name;
+    projectDirty = false;
+    if (projNameIn) projNameIn.value = name || "";
+    refreshPill();
+  }
+
+  function markDirty() {
+    if (!currentUser) return;
+    if (!projectDirty) {
+      projectDirty = true;
+      refreshPill();
+    }
+  }
+  // Any edit that pushes onto the undo stack is also a "design changed since
+  // last save" event — wrap pushHistory so we don't have to sprinkle calls.
+  // Skip when applyingHistory is true so loading a project / undo / redo does
+  // not flip the dirty flag. Reassigning the outer function binding works
+  // because `function pushHistory()` declarations are mutable bindings.
+  if (typeof pushHistory === "function") {
+    const _orig = pushHistory;
+    pushHistory = function () {
+      if (typeof applyingHistory === "undefined" || !applyingHistory) markDirty();
+      return _orig.apply(this, arguments);
+    };
+  }
+
+  async function api(path, opts) {
+    const res = await fetch(path, Object.assign({
+      headers: { "Content-Type": "application/json" },
+    }, opts || {}));
+    let json = null;
+    try { json = await res.json(); } catch (e) { /* non-json error */ }
+    return { ok: res.ok, status: res.status, json: json || {} };
+  }
+
+  async function init() {
+    const r = await api("/api/auth/me");
+    if (r.ok && r.json.user) {
+      currentUser = r.json.user;
+    }
+    // Guests aren't prompted — they can play around freely. The login modal
+    // pops only when they try to save.
+    refreshPill();
+  }
+
+  async function doLogin() {
+    const name = (loginName.value || "").trim();
+    const pw = loginPw.value || "";
+    if (!name || !pw) { loginErr.textContent = "Name and password required."; return; }
+    loginBtn.disabled = true;
+    loginErr.textContent = "";
+    const r = await api("/api/auth/sign-in", {
+      method: "POST",
+      body: JSON.stringify({ name, password: pw }),
+    });
+    loginBtn.disabled = false;
+    if (!r.ok) {
+      loginErr.textContent = r.json.error || ("Sign-in failed (" + r.status + ").");
+      return;
+    }
+    currentUser = r.json.user;
+    loginPw.value = "";
+    loginErr.textContent = "";
+    hideLogin();
+    refreshPill();
+    // If the modal was opened to gate a Save action, finish that action now.
+    if (pendingActionAfterLogin === "save") {
+      pendingActionAfterLogin = null;
+      saveCurrentDesign({ promptIfNeeded: true });
+    } else {
+      pendingActionAfterLogin = null;
+    }
+  }
+
+  loginBtn.addEventListener("click", doLogin);
+  loginName.addEventListener("keydown", (e) => { if (e.key === "Enter") loginPw.focus(); });
+  loginPw.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+  $("loginClose").addEventListener("click", () => {
+    pendingActionAfterLogin = null;
+    hideLogin();
+  });
+
+  // ── User menu ──
+  userPill.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!currentUser) {
+      showLogin();
+      return;
+    }
+    userMenu.classList.toggle("open");
+  });
+  document.addEventListener("click", (e) => {
+    if (!userMenu.contains(e.target) && !userPill.contains(e.target)) {
+      userMenu.classList.remove("open");
+    }
+    if (!projPanel.contains(e.target) && !userPill.contains(e.target) &&
+        !userMenu.contains(e.target)) {
+      // leave panel open when clicking anywhere inside it; only close on outside
+      // clicks via the explicit X-pattern below if added later. For now keep open
+      // until user explicitly closes via menu or escape.
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      projPanel.classList.remove("open");
+      userMenu.classList.remove("open");
+      if (veil.classList.contains("open")) {
+        pendingActionAfterLogin = null;
+        hideLogin();
+      }
+    }
+  });
+
+  $("menuProjects").addEventListener("click", () => {
+    userMenu.classList.remove("open");
+    projPanel.classList.add("open");
+    loadProjectList();
+  });
+  $("projectsClose").addEventListener("click", () => {
+    projPanel.classList.remove("open");
+  });
+  $("menuNew").addEventListener("click", () => {
+    userMenu.classList.remove("open");
+    if (projectDirty && !confirm("You have unsaved changes. Start a new design anyway?")) return;
+    location.reload();
+  });
+  $("menuSignOut").addEventListener("click", async () => {
+    userMenu.classList.remove("open");
+    await api("/api/auth/sign-out", { method: "POST" });
+    location.reload();
+  });
+
+  // ── Projects list ──
+  function fmtDate(ts) {
+    if (!ts) return "";
+    const d = new Date(ts * 1000);
+    const now = new Date();
+    const same = d.toDateString() === now.toDateString();
+    if (same) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  async function loadProjectList() {
+    projList.innerHTML = '<div class="projects-empty">Loading…</div>';
+    const r = await api("/api/projects");
+    if (!r.ok) {
+      projList.innerHTML = '<div class="projects-empty">Failed to load projects.</div>';
+      return;
+    }
+    const items = r.json.projects || [];
+    if (!items.length) {
+      projList.innerHTML = '<div class="projects-empty">No saved projects yet.</div>';
+      return;
+    }
+    projList.innerHTML = "";
+    for (const p of items) {
+      const row = document.createElement("div");
+      row.className = "project-row";
+      if (p.id === currentProjectId) row.classList.add("current");
+      const nm = document.createElement("div");
+      nm.className = "pname";
+      nm.textContent = p.name;
+      const dt = document.createElement("div");
+      dt.className = "pdate";
+      dt.textContent = fmtDate(p.updated_at);
+      const del = document.createElement("button");
+      del.className = "pdelete";
+      del.textContent = "×";
+      del.title = "Delete project";
+      del.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete "${p.name}"?`)) return;
+        const dr = await api(`/api/projects/${p.id}`, { method: "DELETE" });
+        if (!dr.ok) { alert(dr.json.error || "Delete failed."); return; }
+        if (p.id === currentProjectId) setCurrentProject(null, null);
+        loadProjectList();
+      });
+      row.addEventListener("click", () => loadProject(p.id));
+      row.appendChild(nm);
+      row.appendChild(dt);
+      row.appendChild(del);
+      projList.appendChild(row);
+    }
+  }
+
+  async function loadProject(id) {
+    if (projectDirty && !confirm("Discard unsaved changes and load this project?")) return;
+    const r = await api(`/api/projects/${id}`);
+    if (!r.ok) { alert(r.json.error || "Load failed."); return; }
+    const p = r.json.project;
+    if (!p || !p.data) { alert("Project has no design data."); return; }
+    try {
+      applyState(p.data);
+    } catch (e) {
+      alert("Could not apply project state: " + (e && e.message || e));
+      return;
+    }
+    // applyState restores geometry but the first-run "Box House / Free Form"
+    // picker is gated by DOM state it doesn't touch — drop the user straight
+    // into editing mode on the loaded design.
+    enterEditingMode(p.data && p.data.houseMode);
+    // Replay the cached frame if the project was saved post-generation.
+    // applyState always flips frameStale=true, so this must come after.
+    // applyFrameJson re-marks fresh on success.
+    if (p.data && p.data._frame && typeof applyFrameJson === "function") {
+      try { applyFrameJson(p.data._frame); }
+      catch (e) { console.warn("Cached frame failed to load:", e); }
+    }
+    projPanel.classList.remove("open");
+    setCurrentProject(p.id, p.name);
+    projectDirty = false;
+    refreshPill();
+    loadProjectList();   // re-render to highlight current row
+  }
+
+  // Dismiss the intro picker + flip from "click to draw" mode into
+  // "edit existing room" mode the same way enterSet() does after the user
+  // finishes drawing the second corner. Safe to call repeatedly.
+  function enterEditingMode(houseModeFromSave) {
+    if (typeof houseTypePicked !== "undefined") {
+      try { houseTypePicked = true; } catch (e) { /* binding may be const-ish */ }
+    }
+    const picker = document.getElementById("housePicker");
+    if (picker) picker.style.display = "none";
+    const hintEl = document.getElementById("hint");
+    if (hintEl) hintEl.style.display = "none";
+    const exLink = document.getElementById("exampleLink");
+    if (exLink) exLink.style.display = "none";
+
+    if (houseModeFromSave === "free") {
+      const rW = document.getElementById("rowW"); if (rW) rW.style.display = "none";
+      const rD = document.getElementById("rowD"); if (rD) rD.style.display = "none";
+    } else {
+      const rW = document.getElementById("rowW"); if (rW) rW.style.display = "";
+      const rD = document.getElementById("rowD"); if (rD) rD.style.display = "";
+    }
+
+    // Mark step 0 as visited so the intro hint ("Click to place your house")
+    // doesn't fire on next entry.
+    if (typeof stepVisited !== "undefined" && Array.isArray(stepVisited)) {
+      stepVisited[0] = true;
+    }
+
+    // If the saved design has actual exterior walls, drop straight into
+    // editing — enterSet() handles mode = M.SET, opens the dimensions panel,
+    // shows undo/redo + Next, frames the camera, resets the undo stack.
+    // Otherwise fall back to drawing mode for an empty project.
+    const hasRoom = (typeof c1 !== "undefined" && c1) && (typeof c2 !== "undefined" && c2);
+    if (hasRoom && typeof enterSet === "function") {
+      try { enterSet(); }
+      catch (e) {
+        const dimPanel = document.getElementById("panel");
+        if (dimPanel) dimPanel.classList.add("open");
+      }
+    } else {
+      const dimPanel = document.getElementById("panel");
+      if (dimPanel) dimPanel.classList.add("open");
+      if (typeof goToStep === "function") {
+        try { goToStep(0); } catch (e) { /* swallow */ }
+      }
+    }
+  }
+
+  function gatherDesign() {
+    if (typeof captureState !== "function") {
+      alert("Internal error: captureState() missing.");
+      return null;
+    }
+    const data = captureState();
+    // If the user has a fresh frame in the scene, persist it so loading the
+    // project restores the generated frame too — no second GH solve needed.
+    // Stale frames (design edited since last generate) are intentionally
+    // omitted; they'd misrepresent the saved design.
+    if (typeof frameStale !== "undefined" && !frameStale && window._lastFrameJson) {
+      data._frame = window._lastFrameJson;
+    }
+    return data;
+  }
+
+  // Core save flow used by the in-panel Save button, the top-right Save
+  // button, and Ctrl+S. Behaviour:
+  //   - currentProjectId set + no rename     → PUT (overwrite)
+  //   - currentProjectId set + new typedName → PUT (rename + overwrite)
+  //   - no currentProjectId, name available  → POST (create)
+  //   - no currentProjectId, no name         → prompt for name, then POST
+  async function saveCurrentDesign({ typedName = "", promptIfNeeded = false } = {}) {
+    const data = gatherDesign();
+    if (!data) return;
+    typedName = (typedName || "").trim();
+
+    if (currentProjectId && (!typedName || typedName === currentProjectName)) {
+      const r = await api(`/api/projects/${currentProjectId}`, {
+        method: "PUT", body: JSON.stringify({ data }),
+      });
+      if (!r.ok) { alert(r.json.error || "Save failed."); return; }
+      projectDirty = false;
+      refreshPill();
+      loadProjectList();
+      return;
+    }
+    if (currentProjectId && typedName && typedName !== currentProjectName) {
+      const r = await api(`/api/projects/${currentProjectId}`, {
+        method: "PUT", body: JSON.stringify({ name: typedName, data }),
+      });
+      if (!r.ok) { alert(r.json.error || "Save failed."); return; }
+      setCurrentProject(currentProjectId, typedName);
+      loadProjectList();
+      return;
+    }
+    let name = typedName;
+    if (!name && promptIfNeeded) {
+      const entered = prompt("Name this design:", "");
+      if (entered === null) return;
+      name = entered.trim();
+    }
+    if (!name) {
+      if (projNameIn) projNameIn.focus();
+      else alert("Type a name first.");
+      return;
+    }
+    const r = await api("/api/projects", {
+      method: "POST", body: JSON.stringify({ name, data }),
+    });
+    if (!r.ok) { alert(r.json.error || "Save failed."); return; }
+    setCurrentProject(r.json.project.id, r.json.project.name);
+    loadProjectList();
+  }
+
+  btnSave.addEventListener("click", () => {
+    saveCurrentDesign({ typedName: projNameIn.value });
+  });
+
+  btnSaveTop.addEventListener("click", () => {
+    if (!currentUser) {
+      pendingActionAfterLogin = "save";
+      showLogin("save");
+      return;
+    }
+    saveCurrentDesign({ promptIfNeeded: true });
+  });
+
+  // Ctrl+S / Cmd+S — save current design. Ignored while typing in an input.
+  window.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    if (e.key.toLowerCase() !== "s") return;
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    e.preventDefault();
+    if (!currentUser) {
+      pendingActionAfterLogin = "save";
+      showLogin("save");
+      return;
+    }
+    saveCurrentDesign({ promptIfNeeded: true });
+  });
+
+  btnSaveAs.addEventListener("click", async () => {
+    const data = gatherDesign();
+    if (!data) return;
+    const suggested = currentProjectName ? `${currentProjectName} (copy)` : "";
+    const name = prompt("Save as new project — name:", suggested);
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const r = await api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ name: trimmed, data }),
+    });
+    if (!r.ok) { alert(r.json.error || "Save failed."); return; }
+    setCurrentProject(r.json.project.id, r.json.project.name);
+    loadProjectList();
+  });
+
+  init();
+})();
+</script>
+
+<!-- ── Tooltip div ── -->
+<div id="ui-tooltip"></div>
+<script>
+(function(){
+  const tip = document.getElementById('ui-tooltip');
+  let hideTimer = null;
+
+  document.addEventListener('mouseover', function(e) {
+    const el = e.target.closest('[data-tip]');
+    if (!el) return;
+    clearTimeout(hideTimer);
+    tip.textContent = el.dataset.tip;
+    tip.classList.add('visible');
+    positionTip(e);
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!tip.classList.contains('visible')) return;
+    if (!e.target.closest('[data-tip]')) return;
+    positionTip(e);
+  });
+
+  document.addEventListener('mouseout', function(e) {
+    if (!e.target.closest('[data-tip]')) return;
+    hideTimer = setTimeout(() => tip.classList.remove('visible'), 80);
+  });
+
+  function positionTip(e) {
+    const margin = 12;
+    const tw = tip.offsetWidth || 220;
+    const th = tip.offsetHeight || 40;
+    let x = e.clientX + margin;
+    let y = e.clientY - th - margin;
+    if (x + tw > window.innerWidth - 8) x = e.clientX - tw - margin;
+    if (y < 8) y = e.clientY + margin;
+    tip.style.left = x + 'px';
+    tip.style.top  = y + 'px';
+  }
 })();
 </script>
 </body>
