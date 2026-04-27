@@ -1785,14 +1785,14 @@ scene.add(dot);
 
 // Geometry radius of the roving dot (matches the SphereGeometry above).
 const DOT_GEOM_RADIUS = 20;
-// Target on-screen radius when zoomed in. Sphere scales with zoom (smaller when
-// close, bigger when zoomed out) but caps at the geometry size so it never
-// looks larger than it was designed to.
-const DOT_TARGET_PX = 18;
+const DOT_WORLD_R = 60;  // natural world-space radius (mm) — shrinks on screen as you zoom in
+const DOT_MIN_PX = 4;    // floor: never smaller than this when zoomed far out
+const DOT_MAX_PX = 10;    // ceiling: never larger than this when zoomed very close
 
 function dotZoomScale() {
-  const targetWorld = Math.min(DOT_GEOM_RADIUS, DOT_TARGET_PX * worldPerPixelAt(dot.position));
-  return targetWorld / DOT_GEOM_RADIUS;
+  const wpp = worldPerPixelAt(dot.position);
+  const worldR = Math.max(DOT_MIN_PX * wpp, Math.min(DOT_WORLD_R, DOT_MAX_PX * wpp));
+  return worldR / DOT_GEOM_RADIUS;
 }
 
 let dotSnapMode = false;   // tracked so the per-frame update preserves the lock-on 2.2× boost
@@ -2161,28 +2161,26 @@ function makeSlideHandle() {
   const group = new THREE.Group();
   group.visible = false;
 
-  // Each arrow is a sub-group: makeArrowMesh() (project-wide style) scaled
-  // down, translated outward, then the sub-group is rotated to face the
-  // desired direction. No center ring — arrows handle all axes.
-  const ARROW_SCALE = 0.4;
-  const ARROW_BASE_OFFSET = 60;   // distance from origin to the arrow's base
+  // Each arrow is a sub-group: makeArrowMesh() at full size, translated
+  // outward in local space, then the sub-group is scaled+rotated. The scale
+  // sits on the sub-group (not the arrow itself) so setArrowHover's
+  // arrow.scale=1.3 doesn't overwrite our shrink — instead it compounds:
+  // sub.scale × hover.scale. That's how the room/ridge arrows get a snappy
+  // grow-on-hover that lands back at the right size.
+  const SUB_SCALE = 0.5;          // 50% of normal arrow size
+  const ARROW_BASE_OFFSET = 60;   // unscaled gap between gimbal origin and arrow base
   function makeGimbalArrow(rotZ, role, sign) {
     const sub = new THREE.Group();
-    const arrow = makeArrowMesh();
-    arrow.scale.setScalar(ARROW_SCALE);
-    // makeArrowMesh runs from y=-140 to y=+280 in local space (420 tall).
-    // Push so the arrow's base sits ARROW_BASE_OFFSET out from the origin.
-    arrow.position.y = ARROW_BASE_OFFSET + 140 * ARROW_SCALE;
+    sub.scale.setScalar(SUB_SCALE);
+    const arrow = makeArrowMesh();   // shape runs y∈[-140, +280] (420 tall)
+    arrow.position.y = ARROW_BASE_OFFSET + 140;   // base sits at sub-local y = ARROW_BASE_OFFSET
     arrow.userData.role = role;
     arrow.userData.sign = sign;
     sub.add(arrow);
-    // Padded invisible hit pad so the arrow stays easy to grab.
-    const hitH = 420 * ARROW_SCALE + 40;
-    const hit = new THREE.Mesh(
-      new THREE.PlaneGeometry(180 * ARROW_SCALE + 40, hitH),
-      matHit,
-    );
-    hit.position.y = arrow.position.y + 70 * ARROW_SCALE;
+    // Padded invisible hit pad spanning the arrow's full extent in sub local.
+    const hitH = 420 + 40;
+    const hit = new THREE.Mesh(new THREE.PlaneGeometry(180 + 40, hitH), matHit);
+    hit.position.y = arrow.position.y + 70;        // arrow midpoint above its origin
     hit.userData.role = role;
     hit.userData.sign = sign;
     hit.renderOrder = 997;
@@ -2236,15 +2234,10 @@ function positionSlideHandle(idx) {
   avgPos /= indices.length;
   avgZ /= indices.length;
 
-  // Lay the gimbal in the same plane as the opening pane (wall centerline,
-  // pulled inward t/2 from the outer face). Tiny outward bump (5 mm) so it
-  // doesn't z-fight with the glass.
-  const tVal = +inT.value;
-  const inwardOffset = info.isInterior ? 0 : tVal / 2;
-  const cx = info.origin.x + info.along.x * avgPos
-            - info.outward.x * inwardOffset + info.outward.x * 5;
-  const cy = info.origin.y + info.along.y * avgPos
-            - info.outward.y * inwardOffset + info.outward.y * 5;
+  // Sit flush on the wall's outer face — depthTest:false keeps it visible,
+  // a tiny outward bump (2 mm) avoids z-fighting with the wall surface.
+  const cx = info.origin.x + info.along.x * avgPos + info.outward.x * 2;
+  const cy = info.origin.y + info.along.y * avgPos + info.outward.y * 2;
   slideHandle.position.set(cx, cy, avgZ);
 
   // Orient: local +X → info.along, local +Y → world Z, local +Z → info.outward.
@@ -2360,18 +2353,63 @@ function positionRoofArrows() {
     }
     for (const a of roofArrows) a.visible = true;
   } else {
+    // Flat roof: keep the existing edge-height slopeArrows AND add overhang
+    // arrows. Overhang arrows tilt along the slope (when there is one) so they
+    // visually trace the roof surface like the gable case.
     ridgeArrow.visible = false;
-    for (const a of roofArrows) a.visible = false;
-    // Place arrows at each end perpendicular to ridge axis, on top of roof slab
+    const f = flatSlopeH[0], b = flatSlopeH[1];
+    const span = ridgeAlongX ? d : w;
+    const slope = (b - f) / span;
+    const off = 350;
+    const off_a = 100; //arrow goes a bit past the wall on the slope side
+    // Place edge-height arrows at each end perpendicular to ridge axis.
     if (ridgeAlongX) {
-      slopeArrows[0].position.set((x0 + x1) / 2, y0, h + roofT + flatSlopeH[0]);
-      slopeArrows[1].position.set((x0 + x1) / 2, y1, h + roofT + flatSlopeH[1]);
+      slopeArrows[0].position.set((x0 + x1) / 2, y0, h + roofT + f);
+      slopeArrows[1].position.set((x0 + x1) / 2, y1, h + roofT + b);
     } else {
-      slopeArrows[0].position.set(x0, (y0 + y1) / 2, h + roofT + flatSlopeH[0]);
-      slopeArrows[1].position.set(x1, (y0 + y1) / 2, h + roofT + flatSlopeH[1]);
+      slopeArrows[0].position.set(x0, (y0 + y1) / 2, h + roofT + f);
+      slopeArrows[1].position.set(x1, (y0 + y1) / 2, h + roofT + b);
     }
     slopeArrows[0].visible = true;
     slopeArrows[1].visible = true;
+
+    // Overhang arrows. eave = along slope axis, gable = perpendicular.
+    const slopeAngle = Math.atan(slope);
+    for (const a of roofArrows) a.rotation.set(0, 0, 0);
+    if (ridgeAlongX) {
+      // S/N = eave (slope axis is Y), W/E = gable
+      // eave underside z extrapolates the slope past each end
+      const zS = h + f - eaveOH * slope;
+      const zN = h + b + eaveOH * slope;
+      // gable side z: midpoint of the slab (so arrow sits at slab middle in Z)
+      const zMidTop = h + roofT + (f + b) / 2;
+      roofArrows[0].position.set((x0 + x1) / 2, y0 - eaveOH - off, zS);
+      roofArrows[1].position.set((x0 + x1) / 2, y1 + eaveOH + off, zN);
+      roofArrows[2].position.set(x0 - gableOH - off, (y0 + y1) / 2, zMidTop);
+      roofArrows[3].position.set(x1 + gableOH + off, (y0 + y1) / 2, zMidTop);
+      roofArrows[0].userData.role = roofArrows[1].userData.role = "eave";
+      roofArrows[2].userData.role = roofArrows[3].userData.role = "gable";
+      // Both eaves tilt the SAME way (slab tilts continuously across the span):
+      // going -Y from y0 the slab drops/rises by `slope`, going +Y from y1 it
+      // continues at that slope. (Differs from gable, where both eaves drop
+      // away from a central ridge.)
+      roofArrows[0].rotation.x = slopeAngle;
+      roofArrows[1].rotation.x = slopeAngle;
+    } else {
+      // W/E = eave (slope axis is X), S/N = gable
+      const zW = h + f - eaveOH * slope;
+      const zE = h + b + eaveOH * slope;
+      const zMidTop = h + roofT + (f + b) / 2;
+      roofArrows[2].position.set(x0 - eaveOH - off, (y0 + y1) / 2, zW);
+      roofArrows[3].position.set(x1 + eaveOH + off, (y0 + y1) / 2, zE);
+      roofArrows[0].position.set((x0 + x1) / 2, y0 - gableOH - off, zMidTop);
+      roofArrows[1].position.set((x0 + x1) / 2, y1 + gableOH + off, zMidTop);
+      roofArrows[2].userData.role = roofArrows[3].userData.role = "eave";
+      roofArrows[0].userData.role = roofArrows[1].userData.role = "gable";
+      roofArrows[2].rotation.y = -slopeAngle;
+      roofArrows[3].rotation.y = -slopeAngle;
+    }
+    for (const a of roofArrows) a.visible = true;
   }
 }
 
@@ -2519,7 +2557,8 @@ function showRoofDims() {
   if (dimGroup) { scene.remove(dimGroup); dimGroup = null; }
   dimLabels.length = 0;
   if (houseMode === 'free') return;
-  if (!c1 || !c2 || roofType !== 'gable') return;
+  if (!c1 || !c2) return;
+  if (roofType !== 'gable' && roofType !== 'flat') return;
 
   dimGroup = new THREE.Group();
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
@@ -2528,13 +2567,33 @@ function showRoofDims() {
   const h = +inH.value;
   const t = +inT.value;
   const roofT = +inTR.value;
-  const ridgeH = getRidgeH();
   const ridgeAlongX = w >= d;
-  const halfSpan = ridgeAlongX ? d / 2 : w / 2;
-  const s = roofT - ridgeH * t / halfSpan;
-  const eaveZ = h + s;
-  const kipZ = h + ridgeH + s;
-  const slopeDeg = Math.atan2(ridgeH, halfSpan) * 180 / Math.PI;
+
+  // For gable: apex at mid-line (kipZ), eaves at the gable-end corners.
+  // For flat: high/low corners are at the two slab edges set by flatSlopeH.
+  let kipZ, eaveZ, slopeDeg, slopeRad, halfSpan, anchorY, anchorX;
+  if (roofType === 'gable') {
+    const ridgeH = getRidgeH();
+    halfSpan = ridgeAlongX ? d / 2 : w / 2;
+    const s = roofT - ridgeH * t / halfSpan;
+    eaveZ = h + s;
+    kipZ = h + ridgeH + s;
+    slopeRad = Math.atan2(ridgeH, halfSpan);
+    slopeDeg = slopeRad * 180 / Math.PI;
+    anchorX = x0; anchorY = y0;
+  } else {
+    // flat — anchor angle wedge at the LOW corner so it opens up toward high.
+    const f = flatSlopeH[0], b = flatSlopeH[1];
+    const span = ridgeAlongX ? d : w;
+    halfSpan = span;
+    const lowEdge = Math.min(f, b), highEdge = Math.max(f, b);
+    eaveZ = h + roofT + lowEdge;
+    kipZ  = h + roofT + highEdge;
+    slopeRad = Math.atan2(highEdge - lowEdge, span);
+    slopeDeg = slopeRad * 180 / Math.PI;
+    if (ridgeAlongX) { anchorX = x0; anchorY = (f <= b) ? y0 : y1; }
+    else             { anchorX = (f <= b) ? x0 : x1; anchorY = y0; }
+  }
 
   const tick = 150;
   const accent = "#F9BC06";
@@ -2564,29 +2623,41 @@ function showRoofDims() {
     dimLabels.push(spr);
   };
 
-  if (ridgeAlongX) {
-    // Kip dim: endpoint at the apex (x0, midY, kipZ) — runs along the gable-end face
-    makeVert(x0, (y0 + y1) / 2, kipZ, "kip", (kipZ / 1000).toFixed(2) + " m", "x");
-    // Tagfod dim: at the eave corner of the gable end
-    makeVert(x0, y0, eaveZ, "tagfod", (eaveZ / 1000).toFixed(2) + " m", "x");
+  if (roofType === 'gable') {
+    if (ridgeAlongX) {
+      makeVert(x0, (y0 + y1) / 2, kipZ, "kip", (kipZ / 1000).toFixed(2) + " m", "x");
+      makeVert(x0, y0, eaveZ, "tagfod", (eaveZ / 1000).toFixed(2) + " m", "x");
+    } else {
+      makeVert((x0 + x1) / 2, y0, kipZ, "kip", (kipZ / 1000).toFixed(2) + " m", "y");
+      makeVert(x0, y0, eaveZ, "tagfod", (eaveZ / 1000).toFixed(2) + " m", "y");
+    }
   } else {
-    makeVert((x0 + x1) / 2, y0, kipZ, "kip", (kipZ / 1000).toFixed(2) + " m", "y");
-    makeVert(x0, y0, eaveZ, "tagfod", (eaveZ / 1000).toFixed(2) + " m", "y");
+    // Flat: high/low edge heights at the building corners.
+    if (ridgeAlongX) {
+      makeVert(x0, anchorY === y0 ? y1 : y0, kipZ, "kip", (kipZ / 1000).toFixed(2) + " m", "x");
+      makeVert(x0, anchorY,                  eaveZ, "tagfod", (eaveZ / 1000).toFixed(2) + " m", "x");
+    } else {
+      makeVert(anchorX === x0 ? x1 : x0, y0, kipZ, "kip", (kipZ / 1000).toFixed(2) + " m", "y");
+      makeVert(anchorX,                  y0, eaveZ, "tagfod", (eaveZ / 1000).toFixed(2) + " m", "y");
+    }
   }
 
-  // Slope angle indicator at the eave corner: horizontal leg + slope leg + arc + label.
-  {
+  // Slope angle indicator at the low-edge corner — only if there's a slope.
+  if (slopeRad > 1e-4) {
     const legLen = 1500;
-    const slopeRad = Math.atan2(ridgeH, halfSpan);
-    // Anchor = eave corner on the gable-end face (shared by both legs)
-    // For ridge-along-X: gable-end is at x=x0; legs live in YZ plane at x=x0.
-    // For ridge-along-Y: gable-end is at y=y0; legs live in XZ plane at y=y0.
-    const anchor = ridgeAlongX ? new THREE.Vector3(x0, y0, eaveZ)
-                               : new THREE.Vector3(x0, y0, eaveZ);
-    // "horiz" axis (into the gable) and "up" axis — used to parameterize points
-    const horizAxis = ridgeAlongX ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-    const upAxis    = new THREE.Vector3(0, 0, 1);
-
+    const anchor = new THREE.Vector3(anchorX, anchorY, eaveZ);
+    // For ridge-along-X (gable) or flat with slope along Y: legs live in YZ
+    // plane at x=anchorX. For ridge-along-Y or flat slope along X: legs live
+    // in XZ plane at y=anchorY. The horizontal leg points toward the high
+    // edge (for flat, that flips with the slope sign).
+    let horizSign = 1;
+    if (roofType === 'flat') {
+      if (ridgeAlongX) horizSign = (anchorY === y0) ? 1 : -1;
+      else             horizSign = (anchorX === x0) ? 1 : -1;
+    }
+    const horizAxis = ridgeAlongX ? new THREE.Vector3(0, horizSign, 0)
+                                  : new THREE.Vector3(horizSign, 0, 0);
+    const upAxis = new THREE.Vector3(0, 0, 1);
     const ptAt = (dh, dv) => anchor.clone().addScaledVector(horizAxis, dh).addScaledVector(upAxis, dv);
 
     const horizEnd = ptAt(legLen, 0);
@@ -2598,7 +2669,6 @@ function showRoofDims() {
     legLine.renderOrder = 999;
     dimGroup.add(legLine);
 
-    // Arc between the two legs
     const arcR = legLen * 0.4;
     const arcSteps = 24;
     const arcPts = [];
@@ -2611,7 +2681,6 @@ function showRoofDims() {
     arcLine.renderOrder = 999;
     dimGroup.add(arcLine);
 
-    // Label inside the wedge
     const labelR = legLen * 0.7;
     const labelA = slopeRad * 0.45;
     const labelPos = ptAt(labelR * Math.cos(labelA), labelR * Math.sin(labelA));
@@ -3740,7 +3809,7 @@ function rebuildScene() {
   if (currentStep === 0) positionArrows();
   positionRoofArrows();
   if (currentStep === 0) updateDims();
-  else if (currentStep === 3 && roofType === 'gable') showRoofDims();
+  else if (currentStep === 3 && (roofType === 'gable' || roofType === 'flat')) showRoofDims();
   else hideDims();
   rebuildOpenings();
   rebuildInteriorWalls();
@@ -4749,19 +4818,20 @@ function buildRoof() {
   const h = +inH.value;
   const t = +inT.value;
   const w = x1 - x0, d = y1 - y0;
-  const overhang = 0;
   const roofT = +inTR.value;
 
   roofGroup = new THREE.Group();
 
   if (roofType === "flat") {
     const f = flatSlopeH[0], b = flatSlopeH[1];
-    const oh = overhang;
     const ridgeAlongX = w >= d;
+    // eaveOH extends along the slope axis; gableOH along the perpendicular.
+    const ohX = ridgeAlongX ? gableOH : eaveOH;
+    const ohY = ridgeAlongX ? eaveOH : gableOH;
 
     if (f === 0 && b === 0) {
       // Perfectly flat — simple box slab
-      const geo = new THREE.BoxGeometry(w + oh * 2, d + oh * 2, roofT);
+      const geo = new THREE.BoxGeometry(w + ohX * 2, d + ohY * 2, roofT);
       const mesh = new THREE.Mesh(geo, roofMat);
       mesh.position.set(x0 + w / 2, y0 + d / 2, h + roofT / 2);
       mesh.castShadow = true;
@@ -4770,40 +4840,38 @@ function buildRoof() {
       edges.position.copy(mesh.position);
       roofGroup.add(edges);
     } else {
-      // Sloped flat roof — tilted slab with thickness.
-      // Slope is anchored at the wall footprint (y0/y1 or x0/x1) so the roof
-      // bottom meets the wall top exactly. Overhang heights extrapolate the
-      // same slope outward past the footprint.
+      // Sloped flat roof — tilted slab. eaveOH extends past the slope ends
+      // and extrapolates the same slope so the slab plane stays continuous.
       let top, bot;
       if (ridgeAlongX) {
-        const mY = (b - f) / d;                    // slope per unit Y
-        const fOH = f - mY * oh, bOH = b + mY * oh;  // overhang edge offsets
+        const mY = (b - f) / d;
+        const fOH = f - mY * eaveOH, bOH = b + mY * eaveOH;
         top = [
-          x0 - oh, y0 - oh, h + roofT + fOH,
-          x1 + oh, y0 - oh, h + roofT + fOH,
-          x1 + oh, y1 + oh, h + roofT + bOH,
-          x0 - oh, y1 + oh, h + roofT + bOH,
+          x0 - ohX, y0 - ohY, h + roofT + fOH,
+          x1 + ohX, y0 - ohY, h + roofT + fOH,
+          x1 + ohX, y1 + ohY, h + roofT + bOH,
+          x0 - ohX, y1 + ohY, h + roofT + bOH,
         ];
         bot = [
-          x0 - oh, y0 - oh, h + fOH,
-          x1 + oh, y0 - oh, h + fOH,
-          x1 + oh, y1 + oh, h + bOH,
-          x0 - oh, y1 + oh, h + bOH,
+          x0 - ohX, y0 - ohY, h + fOH,
+          x1 + ohX, y0 - ohY, h + fOH,
+          x1 + ohX, y1 + ohY, h + bOH,
+          x0 - ohX, y1 + ohY, h + bOH,
         ];
       } else {
         const mX = (b - f) / w;
-        const fOH = f - mX * oh, bOH = b + mX * oh;
+        const fOH = f - mX * eaveOH, bOH = b + mX * eaveOH;
         top = [
-          x0 - oh, y0 - oh, h + roofT + fOH,
-          x0 - oh, y1 + oh, h + roofT + fOH,
-          x1 + oh, y1 + oh, h + roofT + bOH,
-          x1 + oh, y0 - oh, h + roofT + bOH,
+          x0 - ohX, y0 - ohY, h + roofT + fOH,
+          x0 - ohX, y1 + ohY, h + roofT + fOH,
+          x1 + ohX, y1 + ohY, h + roofT + bOH,
+          x1 + ohX, y0 - ohY, h + roofT + bOH,
         ];
         bot = [
-          x0 - oh, y0 - oh, h + fOH,
-          x0 - oh, y1 + oh, h + fOH,
-          x1 + oh, y1 + oh, h + bOH,
-          x1 + oh, y0 - oh, h + bOH,
+          x0 - ohX, y0 - ohY, h + fOH,
+          x0 - ohX, y1 + ohY, h + fOH,
+          x1 + ohX, y1 + ohY, h + bOH,
+          x1 + ohX, y0 - ohY, h + bOH,
         ];
       }
       const verts = new Float32Array([...top, ...bot]);
@@ -5950,6 +6018,18 @@ function updateExtWallOpacity() {
   iwMat.needsUpdate = true;
 }
 
+function topViewFitZ(cx, cy) {
+  if (!c1 || !c2) return 15000;
+  const pad = 800;
+  const hw = (Math.abs(c2.x - c1.x) / 2) + pad;
+  const hd = (Math.abs(c2.y - c1.y) / 2) + pad;
+  const fovRad = 25 * Math.PI / 180;
+  const aspect = renderer.domElement.clientWidth / renderer.domElement.clientHeight || 1.78;
+  const zForH = hd / Math.tan(fovRad / 2);
+  const zForW = hw / Math.tan(Math.atan(Math.tan(fovRad / 2) * aspect));
+  return Math.max(zForH, zForW) * 1.1;
+}
+
 function enableTopView() {
   isTopView = true;
   $("btnTopView").classList.add("active");
@@ -5958,11 +6038,11 @@ function enableTopView() {
   const cx = c1 && c2 ? (c1.x + c2.x) / 2 : 0;
   const cy = c1 && c2 ? (c1.y + c2.y) / 2 : 0;
   orbit.target.set(cx, cy, 0);
-  cam.position.set(cx, cy, 18000);
+  cam.position.set(cx, cy, topViewFitZ(cx, cy));
+  cam.fov = 25; cam.updateProjectionMatrix();
   orbit.enableRotate = false;
   orbit.minPolarAngle = 0;
   orbit.maxPolarAngle = 0.0001;
-  cam.fov = 75; cam.updateProjectionMatrix();
   orbit.update();
   updateExtWallOpacity();
 }
@@ -6655,7 +6735,18 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     if (rc.ray.intersectPlane(vertPlane, hitPt)) {
       const h = +inH.value;
       const roofT = +inTR.value;
-      flatSlopeH[draggingSlopeEdge] = clamp(snap(hitPt.z - h - roofT), 0, LIM.FLAT_SLOPE_MAX);
+      // Snap edge height to nearest 1° slope (treating the other edge as
+      // baseline, so the angle reads as the rise from a flat zero-line). The
+      // span is the building dimension along the slope axis.
+      const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+      const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+      const w = x1 - x0, d = y1 - y0;
+      const span = (w >= d) ? d : w;
+      const hRaw = hitPt.z - h - roofT;
+      const degRaw = Math.atan2(hRaw, span) * 180 / Math.PI;
+      const degSnap = clamp(Math.round(degRaw), 0, 45);
+      const hSnap = span * Math.tan(degSnap * Math.PI / 180);
+      flatSlopeH[draggingSlopeEdge] = clamp(hSnap, 0, LIM.FLAT_SLOPE_MAX);
       markFrameStale();
       rebuildScene();
     }
@@ -6861,11 +6952,22 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       slideHandle.traverse(c => { if (c.isMesh) handleParts.push(c); });
       const hHits = rc.intersectObjects(handleParts);
       if (hHits.length) {
-        setSlideHandleHover(true);
+        // Find the actual arrow mesh inside the hit's sub-group so the
+        // project-wide setArrowHover (yellow + 1.3× scale) styles the
+        // gimbal arrow the same way as room/ridge/height arrows.
+        let node = hHits[0].object;
+        let arrowMesh = null;
+        while (node && node !== slideHandle) {
+          if (node.userData && node.userData.gimbalArrow) {
+            arrowMesh = node.userData.gimbalArrow; break;
+          }
+          node = node.parent;
+        }
+        setArrowHover(arrowMesh);
         renderer.domElement.style.cursor = "grab";
         return;
       }
-      setSlideHandleHover(false);
+      setArrowHover(null);
     }
     const openingMeshes = [];
     openingsGroup.traverse(c => { if (c.isMesh) openingMeshes.push(c); });
@@ -7360,12 +7462,20 @@ $("btnDeleteFF").addEventListener("click", deleteSelectedFF);
 $("btnDistributeOpenings").addEventListener("click", distributeSelectedOpenings);
 $("btnCenterOpenings").addEventListener("click", centerSelectedOpenings);
 
-// Copy: starts the same drag-to-place flow used by the side-panel openings
-// tools, but pre-loaded with the selected opening's dims so the placed copy
-// keeps width/height/sill. User drags from the button onto a wall and drops.
-$("btnCopyOpening").addEventListener("pointerdown", (e) => {
+// Copy: click to enter copy mode (cursor follows ghost, ghost previews on
+// any wall under the cursor). Click on a wall to place the copy and exit;
+// click the Copy button again or press Escape to cancel.
+$("btnCopyOpening").addEventListener("click", (e) => {
   if (e.currentTarget.disabled) return;
   e.preventDefault();
+  // Already in copy mode? Toggle off.
+  if (draggingOpening && draggingOpening.copyDims) {
+    draggingOpening = null;
+    if (ghostOpening) { scene.remove(ghostOpening); ghostOpening = null; }
+    hideOpeningDims();
+    dragGhost.style.display = "none";
+    return;
+  }
   const indices = selectedOpeningIndices();
   if (indices.length !== 1) return;
   const o = openings[indices[0]];
@@ -7775,7 +7885,7 @@ document.querySelectorAll(".roof-option").forEach(el => {
     markFrameStale();
     roofType = (roofType === el.dataset.roof) ? "none" : el.dataset.roof;
     if (roofType === "gable") flatSlopeH = [0, 0];
-    if (roofType !== "gable") { eaveOH = 0; gableOH = 0; }
+    if (roofType === "none") { eaveOH = 0; gableOH = 0; }
     document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
     $("roofIwToRidgeRow").style.display = roofType === "gable" ? "" : "none";
     // Thickness panel is only meaningful when there's a roof to thicken.
