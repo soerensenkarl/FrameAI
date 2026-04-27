@@ -2247,7 +2247,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 let flatSlopeH = [0, 0];  // [edge0, edge1] height offsets for flat roof slope
 let eaveOH = 0;           // gable-roof eave overhang (mirrored, both sides)
 let gableOH = 0;          // gable-roof gable overhang (mirrored, both sides)
-const OH_MAX = 1500;      // max overhang in mm
+const OH_MAX = 500;       // max overhang in mm (50 cm)
 
 function defaultRidgeH() {
   if (!c1 || !c2) return 500;
@@ -4531,14 +4531,14 @@ function showOpeningDims(info, posAlong, type, overrides, openingIdx) {
     pts.push(pt(0, oz - tickH),    pt(0, oz + tickH));
     pts.push(pt(0, oz),            pt(leftP, oz));
     pts.push(pt(leftP, oz - tickH), pt(leftP, oz + tickH));
-    labels.push({ p: leftP / 2, z: oz + tickH + 160, len: leftP, axis: "ogL", size: 44 });
+    labels.push({ p: leftP / 2, z: oz + tickH + 160, len: leftP, axis: "ogL", size: 30 });
   }
   const rSpan = info.length - rightP;
   if (rSpan > 1) {
     pts.push(pt(rightP, oz - tickH),       pt(rightP, oz + tickH));
     pts.push(pt(rightP, oz),               pt(info.length, oz));
     pts.push(pt(info.length, oz - tickH),  pt(info.length, oz + tickH));
-    labels.push({ p: rightP + rSpan / 2, z: oz + tickH + 160, len: rSpan, axis: "ogR", size: 44 });
+    labels.push({ p: rightP + rSpan / 2, z: oz + tickH + 160, len: rSpan, axis: "ogR", size: 30 });
   }
 
   if (isSelected) {
@@ -4547,7 +4547,7 @@ function showOpeningDims(info, posAlong, type, overrides, openingIdx) {
     pts.push(pt(leftP, wz - tickSmall),  pt(leftP, wz + tickSmall));
     pts.push(pt(leftP, wz),              pt(rightP, wz));
     pts.push(pt(rightP, wz - tickSmall), pt(rightP, wz + tickSmall));
-    labels.push({ p: posAlong, z: wz - 120, len: ow, axis: "ow", size: 44 });
+    labels.push({ p: posAlong, z: wz - 120, len: ow, axis: "ow", size: 30 });
 
     // Height: just outside the right edge of the opening so the label and
     // dim line don't sit on top of the pane.
@@ -4555,7 +4555,7 @@ function showOpeningDims(info, posAlong, type, overrides, openingIdx) {
     pts.push(pt(hxRight - tickSmall, bot), pt(hxRight + tickSmall, bot));
     pts.push(pt(hxRight, bot),             pt(hxRight, top));
     pts.push(pt(hxRight - tickSmall, top), pt(hxRight + tickSmall, top));
-    labels.push({ p: hxRight + 200, z: (bot + top) / 2, len: oh, axis: "oh", size: 44 });
+    labels.push({ p: hxRight + 200, z: (bot + top) / 2, len: oh, axis: "oh", size: 30 });
 
     // Sill: outside left edge (closer, windows only)
     if (type === "window" && sill > 1) {
@@ -4563,7 +4563,7 @@ function showOpeningDims(info, posAlong, type, overrides, openingIdx) {
       pts.push(pt(sp - tickSmall, 0),    pt(sp + tickSmall, 0));
       pts.push(pt(sp, 0),                pt(sp, sill));
       pts.push(pt(sp - tickSmall, sill), pt(sp + tickSmall, sill));
-      labels.push({ p: sp - 200, z: sill / 2, len: sill, axis: "os", size: 44 });
+      labels.push({ p: sp - 200, z: sill / 2, len: sill, axis: "os", size: 30 });
     }
   }
 
@@ -4691,8 +4691,8 @@ function buildRoof() {
   if (!c1 || !c2) return;
   if (roofType === "none") return;   // walls-only mode — no roof geometry
 
-  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
-  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const x0 = Math.min(c1.x, c2.x) - 10, x1 = Math.max(c1.x, c2.x) + 10;  // +10mm preview expand
+  const y0 = Math.min(c1.y, c2.y) - 10, y1 = Math.max(c1.y, c2.y) + 10;
   const h = +inH.value;
   const t = +inT.value;
   const w = x1 - x0, d = y1 - y0;

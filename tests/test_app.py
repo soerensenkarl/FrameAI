@@ -104,13 +104,23 @@ def test_compute_specs_flat_roof_bundle_shape():
     import json; json.dumps(specs)  # must be JSON-serializable
 
 
-def test_compute_specs_gable_produces_box_walls():
-    """GH fills boxes with framing; gable triangle is left to the roof slab."""
+def test_compute_specs_gable_produces_pentagon_walls():
+    """Gable end walls ship as pentagons (rect + triangle to ridge); long
+    walls are boxes. Both pentagons place their profile on the OUTER face and
+    extrude INWARD — keeps the reference face consistent so GH frames both
+    sides identically."""
     from app import _compute_geometry_specs
     specs = _compute_geometry_specs(_sample_frame_request(
         roofType="gable", ridgeH=1500))
-    assert all(w["kind"] == "box" for w in specs["walls"])
-    assert len(specs["walls"]) == 4
+    extruded = [w for w in specs["walls"] if w["kind"] == "extruded"]
+    boxes = [w for w in specs["walls"] if w["kind"] == "box"]
+    assert len(extruded) == 2, "two pentagonal gable walls"
+    assert len(boxes) == 2, "two long box walls"
+    # Both pentagons must extrude inward (extrusion vector points into the
+    # building from each outer face). Sum of dir vectors should cancel.
+    dx = sum(e["dir"][0] for e in extruded)
+    dy = sum(e["dir"][1] for e in extruded)
+    assert dx == 0 and dy == 0, f"gable extrusion dirs should cancel; got dx={dx}, dy={dy}"
     assert len(specs["roof"]) == 2  # two half-slabs
 
 
