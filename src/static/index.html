@@ -451,7 +451,7 @@
   .panel.open { display: flex; }
 
   /* Opening inspector floats next to the selected opening */
-  #openingInspector, #ffInspector, #iwInspector {
+  #openingInspector, #ffInspector {
     right: auto;
     top: auto;
     transform: none;
@@ -940,6 +940,14 @@
     background: rgba(255, 60, 60, 0.22);
     border-color: rgba(255, 80, 80, 0.45);
     color: #ff7070;
+  }
+  .btn-delete-float {
+    position: fixed;
+    width: auto;
+    padding: 8px 14px;
+    z-index: 30;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
   }
 
   /* Cursor ghost while dragging from panel */
@@ -1575,12 +1583,8 @@
   <button class="btn-delete" id="btnDeleteFF">Delete Wall</button>
 </div>
 
-<!-- Interior wall inspector (shown when an interior wall is right-click selected in step 1) -->
-<div class="panel glass" id="iwInspector" style="display:none">
-  <span class="panel-title">Wall</span>
-  <div class="f"><label>Length</label><div class="fr"><span class="u" id="iwLengthVal" style="font-size:14px;color:#fff">—</span></div></div>
-  <button class="btn-delete" id="btnDeleteIW">Delete Wall</button>
-</div>
+<!-- Interior wall delete-only floating button (shown when an interior wall is selected in step 1) -->
+<button class="btn-delete btn-delete-float" id="btnDeleteIW" style="display:none">Delete</button>
 
 <!-- Free-form wall hover hint -->
 <div class="ff-hover-hint" id="ffHoverHint">Click to edit</div>
@@ -1595,6 +1599,7 @@
 <div id="distributePanel">
   <button class="btn-distribute" id="btnCenterOpenings">Center</button>
   <button class="btn-distribute" id="btnDistributeOpenings">Distribute evenly</button>
+  <button class="btn-distribute" id="btnCopyOpening">Copy</button>
   <button class="btn-distribute" id="btnDeleteOpening">Delete</button>
 </div>
 <!-- Scale worker dismiss pill (appears when the scale figure is clicked) -->
@@ -2140,62 +2145,70 @@ heightArrow.userData.isHeight = true;
 // go edge-on when the camera orbits perpendicular to their baked face normal.
 const VERTICAL_ARROWS = [ridgeArrow, slopeArrows[0], slopeArrows[1], heightArrow];
 
-// Opening slide handle (shown when an opening is selected in step 2)
+// Opening move-gimbal (shown when an opening is selected in step 2). Lives
+// in the wall plane: center ring + 4 white arrows with yellow outlines —
+// matching the room/ridge/height arrow style used elsewhere in the project.
+// Local axes: +X = along the wall, +Y = world up (Z), +Z = wall outward.
+//   • Center ring  → free move (along + vertical for a single window)
+//   • Along arrows → constrained slide along the wall
+//   • Vertical arrows → constrained sill change (windows only)
 function makeSlideHandle() {
-  const mat = new THREE.MeshBasicMaterial({
-    color: 0xffffff, side: THREE.DoubleSide, depthTest: false,
-    transparent: true, opacity: 0.95,
+  const matHit = new THREE.MeshBasicMaterial({
+    transparent: true, opacity: 0,
+    depthWrite: false, depthTest: false, side: THREE.DoubleSide,
   });
-  const mkShape = (sign) => {
-    const s = new THREE.Shape();
-    const s1 = sign * 460, s2 = sign * 230, s3 = sign * 120;
-    s.moveTo(s1, 0);
-    s.lineTo(s2, 120);
-    s.lineTo(s2, 55);
-    s.lineTo(s3, 55);
-    s.lineTo(s3, -55);
-    s.lineTo(s2, -55);
-    s.lineTo(s2, -120);
-    s.closePath();
-    return s;
-  };
-  const ring = new THREE.Shape();
-  ring.absarc(0, 0, 100, 0, Math.PI * 2, false);
-  const hole = new THREE.Path();
-  hole.absarc(0, 0, 60, 0, Math.PI * 2, true);
-  ring.holes.push(hole);
-
-  // Invisible padded hit plane so the whole handle area is easy to grab
-  const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
-  const hitGeo = new THREE.PlaneGeometry(1100, 320);
-  const hitMesh = new THREE.Mesh(hitGeo, hitMat);
-  hitMesh.renderOrder = 997;
 
   const group = new THREE.Group();
-  const parts = [
-    hitMesh,
-    new THREE.Mesh(new THREE.ShapeGeometry(mkShape(-1)), mat),
-    new THREE.Mesh(new THREE.ShapeGeometry(mkShape(1)), mat),
-    new THREE.Mesh(new THREE.ShapeGeometry(ring), mat),
-  ];
-  for (const p of parts) {
-    p.renderOrder = 998;
-    p.userData.isSlideHandle = true;
-    group.add(p);
-  }
-  group.userData.mat = mat;
   group.visible = false;
+
+  // Each arrow is a sub-group: makeArrowMesh() (project-wide style) scaled
+  // down, translated outward, then the sub-group is rotated to face the
+  // desired direction. No center ring — arrows handle all axes.
+  const ARROW_SCALE = 0.4;
+  const ARROW_BASE_OFFSET = 60;   // distance from origin to the arrow's base
+  function makeGimbalArrow(rotZ, role, sign) {
+    const sub = new THREE.Group();
+    const arrow = makeArrowMesh();
+    arrow.scale.setScalar(ARROW_SCALE);
+    // makeArrowMesh runs from y=-140 to y=+280 in local space (420 tall).
+    // Push so the arrow's base sits ARROW_BASE_OFFSET out from the origin.
+    arrow.position.y = ARROW_BASE_OFFSET + 140 * ARROW_SCALE;
+    arrow.userData.role = role;
+    arrow.userData.sign = sign;
+    sub.add(arrow);
+    // Padded invisible hit pad so the arrow stays easy to grab.
+    const hitH = 420 * ARROW_SCALE + 40;
+    const hit = new THREE.Mesh(
+      new THREE.PlaneGeometry(180 * ARROW_SCALE + 40, hitH),
+      matHit,
+    );
+    hit.position.y = arrow.position.y + 70 * ARROW_SCALE;
+    hit.userData.role = role;
+    hit.userData.sign = sign;
+    hit.renderOrder = 997;
+    sub.add(hit);
+    sub.rotation.z = rotZ;
+    sub.userData.role = role;
+    sub.userData.sign = sign;
+    sub.userData.gimbalArrow = arrow;
+    return sub;
+  }
+  group.add(makeGimbalArrow( 0,             "vertical",  1));   // up
+  group.add(makeGimbalArrow( Math.PI,       "vertical", -1));   // down
+  group.add(makeGimbalArrow(-Math.PI / 2,   "along",     1));   // right (along+)
+  group.add(makeGimbalArrow( Math.PI / 2,   "along",    -1));   // left  (along-)
+
   scene.add(group);
   return group;
 }
 const slideHandle = makeSlideHandle();
-let draggingSlide = -1;  // openings index while slide handle is being dragged
+let draggingSlide = -1;  // sentinel ≥0 means a gimbal drag is in progress
+let gizmoDrag = null;    // { role, sign, info, plane, startHit, indices, startStates }
 
-// Anchor the slide handle. With no arg or empty selection, falls back to the
+// Anchor the gimbal. With no arg or empty selection, falls back to the
 // current opening selection (single OR multi). Multi-select anchors at the
 // centroid of selected openings — dragging from there shifts the whole group.
 function positionSlideHandle(idx) {
-  // Resolve which openings the handle represents.
   let indices;
   if (typeof idx === "number" && idx >= 0) {
     indices = [idx];
@@ -2205,31 +2218,56 @@ function positionSlideHandle(idx) {
     indices = selectedOpening >= 0 ? [selectedOpening] : [];
   }
   if (!indices.length) { slideHandle.visible = false; return; }
-  // Multi-select only makes sense when the openings share a wall (same axis).
   const firstWall = openings[indices[0]].wallIdx;
   if (!indices.every(i => openings[i].wallIdx === firstWall)) {
     slideHandle.visible = false; return;
   }
   const info = wallInfo(firstWall);
   if (!info) { slideHandle.visible = false; return; }
-  // Anchor at the centroid of selected openings along the wall.
-  let avgPos = 0;
-  for (const i of indices) avgPos += openings[i].posAlong;
+
+  // Centroid posAlong + average vertical center.
+  let avgPos = 0, avgZ = 0;
+  for (const i of indices) {
+    const o = openings[i];
+    avgPos += o.posAlong;
+    const bot = o.type === "window" ? (o.sill || 0) : 0;
+    avgZ += bot + o.height / 2;
+  }
   avgPos /= indices.length;
-  // Place on ground just outside the wall (beyond outer face), offset along outward normal.
+  avgZ /= indices.length;
+
+  // Lay the gimbal in the same plane as the opening pane (wall centerline,
+  // pulled inward t/2 from the outer face). Tiny outward bump (5 mm) so it
+  // doesn't z-fight with the glass.
   const tVal = +inT.value;
-  const outPush = (info.isInterior ? 750 : (tVal / 2 + 750));
-  const px = info.origin.x + info.along.x * avgPos + info.outward.x * outPush;
-  const py = info.origin.y + info.along.y * avgPos + info.outward.y * outPush;
-  slideHandle.position.set(px, py, 5);
-  slideHandle.rotation.set(0, 0, Math.atan2(info.along.y, info.along.x));
+  const inwardOffset = info.isInterior ? 0 : tVal / 2;
+  const cx = info.origin.x + info.along.x * avgPos
+            - info.outward.x * inwardOffset + info.outward.x * 5;
+  const cy = info.origin.y + info.along.y * avgPos
+            - info.outward.y * inwardOffset + info.outward.y * 5;
+  slideHandle.position.set(cx, cy, avgZ);
+
+  // Orient: local +X → info.along, local +Y → world Z, local +Z → info.outward.
+  const m = new THREE.Matrix4().makeBasis(
+    info.along, new THREE.Vector3(0, 0, 1), info.outward
+  );
+  slideHandle.quaternion.setFromRotationMatrix(m);
+
+  // Vertical arrows only make sense for a single window (sill is window-only,
+  // and shifting many sills at once via one handle is rarely what the user
+  // wants). Hide for doors and for multi-select.
+  const showVertical = indices.length === 1 && openings[indices[0]].type === "window";
+  for (const child of slideHandle.children) {
+    if (child.userData && child.userData.role === "vertical") {
+      child.visible = showVertical;
+    }
+  }
   slideHandle.visible = true;
 }
 function setSlideHandleHover(hover) {
-  if (!slideHandle.userData.mat) return;
-  slideHandle.userData.mat.color.set(hover ? 0xF9BC06 : 0xffffff);
-  const s = hover ? 1.2 : 1.0;
-  slideHandle.scale.set(s, s, s);
+  // Per-arrow hover styling lives in setArrowHover (used by other arrows in
+  // the project). Keep this helper as a no-op stub so existing call sites
+  // don't crash; per-part hover can be wired in later if desired.
 }
 
 let customRidgeH = null;
@@ -4221,7 +4259,11 @@ function updateDistributePanelState() {
   const indices = selectedOpeningIndices();
   const btnC = $("btnCenterOpenings");
   const btnD = $("btnDistributeOpenings");
-  if (!indices.length) { btnC.disabled = true; btnD.disabled = true; return; }
+  const btnCopy = $("btnCopyOpening");
+  if (!indices.length) {
+    btnC.disabled = true; btnD.disabled = true; if (btnCopy) btnCopy.disabled = true;
+    return;
+  }
   const firstWall = openings[indices[0]].wallIdx;
   const sameWall = indices.every(i => openings[i].wallIdx === firstWall);
 
@@ -4238,6 +4280,14 @@ function updateDistributePanelState() {
     btnD.disabled = !sameWall;
     btnD.title = sameWall ? "Space openings evenly along the wall"
                           : "All openings must be on the same wall";
+  }
+
+  if (btnCopy) {
+    // Multi-copy isn't wired up yet — only copy a single selected opening.
+    btnCopy.disabled = indices.length !== 1;
+    btnCopy.title = indices.length === 1
+      ? "Drag onto a wall to place a copy"
+      : "Select one opening to copy";
   }
 }
 function updateDistributePanelPosition() {
@@ -4416,7 +4466,9 @@ let openingDimGroup = null;  // live dim lines showing distance to wall edges
 // Threshold scales down on short walls so snap never exceeds wallLen/4.
 function snapPosAlongToMid(posAlong, wallLen) {
   const mid = wallLen / 2;
-  const thresh = Math.min(400, wallLen / 4);
+  // Tighter snap radius — the previous 400 mm felt too "magnetic" for users
+  // trying to place close to (but not at) the wall midpoint.
+  const thresh = Math.min(120, wallLen / 12);
   return Math.abs(posAlong - mid) < thresh ? mid : posAlong;
 }
 
@@ -4586,13 +4638,14 @@ function showOpeningDims(info, posAlong, type, overrides, openingIdx) {
   scene.add(openingDimGroup);
 }
 
-function buildGhostOpening(wallIdx, posAlong, type) {
+function buildGhostOpening(wallIdx, posAlong, type, dimsOverride) {
   const info = wallInfo(wallIdx);
   if (!info) return null;
   const t = +inT.value;
-  const ow = type === "window" ? WINDOW_W : DOOR_W;
-  const oh = type === "window" ? WINDOW_H : DOOR_H;
-  const oz = type === "window" ? WINDOW_SILL + WINDOW_H / 2 : DOOR_H / 2;
+  const ow = (dimsOverride && dimsOverride.width  != null) ? dimsOverride.width  : (type === "window" ? WINDOW_W : DOOR_W);
+  const oh = (dimsOverride && dimsOverride.height != null) ? dimsOverride.height : (type === "window" ? WINDOW_H : DOOR_H);
+  const sillVal = (dimsOverride && dimsOverride.sill != null) ? dimsOverride.sill : (type === "window" ? WINDOW_SILL : 0);
+  const oz = (type === "window" ? sillVal : 0) + oh / 2;
   const half = ow / 2;
   const edgePad = info.isInterior ? half : (half + t);
   posAlong = Math.max(edgePad, Math.min(info.length - edgePad, posAlong));
@@ -4638,11 +4691,11 @@ function updateGhostOpening(e) {
     if (info) {
       const rel = new THREE.Vector3().subVectors(hp, info.origin);
       let posAlong = snapPosAlongToMid(rel.dot(info.along), info.length);
-      const newW = defaultDims(draggingOpening.type).width;
-      posAlong = resolveOpeningCollision(wi, posAlong, newW, -1);
-      ghostOpening = buildGhostOpening(wi, posAlong, draggingOpening.type);
+      const dims = draggingOpening.copyDims || defaultDims(draggingOpening.type);
+      posAlong = resolveOpeningCollision(wi, posAlong, dims.width, -1);
+      ghostOpening = buildGhostOpening(wi, posAlong, draggingOpening.type, dims);
       if (ghostOpening) scene.add(ghostOpening);
-      showOpeningDims(info, posAlong, draggingOpening.type);
+      showOpeningDims(info, posAlong, draggingOpening.type, dims);
     }
   }
 }
@@ -4664,7 +4717,7 @@ function finishOpeningDrag(e) {
     if (info) {
       const rel = new THREE.Vector3().subVectors(hp, info.origin);
       let posAlong = snapPosAlongToMid(rel.dot(info.along), info.length);
-      const dims = defaultDims(draggingOpening.type);
+      const dims = draggingOpening.copyDims || defaultDims(draggingOpening.type);
       posAlong = resolveOpeningCollision(wi, posAlong, dims.width, -1);
       openings.push({ type: draggingOpening.type, wallIdx: wi, posAlong, mesh: null,
                        width: dims.width, height: dims.height, sill: dims.sill });
@@ -5105,9 +5158,7 @@ function selectIW(idx) {
       len,
       { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" }
     );
-    const lenMm = Math.round(len);
-    $("iwLengthVal").textContent = (lenMm / 1000).toFixed(2) + " m";
-    $("iwInspector").style.display = "flex";
+    $("btnDeleteIW").style.display = "block";
     positionIWInspector();
     // Selecting a wall drops out of draw mode — clear any lingering snap UI
     // so the selection feels clean even before the next pointermove.
@@ -5128,11 +5179,12 @@ function positionIWInspector() {
   const r = renderer.domElement.getBoundingClientRect();
   const sx = (mid.x * 0.5 + 0.5) * r.width + r.left;
   const sy = (-mid.y * 0.5 + 0.5) * r.height + r.top;
-  const panel = $("iwInspector");
-  const pw = panel.offsetWidth || 220;
-  const ph = panel.offsetHeight || 150;
+  const panel = $("btnDeleteIW");
+  const pw = panel.offsetWidth || 80;
+  const ph = panel.offsetHeight || 32;
+  // North-east of the wall midpoint.
   let px = sx + 28;
-  let py = sy - ph / 2;
+  let py = sy - ph - 28;
   if (px + pw > window.innerWidth - 10) px = sx - pw - 28;
   px = Math.max(10, px);
   py = Math.max(10, Math.min(py, window.innerHeight - ph - 10));
@@ -5146,7 +5198,7 @@ function deselectIW() {
     rebuildInteriorWalls();
   }
   selectedIW = -1;
-  $("iwInspector").style.display = "none";
+  $("btnDeleteIW").style.display = "none";
   hideFFDim();
   // Re-arm the draw tool while we're still on the IW step.
   if (currentStep === 1) renderer.domElement.style.cursor = "crosshair";
@@ -5157,7 +5209,7 @@ function deleteSelectedIW() {
   markFrameStale();
   interiorWalls.splice(selectedIW, 1);
   selectedIW = -1;
-  $("iwInspector").style.display = "none";
+  $("btnDeleteIW").style.display = "none";
   rebuildInteriorWalls();
   hideFFDim();
   if (currentStep === 1) renderer.domElement.style.cursor = "crosshair";
@@ -5910,6 +5962,7 @@ function enableTopView() {
   orbit.enableRotate = false;
   orbit.minPolarAngle = 0;
   orbit.maxPolarAngle = 0.0001;
+  cam.fov = 75; cam.updateProjectionMatrix();
   orbit.update();
   updateExtWallOpacity();
 }
@@ -5925,6 +5978,7 @@ function disableTopView() {
   orbit.enableRotate = true;
   orbit.minPolarAngle = 0;
   orbit.maxPolarAngle = Math.PI / 2.05;
+  cam.fov = 35; cam.updateProjectionMatrix();
   orbit.update();
   updateExtWallOpacity();
 }
@@ -6252,19 +6306,50 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
     rc.setFromCamera(ndc, cam);
 
-    // Slide handle hit-test (takes precedence — sits on the ground by the
-    // selection centroid). Multi-select drags shift all selected together.
+    // Gimbal hit-test (takes precedence — sits on the wall plane on the
+    // selected opening). The hit's userData.role tells us which axis the
+    // user grabbed; the drag handler reads gizmoDrag each frame and applies
+    // shifts uniformly to single + multi selections.
     if (slideHandle.visible && selectedOpeningIndices().length) {
       const handleParts = [];
       slideHandle.traverse(c => { if (c.isMesh) handleParts.push(c); });
-      if (rc.intersectObjects(handleParts).length) {
-        // Sentinel: ≥0 means "drag in progress". The drag handler reads
-        // selectedOpeningIndices() each frame so it works for single + multi.
-        draggingSlide = 1;
-        orbit.enabled = false;
-        renderer.domElement.style.cursor = "grabbing";
-        setSlideHandleHover(true);
-        return;
+      const hits = rc.intersectObjects(handleParts);
+      if (hits.length) {
+        let role = null, sign = 0, node = hits[0].object;
+        while (node && node !== slideHandle) {
+          if (node.userData && node.userData.role) {
+            role = node.userData.role;
+            sign = node.userData.sign || 0;
+            break;
+          }
+          node = node.parent;
+        }
+        if (role) {
+          const indices = selectedOpeningIndices();
+          const firstWall = openings[indices[0]].wallIdx;
+          const info = wallInfo(firstWall);
+          // Wall plane through the gimbal's anchor point.
+          const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(
+            info.outward.clone(), slideHandle.position.clone()
+          );
+          const startHit = new THREE.Vector3();
+          if (rc.ray.intersectPlane(plane, startHit)) {
+            gizmoDrag = {
+              role, sign, info, plane, startHit,
+              indices: indices.slice(),
+              startStates: indices.map(i => ({
+                idx: i,
+                posAlong: openings[i].posAlong,
+                sill: openings[i].sill || 0,
+              })),
+            };
+            draggingSlide = 1;       // sentinel for the existing pointerup
+            orbit.enabled = false;
+            renderer.domElement.style.cursor = "grabbing";
+            setSlideHandleHover(true);
+            return;
+          }
+        }
       }
     }
 
@@ -6525,9 +6610,9 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         hideIWHoverHint();
       } else {
         const snapped = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
-        // Hover hint: over a wall (but not when cursor is in its endpoint-snap zone)
-        const onEndpoint = snapped.snappedX && snapped.snappedY;
-        const hovered = onEndpoint ? -1 : iwWallAtEvent(e);
+        // Cursor over a wall always means "edit" — no draw indicators, even
+        // if we'd otherwise snap to an endpoint. Click empty space to draw.
+        const hovered = iwWallAtEvent(e);
         iwHoverPointer.x = e.clientX; iwHoverPointer.y = e.clientY;
         if (hovered >= 0) {
           // Cursor is over a wall — the click will edit, not draw. Hide every
@@ -6680,64 +6765,88 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     }
   }
 
-  // Opening slide-handle dragging — project to ground, map onto wall axis.
-  // Single-select: drag one opening (with snap + collision against neighbours).
-  // Multi-select: shift the whole group by a uniform delta (clamped per
-  // opening so none leaves the wall span).
-  if (draggingSlide >= 0) {
-    const indices = selectedOpeningIndices();
-    if (!indices.length) return;
-    const firstWall = openings[indices[0]].wallIdx;
-    if (!indices.every(i => openings[i].wallIdx === firstWall)) return;
-    const info = wallInfo(firstWall);
-    const pt = groundHit(e);
-    if (!info || !pt) return;
+  // Opening gimbal dragging — raycast onto the wall plane, derive
+  // (along, vertical) deltas, then constrain to the dragged axis.
+  //   role "along"    → posAlong only (snap + collision for single)
+  //   role "vertical" → sill only (windows; clamped to wall height)
+  //   role "center"   → both axes free; for multi, vertical is suppressed.
+  if (draggingSlide >= 0 && gizmoDrag) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const cur = new THREE.Vector3();
+    if (!rc.ray.intersectPlane(gizmoDrag.plane, cur)) return;
+    const delta = cur.clone().sub(gizmoDrag.startHit);
+    const info = gizmoDrag.info;
     const tVal = +inT.value;
-    // Cursor position along the wall axis.
-    const dx = pt.x - info.origin.x, dy = pt.y - info.origin.y;
-    const cursorP = dx * info.along.x + dy * info.along.y;
+    const wallH = +inH.value;
 
-    if (indices.length === 1) {
-      const idx = indices[0];
-      const o = openings[idx];
+    let dAlong = delta.dot(info.along);
+    let dVert = delta.z;
+    // 10 mm (1 cm) snap on both axes — fine enough for trim adjustments
+    // without feeling continuous.
+    dAlong = Math.round(dAlong / 10) * 10;
+    dVert = Math.round(dVert / 10) * 10;
+    // Constrain to the grabbed axis. Center allows both; multi has no vertical.
+    if (gizmoDrag.role === "along") dVert = 0;
+    else if (gizmoDrag.role === "vertical") dAlong = 0;
+    if (gizmoDrag.indices.length > 1) dVert = 0;
+
+    // Clamp dAlong so no opening crosses the wall ends.
+    for (const ss of gizmoDrag.startStates) {
+      const o = openings[ss.idx];
       const half = o.width / 2;
       const edgePad = info.isInterior ? half : (half + tVal);
-      let p = clamp(Math.round(cursorP / 100) * 100, edgePad, info.length - edgePad);
-      p = resolveOpeningCollision(o.wallIdx, p, o.width, idx);
-      if (p !== o.posAlong) {
-        o.posAlong = p;
-        rebuildSingleOpening(idx);
-        showOpeningDims(info, p, o.type, { width: o.width, height: o.height, sill: o.sill }, idx);
-        updateInspectorPosition();
-        positionSlideHandle();
+      const lo = edgePad - ss.posAlong;
+      const hi = (info.length - edgePad) - ss.posAlong;
+      if (dAlong < lo) dAlong = lo;
+      if (dAlong > hi) dAlong = hi;
+    }
+    // Clamp dVert (windows only): sill ≥ 0 and sill+height ≤ wallH.
+    for (const ss of gizmoDrag.startStates) {
+      const o = openings[ss.idx];
+      if (o.type !== "window") continue;
+      const minSill = -ss.sill;
+      const maxSill = (wallH - o.height) - ss.sill;
+      if (dVert < minSill) dVert = minSill;
+      if (dVert > maxSill) dVert = maxSill;
+    }
+    // Single + along: also resolve collision against neighbour openings.
+    if (gizmoDrag.role === "along" && gizmoDrag.startStates.length === 1) {
+      const ss = gizmoDrag.startStates[0];
+      const o = openings[ss.idx];
+      const target = ss.posAlong + dAlong;
+      const resolved = resolveOpeningCollision(o.wallIdx, target, o.width, ss.idx);
+      dAlong = resolved - ss.posAlong;
+    }
+
+    let changed = false;
+    for (const ss of gizmoDrag.startStates) {
+      const o = openings[ss.idx];
+      const newPos = ss.posAlong + dAlong;
+      const newSill = (o.type === "window") ? (ss.sill + dVert) : ss.sill;
+      if (newPos !== o.posAlong || (o.type === "window" && newSill !== o.sill)) {
+        o.posAlong = newPos;
+        if (o.type === "window") o.sill = newSill;
+        rebuildSingleOpening(ss.idx);
+        changed = true;
       }
-      return;
     }
-
-    // Multi: compute shift from current centroid to cursor.
-    let centroid = 0;
-    for (const i of indices) centroid += openings[i].posAlong;
-    centroid /= indices.length;
-    let shift = Math.round((cursorP - centroid) / 100) * 100;
-    // Clamp shift so no opening crosses the wall ends.
-    for (const i of indices) {
-      const o = openings[i];
-      const half = o.width / 2;
-      const edgePad = info.isInterior ? half : (half + tVal);
-      const lo = edgePad - o.posAlong;
-      const hi = (info.length - edgePad) - o.posAlong;
-      if (shift < lo) shift = lo;
-      if (shift > hi) shift = hi;
+    if (changed) {
+      for (const ss of gizmoDrag.startStates) applySelectionHighlight(ss.idx);
+      if (gizmoDrag.startStates.length === 1) {
+        const idx = gizmoDrag.startStates[0].idx;
+        const o = openings[idx];
+        showOpeningDims(info, o.posAlong, o.type,
+                        { width: o.width, height: o.height, sill: o.sill }, idx);
+        updateInspectorPosition();
+      } else {
+        hideOpeningDims();
+      }
+      positionSlideHandle();
+      updateDistributePanelPosition();
     }
-    if (shift === 0) return;
-    for (const i of indices) {
-      openings[i].posAlong += shift;
-      rebuildSingleOpening(i);
-    }
-    for (const i of indices) applySelectionHighlight(i);
-    hideOpeningDims();           // dim labels are per-opening; suppress during multi-drag
-    positionSlideHandle();
-    updateDistributePanelPosition();
     return;
   }
 
@@ -6868,6 +6977,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   if (step0DragEnded && currentStep === 0) { pushHistory(); maybeFitExtents(true); }
   if (draggingSlide >= 0) {
     draggingSlide = -1;
+    gizmoDrag = null;
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
     setSlideHandleHover(false);
@@ -7249,6 +7359,27 @@ $("btnDeleteIW").addEventListener("click", deleteSelectedIW);
 $("btnDeleteFF").addEventListener("click", deleteSelectedFF);
 $("btnDistributeOpenings").addEventListener("click", distributeSelectedOpenings);
 $("btnCenterOpenings").addEventListener("click", centerSelectedOpenings);
+
+// Copy: starts the same drag-to-place flow used by the side-panel openings
+// tools, but pre-loaded with the selected opening's dims so the placed copy
+// keeps width/height/sill. User drags from the button onto a wall and drops.
+$("btnCopyOpening").addEventListener("pointerdown", (e) => {
+  if (e.currentTarget.disabled) return;
+  e.preventDefault();
+  const indices = selectedOpeningIndices();
+  if (indices.length !== 1) return;
+  const o = openings[indices[0]];
+  if (typeof measureActive !== "undefined" && measureActive) setMeasureActive(false);
+  draggingOpening = {
+    type: o.type,
+    copyDims: { width: o.width, height: o.height, sill: o.sill },
+  };
+  document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
+  dragGhost.innerHTML = GHOST_SVGS[o.type];
+  dragGhost.style.display = "block";
+  dragGhost.style.left = e.clientX + "px";
+  dragGhost.style.top = e.clientY + "px";
+});
 $("btnDismissScaleWorker").addEventListener("click", dismissScaleWorker);
 
 function setIwToRidge(v) {
