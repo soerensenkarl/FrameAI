@@ -1,4 +1,5 @@
 """Flask app – wall framing via rhinoinside."""
+import json
 import math
 import os
 from functools import wraps
@@ -31,35 +32,33 @@ if not SKIP_RHINO:
     RHINO_AVAILABLE = True
 
 
-def _proxy_to_rhino():
-    """Forward the current request to RHINO_PROXY_URL and relay the response.
+def _post_to_rhino_proxy(path, body, content_type="application/json"):
+    """POST `body` (bytes) to RHINO_PROXY_URL + `path`; relay the response.
 
-    Uses stdlib urllib so no extra dependency. Passes JSON body through,
-    returns raw bytes + status + Content-Type so binary responses (e.g.
-    .3dm file downloads) survive the hop.
+    Used when running as dev (FRAMEAI_SKIP_RHINO=1) to forward Rhino-requiring
+    routes to a local prod instance. Returns (bytes, status, headers) so
+    binary responses (e.g. .3dm file downloads) survive the hop.
+
+    All proxied routes are POST today; if a GET route ever needs proxying,
+    accept method as a parameter.
     """
     import urllib.request
     import urllib.error
-    url = f"{RHINO_PROXY_URL}{request.path}"
-    body = request.get_data() or b""
+    url = f"{RHINO_PROXY_URL}{path}"
     req = urllib.request.Request(
-        url,
-        data=body,
-        method=request.method,
-        headers={"Content-Type": request.headers.get("Content-Type", "application/json")},
+        url, data=body, method="POST",
+        headers={"Content-Type": content_type},
     )
     try:
         with urllib.request.urlopen(req, timeout=300) as resp:
-            return (
-                resp.read(),
-                resp.status,
-                {"Content-Type": resp.getheader("Content-Type", "application/json")},
-            )
+            return (resp.read(), resp.status,
+                    {"Content-Type": resp.getheader("Content-Type", "application/json")})
     except urllib.error.HTTPError as e:
-        return (e.read(), e.code, {"Content-Type": e.headers.get("Content-Type", "application/json")})
+        return (e.read(), e.code,
+                {"Content-Type": e.headers.get("Content-Type", "application/json")})
     except urllib.error.URLError as e:
         return (
-            jsonify({"error": f"Rhino proxy unreachable at {RHINO_PROXY_URL}: {e.reason}. Is the prod server running on that port?"}).get_data(),
+            jsonify({"error": f"Rhino proxy unreachable at {RHINO_PROXY_URL}: {e.reason}. Is the prod server running?"}).get_data(),
             502,
             {"Content-Type": "application/json"},
         )
@@ -109,7 +108,11 @@ def requires_rhino(fn):
             if last_exc is not None:
                 raise last_exc
         if RHINO_PROXY_URL:
-            return _proxy_to_rhino()
+            return _post_to_rhino_proxy(
+                request.path,
+                request.get_data() or b"",
+                request.headers.get("Content-Type", "application/json"),
+            )
         return jsonify({
             "error": "Geometry disabled in this process (FRAMEAI_SKIP_RHINO=1) and no RHINO_PROXY_URL set. Start the prod server and set RHINO_PROXY_URL=http://localhost:5000, or stop prod and restart this process without FRAMEAI_SKIP_RHINO=1."
         }), 503
@@ -120,6 +123,43 @@ OUTPUT_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "output")
 FEEDBACK_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "feedback")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Indkøbspriser per linear meter (DKK), keyed by canonical "WxD" (W >= D).
+# Sections not in the table fall back to a volumetric estimate so one
+# surprise never silently prices a frame at zero.
+TIMBER_PRICE_PER_M = {
+    "295x45": 48.00,
+    "245x45": 36.00,
+    "220x45": 32.00,
+    "195x45": 27.00,
+    "170x45": 24.50,
+    "145x45": 21.00,
+    "120x45": 18.95,
+    "95x45":  14.00,
+    "70x45":  11.00,
+    "50x45":   7.00,
+    "45x45":   7.00,
+}
+
+
+def _rate_for_section(section):
+    """DKK per linear meter for a given cross-section (e.g. '295x45').
+
+    Tolerates both '295x45' and '45x295' orderings; unknown sections fall
+    back to a volumetric estimate.
+    """
+    rate = TIMBER_PRICE_PER_M.get(section)
+    if rate is not None:
+        return rate
+    try:
+        a, b = (int(x) for x in str(section).split("x"))
+    except (ValueError, AttributeError):
+        return 0.0
+    rate = TIMBER_PRICE_PER_M.get(f"{max(a, b)}x{min(a, b)}")
+    if rate is not None:
+        return rate
+    return (a * b / 1e6) * 3350
+
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), "static"))
 # Sessions are signed cookies — set FRAMEAI_SECRET_KEY in prod (run_prod.bat).
@@ -217,6 +257,38 @@ def _member_long_axis(brep):
     return [0.0, 0.0, 1.0]
 
 
+def _to_brep(geom):
+    """Coerce a Rhino geometry value to a Brep, or None if not coercible.
+
+    Handles both isinstance checks and pythonnet GetType().Name fallback —
+    Grasshopper's IGH_Goo wrapper occasionally produces values where
+    isinstance fails despite the underlying type being a Brep/Extrusion.
+    """
+    if isinstance(geom, rg.Brep):
+        return geom
+    if isinstance(geom, rg.Extrusion):
+        return geom.ToBrep()
+    get_type = getattr(geom, "GetType", None)
+    if get_type is None:
+        return None
+    name = get_type().Name
+    if name == "Brep":
+        return geom
+    if name == "Extrusion":
+        return geom.ToBrep()
+    return None
+
+
+def _as_mesh(geom):
+    """Return geom if it's a Rhino Mesh (isinstance OR pythonnet type name)."""
+    if isinstance(geom, rg.Mesh):
+        return geom
+    get_type = getattr(geom, "GetType", None)
+    if get_type and get_type().Name == "Mesh":
+        return geom
+    return None
+
+
 def _members_to_triangles(mesh_geoms, brep_geoms):
     """Build per-member verts/normals/tangents/tris arrays.
 
@@ -227,22 +299,9 @@ def _members_to_triangles(mesh_geoms, brep_geoms):
     verts, normals, tangents, tris = [], [], [], []
     n = min(len(mesh_geoms), len(brep_geoms))
     for i in range(n):
-        mg = mesh_geoms[i]
-        bg = brep_geoms[i]
-        mesh = mg if isinstance(mg, rg.Mesh) else None
-        if mesh is None and getattr(mg, "GetType", lambda: None)() and mg.GetType().Name == "Mesh":
-            mesh = mg
-        if mesh is None:
-            continue
-        if isinstance(bg, rg.Brep):
-            brep = bg
-        elif isinstance(bg, rg.Extrusion):
-            brep = bg.ToBrep()
-        elif getattr(bg, "GetType", lambda: None)() and bg.GetType().Name == "Extrusion":
-            brep = bg.ToBrep()
-        elif getattr(bg, "GetType", lambda: None)() and bg.GetType().Name == "Brep":
-            brep = bg
-        else:
+        mesh = _as_mesh(mesh_geoms[i])
+        brep = _to_brep(brep_geoms[i])
+        if mesh is None or brep is None:
             continue
         mesh.FaceNormals.ComputeFaceNormals()
         mesh.Normals.ComputeNormals()
@@ -383,39 +442,6 @@ def index():
     return send_file(os.path.join(app.static_folder, "index.html"))
 
 
-def _forward_specs_to_rhino(specs):
-    """Forward a spec bundle to prod's /solve-frame and relay the response.
-
-    Used by dev (FRAMEAI_SKIP_RHINO=1) so dev-side Python changes to the
-    pure-Python spec builders take effect immediately without needing to ship
-    to prod. Prod only has to know how to turn specs → Breps → GH solution.
-    """
-    import urllib.request
-    import urllib.error
-    import json
-    url = f"{RHINO_PROXY_URL}/solve-frame"
-    body = json.dumps(specs).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=body, method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            return (
-                resp.read(),
-                resp.status,
-                {"Content-Type": resp.getheader("Content-Type", "application/json")},
-            )
-    except urllib.error.HTTPError as e:
-        return (e.read(), e.code, {"Content-Type": e.headers.get("Content-Type", "application/json")})
-    except urllib.error.URLError as e:
-        return (
-            jsonify({"error": f"Rhino proxy unreachable at {RHINO_PROXY_URL}: {e.reason}. Is the prod server running?"}).get_data(),
-            502,
-            {"Content-Type": "application/json"},
-        )
-
-
 @app.route("/generate-frame", methods=["POST"])
 def generate_frame():
     """Front door. Always does the pure-Python spec computation; then either
@@ -427,7 +453,9 @@ def generate_frame():
 
         if not RHINO_AVAILABLE:
             if RHINO_PROXY_URL:
-                return _forward_specs_to_rhino(specs)
+                return _post_to_rhino_proxy(
+                    "/solve-frame", json.dumps(specs).encode("utf-8"),
+                )
             return jsonify({
                 "error": "FRAMEAI_SKIP_RHINO=1 but RHINO_PROXY_URL is empty. Start dev via run_dev.bat (it sets both), or stop prod and restart this process without FRAMEAI_SKIP_RHINO=1."
             }), 503
@@ -454,90 +482,62 @@ def solve_frame():
         return jsonify({"error": str(e)}), 500
 
 
-def _solve_and_respond(specs):
-    """Build Breps from specs, solve the Grasshopper definition, and return
-    the full Flask JSON response (mesh triangles + part list + saved files)."""
-    wall_breps = _breps_from_specs(specs["walls"])
-    door_breps = _breps_from_specs(specs["doors"])
+def _solve_inputs(specs):
+    """Build Brep inputs from specs and run the GH definition.
+
+    Returns (outputs, wall_breps, door_breps, window_breps, roof_breps).
+    """
+    wall_breps   = _breps_from_specs(specs["walls"])
+    door_breps   = _breps_from_specs(specs["doors"])
     window_breps = _breps_from_specs(specs["windows"])
-    roof_breps = _breps_from_specs(specs["roof"])
-
+    roof_breps   = _breps_from_specs(specs["roof"])
     outputs = solve_definition("generator_3.0.gh", {
-        "WallBreps": wall_breps,
-        "DoorBreps": door_breps,
+        "WallBreps":   wall_breps,
+        "DoorBreps":   door_breps,
         "WindowBreps": window_breps,
-        "RoofBreps": roof_breps,
+        "RoofBreps":   roof_breps,
     }, data_nicknames=["cross_sec_out", "count_out", "total_length_out"])
+    return outputs, wall_breps, door_breps, window_breps, roof_breps
 
-    # "MeshOut" → display in browser, "BrepOut" → save to .3dm
-    mesh_geoms = outputs.get("MeshOut", [])
-    brep_geoms = outputs.get("BrepOut", [])
 
-    # Build display mesh from MeshOut
-    joined = rg.Mesh()
-    for geom in mesh_geoms:
-        if isinstance(geom, rg.Mesh):
-            joined.Append(geom)
-        else:
-            tn = geom.GetType().Name
-            if tn == "Mesh":
-                joined.Append(geom)
-    joined.FaceNormals.ComputeFaceNormals()
-    joined.Normals.ComputeNormals()
-
-    # Collect Breps from BrepOut for .3dm saving
-    breps_out = []
-    for geom in brep_geoms:
-        if isinstance(geom, rg.Brep):
-            breps_out.append(geom)
-        elif isinstance(geom, rg.Extrusion):
-            breps_out.append(geom.ToBrep())
-        else:
-            tn = geom.GetType().Name
-            if tn == "Brep":
-                breps_out.append(geom)
-            elif tn == "Extrusion":
-                breps_out.append(geom.ToBrep())
-
-    # Save all input breps to design.3dm, organized by layer.
-    input_saved = _save_layered_breps_3dm([
+def _save_design_artifacts(wall_breps, door_breps, window_breps, roof_breps,
+                           breps_out, joined_mesh):
+    """Save design.3dm (inputs, layered), frame.3dm (output Breps), and
+    frame_mesh.3dm (display mesh). Returns the three file paths (any may
+    be None if the source was empty).
+    """
+    design_path = _save_layered_breps_3dm([
         ("walls",   (180, 140,  90), wall_breps),
         ("windows", ( 80, 170, 220), window_breps),
         ("doors",   (230, 150,  60), door_breps),
         ("roof",    (200,  70,  60), roof_breps),
     ], "design.3dm")
 
-    # Save frame Breps to frame.3dm
-    frame_brep_saved = None
-    if breps_out:
-        frame_brep_saved = _save_breps_3dm(breps_out, "frame.3dm")
+    frame_brep_path = _save_breps_3dm(breps_out, "frame.3dm") if breps_out else None
 
-    # Save frame mesh to frame_mesh.3dm
-    frame_mesh_saved = None
-    if joined.Vertices.Count > 0:
+    frame_mesh_path = None
+    if joined_mesh.Vertices.Count > 0:
         model = rio.File3dm()
-        model.Objects.AddMesh(joined)
-        frame_mesh_saved = _write_3dm(model, "frame_mesh.3dm")
+        model.Objects.AddMesh(joined_mesh)
+        frame_mesh_path = _write_3dm(model, "frame_mesh.3dm")
 
-    verts, normals, tangents, tris = _members_to_triangles(mesh_geoms, breps_out)
+    return design_path, frame_brep_path, frame_mesh_path
 
-    # Crease edges from the clean Brep topology — renders true member edges
-    # without the triangulation artifacts that plague mesh-based EdgesGeometry
-    # on boolean-cut window-adjacent members.
-    crease_edges = _brep_crease_segments(breps_out)
 
-    # Prefer stats straight from the GH definition (cross_sec_out / count_out /
-    # total_length_out — parallel lists, one entry per cross-section).
-    # Fall back to brep-bbox scanning when the data params are missing / empty.
+def _build_part_list(outputs, breps_out):
+    """Build the per-cross-section part list. Prefers GH data outputs;
+    falls back to Brep-bbox scanning when those are missing / empty.
+
+    Returns (part_list, member_count, total_volume_m3).
+    """
     cs_list = outputs.get("cross_sec_out") or []
     ct_list = outputs.get("count_out") or []
     tl_list = outputs.get("total_length_out") or []
 
-    part_list = []
-    total_volume_m3 = 0.0
-    member_count = 0
-
     if cs_list and len(cs_list) == len(ct_list) == len(tl_list):
+        part_list = []
+        total_volume_m3 = 0.0
+        member_count = 0
         for sec_str, cnt, tot_len_m in zip(cs_list, ct_list, tl_list):
             sec_str = str(sec_str).lower().replace(" ", "")
             try:
@@ -557,77 +557,46 @@ def _solve_and_respond(specs):
                 "meters": round(tot_len_m, 1),
                 "count": cnt,
             })
-    else:
-        # Legacy fallback: walk the frame Breps and infer sections by bbox.
-        from collections import defaultdict
-        section_lengths = defaultdict(float)
-        total_volume_mm3 = 0.0
-        for b in breps_out:
-            bb = b.GetBoundingBox(True)
-            dims = sorted([
-                round(bb.Max.X - bb.Min.X),
-                round(bb.Max.Y - bb.Min.Y),
-                round(bb.Max.Z - bb.Min.Z),
-            ])
-            sec_w, sec_d, length = dims[0], dims[1], dims[2]
-            sec_w = round(sec_w / 5) * 5
-            sec_d = round(sec_d / 5) * 5
-            length = round(length / 100) * 100
-            section_lengths[(sec_d, sec_w)] += length
-            total_volume_mm3 += sec_w * sec_d * length
-            member_count += 1
-        for (sec_d, sec_w), total_len_mm in sorted(section_lengths.items()):
-            part_list.append({
-                "section": f"{sec_d}x{sec_w}",
-                "meters": round(total_len_mm / 1000, 1),
-                "count": None,
-            })
-        total_volume_m3 = total_volume_mm3 / 1e9
+        return part_list, member_count, total_volume_m3
 
-    # Waste is no longer available from GH (per-member lengths needed) —
-    # report the fabrication mark-up line separately.
-    waste_pct = 0
-    weight_kg = total_volume_m3 * 500
+    # Legacy fallback: walk frame Breps and infer sections by bbox.
+    from collections import defaultdict
+    section_lengths = defaultdict(float)
+    total_volume_mm3 = 0.0
+    member_count = 0
+    for b in breps_out:
+        bb = b.GetBoundingBox(True)
+        dims = sorted([
+            round(bb.Max.X - bb.Min.X),
+            round(bb.Max.Y - bb.Min.Y),
+            round(bb.Max.Z - bb.Min.Z),
+        ])
+        sec_w, sec_d, length = dims[0], dims[1], dims[2]
+        sec_w = round(sec_w / 5) * 5
+        sec_d = round(sec_d / 5) * 5
+        length = round(length / 100) * 100
+        section_lengths[(sec_d, sec_w)] += length
+        total_volume_mm3 += sec_w * sec_d * length
+        member_count += 1
 
-    # Estimated build time: ~5 min per member
-    build_minutes = member_count * 5
-    build_h = build_minutes // 60
-    build_m = build_minutes % 60
+    part_list = [
+        {"section": f"{sec_d}x{sec_w}",
+         "meters":  round(total_len_mm / 1000, 1),
+         "count":   None}
+        for (sec_d, sec_w), total_len_mm in sorted(section_lengths.items())
+    ]
+    return part_list, member_count, total_volume_mm3 / 1e9
 
-    # Pricing (DKK). Material = per-section indkøbspris × meters. Fabrication
-    # = Material × fab_factor (admin-controlled slider, default 1×). Total is
-    # the sum. Unknown sections fall back to a volumetric rate so one surprise
-    # section doesn't silently price at zero.
-    timber_price_per_m = {
-        "295x45": 48.00,
-        "245x45": 36.00,
-        "220x45": 32.00,
-        "195x45": 27.00,
-        "170x45": 24.50,
-        "145x45": 21.00,
-        "120x45": 18.95,
-        "95x45":  14.00,
-        "70x45":  11.00,
-        "50x45":   7.00,
-        "45x45":   7.00,
-    }
-    # Raw purchase cost (indkøbspris × meters). Tolerates both "295x45" and
-    # "45x295" orderings, and falls back to a volumetric estimate when a
-    # section isn't in the table so one surprise never prices a frame at zero.
-    def _rate_for(section):
-        rate = timber_price_per_m.get(section)
-        if rate is not None:
-            return rate
-        try:
-            a, b = (int(x) for x in str(section).split("x"))
-        except (ValueError, AttributeError):
-            return 0.0
-        # Canonical key is bigger-first; try both before fallback.
-        rate = timber_price_per_m.get(f"{max(a, b)}x{min(a, b)}")
-        if rate is not None:
-            return rate
-        return (a * b / 1e6) * 3350
 
+def _compute_pricing(part_list, material_factor, fab_factor):
+    """Material/fabrication/total cost for the given part list.
+
+    Material and Fabrication each scale rawCost INDEPENDENTLY — they do not
+    chain. Total = Material + Fabrication. Factors clamped to [0, 10] so a
+    malformed request can't bloat or zero the price.
+    """
+    material_factor = max(0.0, min(10.0, float(material_factor)))
+    fab_factor      = max(0.0, min(10.0, float(fab_factor)))
     raw_timber_cost = 0.0
     for it in part_list:
         meters = it.get("meters")
@@ -637,18 +606,56 @@ def _solve_and_respond(specs):
             continue
         if meters <= 0:
             continue
-        raw_timber_cost += _rate_for(it.get("section")) * meters
-
-    # Material and Fabrication each scale rawCost INDEPENDENTLY — they do not
-    # chain. Total = Material + Fabrication. Factors clamped to [0, 10] so a
-    # malformed request can't bloat or zero the price.
-    material_factor = max(0.0, min(10.0, float(specs.get("material_factor", 3.1))))
-    fab_factor      = max(0.0, min(10.0, float(specs.get("fab_factor", 1.0))))
+        raw_timber_cost += _rate_for_section(it.get("section")) * meters
     material_cost    = raw_timber_cost * material_factor
     fabrication_cost = raw_timber_cost * fab_factor
-    price = material_cost + fabrication_cost
-    # Keep the historical field name populated for any external consumer.
-    timber_cost = material_cost
+    return {
+        "raw_timber_cost":  round(raw_timber_cost, 2),
+        "material_cost":    round(material_cost, 2),
+        "fabrication_cost": round(fabrication_cost, 2),
+        "timber_cost":      round(material_cost, 2),  # alias of material_cost (back-compat)
+        "price":            round(material_cost + fabrication_cost, 2),
+    }
+
+
+def _solve_and_respond(specs):
+    """Build Breps from specs, solve GH, return the full Flask JSON response."""
+    outputs, wall_breps, door_breps, window_breps, roof_breps = _solve_inputs(specs)
+
+    mesh_geoms = outputs.get("MeshOut", [])
+    brep_geoms = outputs.get("BrepOut", [])
+
+    # Joined display mesh from MeshOut
+    joined = rg.Mesh()
+    for geom in mesh_geoms:
+        m = _as_mesh(geom)
+        if m is not None:
+            joined.Append(m)
+    joined.FaceNormals.ComputeFaceNormals()
+    joined.Normals.ComputeNormals()
+
+    breps_out = [b for b in (_to_brep(g) for g in brep_geoms) if b is not None]
+
+    design_saved, frame_brep_saved, frame_mesh_saved = _save_design_artifacts(
+        wall_breps, door_breps, window_breps, roof_breps, breps_out, joined,
+    )
+
+    verts, normals, tangents, tris = _members_to_triangles(mesh_geoms, breps_out)
+    # Crease edges from the clean Brep topology — renders true member edges
+    # without the triangulation artifacts that plague mesh-based EdgesGeometry
+    # on boolean-cut window-adjacent members.
+    crease_edges = _brep_crease_segments(breps_out)
+
+    part_list, member_count, total_volume_m3 = _build_part_list(outputs, breps_out)
+    pricing = _compute_pricing(
+        part_list,
+        specs.get("material_factor", 3.1),
+        specs.get("fab_factor", 1.0),
+    )
+
+    weight_kg = total_volume_m3 * 500
+    build_minutes = member_count * 5  # ~5 min per member
+    build_h, build_m = build_minutes // 60, build_minutes % 60
 
     return jsonify({
         "vertices": verts,
@@ -657,19 +664,15 @@ def _solve_and_respond(specs):
         "faces": tris,
         "crease_edges": crease_edges,
         "result_count": len(mesh_geoms),
-        "design_saved": input_saved,
+        "design_saved": design_saved,
         "frame_brep_saved": frame_brep_saved,
         "frame_mesh_saved": frame_mesh_saved,
         "stats": {
             "member_count": member_count,
-            "waste_pct": round(waste_pct, 1),
+            "waste_pct": 0,
             "build_time": f"{build_h}h {build_m:02d}m",
             "weight_kg": round(weight_kg, 1),
-            "raw_timber_cost": round(raw_timber_cost, 2),
-            "material_cost": round(material_cost, 2),
-            "fabrication_cost": round(fabrication_cost, 2),
-            "timber_cost": round(timber_cost, 2),   # alias of material_cost (back-compat)
-            "price": round(price, 2),
+            **pricing,
             "part_list": part_list,
         },
     })
