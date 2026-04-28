@@ -32,11 +32,10 @@ The server must run single-threaded (`threaded=False`) because .NET/RhinoCommon 
 
 - **src/** – All geometry logic lives here. Every function that touches RhinoCommon belongs in `src/`.
 - **tests/** – pytest tests. `conftest.py` handles `sys.path` and `rhinoinside.load()`.
-- **gh_components/** – Grasshopper component wrappers (thin shims that call into `src/`).
 
 ## Key rule
 
-All logic lives in `src/`. Grasshopper components and tests import from `src/` — they never contain geometry logic themselves.
+All logic lives in `src/`. Tests import from `src/` — they never contain geometry logic themselves.
 
 ## Multiple agents. 
 User often runs two agents in parallel by simply launching two terminals in the same folder. Therefore you might sometimes clash with code being rewritten by another agent in front of you. Just fyi.

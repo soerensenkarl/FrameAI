@@ -1,8 +1,6 @@
 """Flask app – wall framing via rhinoinside."""
-import io
 import math
 import os
-import tempfile
 from functools import wraps
 
 # Ensure Rhino's native DLLs are findable
@@ -24,8 +22,6 @@ RHINO_AVAILABLE = False
 if not SKIP_RHINO:
     import rhinoinside
     rhinoinside.load(RHINO_SYSTEM, "net8.0")
-    from box_gen import generate_box
-    from wall_framer import frame_wall
     from gh_runner import solve_definition
     import System
     import Rhino.FileIO as rio
@@ -138,24 +134,6 @@ accounts.init_app(app)
 
 
 # ── helpers ──
-
-def _mesh_to_triangles(mesh):
-    """Extract vertices, normals and triangle indices from a Rhino Mesh."""
-    verts = []
-    normals = []
-    for i in range(mesh.Vertices.Count):
-        v = mesh.Vertices[i]
-        verts.append([float(v.X), float(v.Y), float(v.Z)])
-        n = mesh.Normals[i]
-        normals.append([float(n.X), float(n.Y), float(n.Z)])
-    tris = []
-    for i in range(mesh.Faces.Count):
-        f = mesh.Faces[i]
-        tris.append([f.A, f.B, f.C])
-        if f.IsQuad:
-            tris.append([f.A, f.C, f.D])
-    return verts, normals, tris
-
 
 def _brep_crease_segments(breps, threshold_deg=20.0):
     """Extract crease-edge line segments from a list of Breps.
@@ -283,35 +261,6 @@ def _members_to_triangles(mesh_geoms, brep_geoms):
             if f.IsQuad:
                 tris.append([f.A + offset, f.C + offset, f.D + offset])
     return verts, normals, tangents, tris
-
-
-def _breps_to_mesh(breps):
-    """Convert Breps into a single clean Mesh for Three.js rendering.
-
-    Each member is meshed and cleaned individually (normals unified per
-    connected component) before joining, so winding is always consistent.
-    SimplePlanes keeps flat box faces as minimal quads.
-    Normals are computed once on the final joined mesh.
-    """
-    mp = rg.MeshingParameters.Default
-    mp.SimplePlanes = True
-
-    joined = rg.Mesh()
-    for brep in breps:
-        face_meshes = rg.Mesh.CreateFromBrep(brep, mp)
-        if not face_meshes:
-            continue
-        part = rg.Mesh()
-        for fm in face_meshes:
-            part.Append(fm)
-        part.Vertices.CombineIdentical(True, True)
-        part.UnifyNormals()
-        part.Compact()
-        joined.Append(part)
-
-    joined.FaceNormals.ComputeFaceNormals()
-    joined.Normals.ComputeNormals()
-    return joined
 
 
 def _write_3dm(model, filename):
@@ -1011,65 +960,6 @@ def index():
     return send_file(os.path.join(app.static_folder, "index.html"))
 
 
-@app.route("/generate", methods=["POST"])
-@requires_rhino
-def generate():
-    data = request.get_json()
-    mesh = generate_box(float(data["width"]), float(data["depth"]), float(data["height"]))
-    if not mesh.IsValid:
-        return jsonify({"error": "Generated mesh is invalid"}), 400
-
-    fd, path = tempfile.mkstemp(suffix=".3dm")
-    os.close(fd)
-    model = rio.File3dm()
-    model.Objects.AddMesh(mesh)
-    opts = rio.File3dmWriteOptions()
-    opts.Version = 7
-    model.Write(path, opts)
-    with open(path, "rb") as f:
-        buf = io.BytesIO(f.read())
-    os.unlink(path)
-    buf.seek(0)
-    return send_file(buf, as_attachment=True, download_name="box.3dm",
-                     mimetype="application/octet-stream")
-
-
-@app.route("/frame", methods=["POST"])
-@requires_rhino
-def frame():
-    try:
-        data = request.get_json()
-        members = frame_wall(
-            start_x=float(data["start_x"]),
-            start_y=float(data["start_y"]),
-            end_x=float(data["end_x"]),
-            end_y=float(data["end_y"]),
-            height=float(data.get("height", 2400)),
-            stud_spacing=float(data.get("stud_spacing", 600)),
-            stud_width=float(data.get("stud_width", 45)),
-            stud_depth=float(data.get("stud_depth", 90)),
-        )
-
-        # Save Breps to .3dm
-        saved_path = _save_breps_3dm(members, "wall_frame.3dm")
-
-        # Convert Breps → single Mesh → triangles for three.js
-        mesh = _breps_to_mesh(members)
-        all_verts, all_normals, all_tris = _mesh_to_triangles(mesh)
-
-        return jsonify({
-            "vertices": all_verts,
-            "normals": all_normals,
-            "faces": all_tris,
-            "member_count": len(members),
-            "file_saved": saved_path,
-        })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
 def _forward_specs_to_rhino(specs):
     """Forward a spec bundle to prod's /solve-frame and relay the response.
 
@@ -1360,61 +1250,6 @@ def _solve_and_respond(specs):
             "part_list": part_list,
         },
     })
-
-
-@app.route("/solve-gh", methods=["POST"])
-@requires_rhino
-def solve_gh():
-    try:
-        data = request.get_json()
-        start_x = float(data["start_x"])
-        start_y = float(data["start_y"])
-        end_x = float(data["end_x"])
-        end_y = float(data["end_y"])
-        height = float(data.get("height", 2400))
-        stud_depth = float(data.get("stud_depth", 90))
-
-        # Build a single wall box Brep for the GH definition
-        dx = end_x - start_x
-        dy = end_y - start_y
-        wall_length = math.hypot(dx, dy)
-
-        # Local axes: along wall, perpendicular, up
-        x_vec = rg.Vector3d(dx / wall_length, dy / wall_length, 0)
-        y_vec = rg.Vector3d(-dy / wall_length, dx / wall_length, 0)
-        z_vec = rg.Vector3d(0, 0, 1)
-
-        origin = rg.Point3d(start_x, start_y, 0)
-        plane = rg.Plane(origin, x_vec, y_vec)
-        box = rg.Box(plane, rg.Interval(0, wall_length),
-                     rg.Interval(0, stud_depth),
-                     rg.Interval(0, height))
-        wall_brep = box.ToBrep()
-
-        # Solve the GH definition with the wall box
-        outputs = solve_definition("generator_3.0.gh", {"WallBreps": [wall_brep]})
-
-        # Use MeshOut for display
-        joined = rg.Mesh()
-        for geom in outputs.get("MeshOut", []):
-            if isinstance(geom, rg.Mesh):
-                joined.Append(geom)
-            elif getattr(geom, "GetType", lambda: None)() and geom.GetType().Name == "Mesh":
-                joined.Append(geom)
-        joined.FaceNormals.ComputeFaceNormals()
-        joined.Normals.ComputeNormals()
-        verts, normals, tris = _mesh_to_triangles(joined)
-
-        return jsonify({
-            "vertices": verts,
-            "normals": normals,
-            "faces": tris,
-            "result_count": len(outputs.get("MeshOut", [])),
-        })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/feedback", methods=["POST"])
