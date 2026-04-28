@@ -86,6 +86,16 @@ def test_compute_specs_flat_sloped_uses_planar_solid():
     assert specs["roof"][0]["kind"] == "planar_solid"
 
 
+def test_compute_specs_endpoint_returns_bundle():
+    """The parity diagnostic in the browser POSTs to /api/compute-specs to
+    fetch the Python spec bundle and diff it against the JS one."""
+    resp = _client().post("/api/compute-specs", json=_sample_frame_request())
+    assert resp.status_code == 200, resp.data.decode()
+    data = resp.get_json()
+    assert {"walls", "roof", "doors", "windows"}.issubset(data.keys())
+    assert len(data["walls"]) == 4
+
+
 def test_generate_frame_endpoint_end_to_end():
     resp = _client().post("/generate-frame", json=_sample_frame_request())
     assert resp.status_code == 200, resp.data.decode()

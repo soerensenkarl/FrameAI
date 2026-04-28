@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { computeGeometrySpecs } from "./specs.js";
 
 /* ────────────────── renderer ────────────────── */
 const vp = document.getElementById("viewport");
@@ -4556,34 +4557,40 @@ async function generateFrame() {
   const overlay = $("loadingOverlay");
   overlay.classList.add("active");
 
+  const reqBody = {
+    x0, y0, x1, y1,
+    height: +inH.value,
+    thickness: +inT.value,
+    interiorThickness: +inTI.value,
+    roofThickness: +inTR.value,
+    openings: openings.map(o => ({
+      type: o.type,
+      wallIdx: o.wallIdx,
+      posAlong: o.posAlong,
+      width: o.width,
+      height: o.height,
+      sill: o.sill,
+    })),
+    interiorWalls: interiorWalls.map(iw => ({ x0: iw.x0, y0: iw.y0, x1: iw.x1, y1: iw.y1 })),
+    iwToRidge: iwToRidge,
+    roofType: roofType,
+    ridgeH: getRidgeH(),
+    flatSlopeH: flatSlopeH,
+    eaveOH: eaveOH,
+    gableOH: gableOH,
+    materialFactor: materialFactor,
+    fabFactor: fabFactor,
+  };
+
+  // Step 5 parity diagnostic: builds the same spec bundle in JS and diffs
+  // it against /api/compute-specs. Runs in parallel, logs to console only.
+  runSpecParityDiff(reqBody);
+
   try {
     const res = await fetch("/generate-frame", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        x0, y0, x1, y1,
-        height: +inH.value,
-        thickness: +inT.value,
-        interiorThickness: +inTI.value,
-        roofThickness: +inTR.value,
-        openings: openings.map(o => ({
-          type: o.type,
-          wallIdx: o.wallIdx,
-          posAlong: o.posAlong,
-          width: o.width,
-          height: o.height,
-          sill: o.sill,
-        })),
-        interiorWalls: interiorWalls.map(iw => ({ x0: iw.x0, y0: iw.y0, x1: iw.x1, y1: iw.y1 })),
-        iwToRidge: iwToRidge,
-        roofType: roofType,
-        ridgeH: getRidgeH(),
-        flatSlopeH: flatSlopeH,
-        eaveOH: eaveOH,
-        gableOH: gableOH,
-        materialFactor: materialFactor,
-        fabFactor: fabFactor,
-      }),
+      body: JSON.stringify(reqBody),
     });
     const json = await res.json();
     if (json.error) { alert("Error: " + json.error); return; }
@@ -6779,6 +6786,73 @@ onResize();
 
   init();
 })();
+
+/* ────────────────── parity diagnostic (Step 5) ────────────────── */
+// Mirrors compute_geometry_specs in JS (specs.js) and diffs against the
+// Python-built spec returned by /api/compute-specs. Console-only — never
+// blocks generation. Will be removed once the JS spec drives the preview
+// AND the GH solve directly (Step 8).
+async function runSpecParityDiff(reqBody) {
+  try {
+    const jsSpecs = computeGeometrySpecs(reqBody);
+    const res = await fetch("/api/compute-specs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reqBody),
+    });
+    const pySpecs = await res.json();
+    if (pySpecs.error) {
+      console.warn("[parity] python spec error:", pySpecs.error);
+      return;
+    }
+    const diffs = deepSpecDiff(jsSpecs, pySpecs);
+    const summary = `${jsSpecs.walls.length} walls, ${jsSpecs.roof.length} roof, ` +
+                    `${jsSpecs.doors.length} doors, ${jsSpecs.windows.length} windows`;
+    if (diffs.length === 0) {
+      console.log(`[parity] specs match: ${summary} ✓`);
+    } else {
+      console.warn(`[parity] DIFF (${diffs.length}, ${summary}):`, diffs.slice(0, 10));
+      console.log("[parity] js:", jsSpecs);
+      console.log("[parity] py:", pySpecs);
+    }
+  } catch (err) {
+    console.warn("[parity] check failed:", err);
+  }
+}
+
+function deepSpecDiff(a, b, path = "") {
+  const TOL = 1e-6;
+  if (typeof a !== typeof b) return [`${path}: type js=${typeof a} py=${typeof b}`];
+  if (a === null || b === null) {
+    return a === b ? [] : [`${path}: null mismatch js=${a} py=${b}`];
+  }
+  if (typeof a === "number") {
+    return Math.abs(a - b) <= TOL ? [] : [`${path}: js=${a} py=${b}`];
+  }
+  if (typeof a !== "object") {
+    return a === b ? [] : [`${path}: js=${JSON.stringify(a)} py=${JSON.stringify(b)}`];
+  }
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b)) return [`${path}: js array, py not`];
+    if (a.length !== b.length) return [`${path}: length js=${a.length} py=${b.length}`];
+    const out = [];
+    for (let i = 0; i < a.length; i++) {
+      out.push(...deepSpecDiff(a[i], b[i], `${path}[${i}]`));
+    }
+    return out;
+  }
+  const aKeys = Object.keys(a).sort();
+  const bKeys = Object.keys(b).sort();
+  if (aKeys.length !== bKeys.length || aKeys.some((k, i) => k !== bKeys[i])) {
+    return [`${path}: keys js=[${aKeys.join(",")}] py=[${bKeys.join(",")}]`];
+  }
+  const out = [];
+  for (const k of aKeys) {
+    out.push(...deepSpecDiff(a[k], b[k], path ? `${path}.${k}` : k));
+  }
+  return out;
+}
+
 
 /* ────────────────── tooltip ────────────────── */
 (function(){

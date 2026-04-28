@@ -442,6 +442,20 @@ def index():
     return send_file(os.path.join(app.static_folder, "index.html"))
 
 
+@app.route("/api/compute-specs", methods=["POST"])
+def compute_specs_endpoint():
+    """Return the Python-built spec bundle for the given design data, without
+    solving GH. Used by the dev-mode parity diagnostic to verify that
+    JS-built specs match Python-built specs."""
+    try:
+        data = request.get_json()
+        return jsonify(compute_geometry_specs(data))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/generate-frame", methods=["POST"])
 def generate_frame():
     """Front door. Always does the pure-Python spec computation; then either
