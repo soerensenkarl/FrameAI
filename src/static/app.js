@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { computeGeometrySpecs } from "./specs.js";
+import { specsToGroup } from "./specMesher.js";
 
 /* ────────────────── renderer ────────────────── */
 const vp = document.getElementById("viewport");
@@ -2095,6 +2096,7 @@ function rebuildScene() {
   rebuildOpenings();
   rebuildInteriorWalls();
   positionScaleWorker();
+  updateSpecMesh();
 }
 
 let fitTweenRAF = 0;
@@ -4534,30 +4536,13 @@ function applyFrameJson(json) {
   markFrameFresh();
 }
 
-async function generateFrame() {
-  if (!c1 || !c2) return;
-
+// Build the request body for /generate-frame and the JS spec parity check.
+// Returns null when the design isn't placed yet (e.g., before step 0 finishes).
+function buildRequestBody() {
+  if (!c1 || !c2) return null;
   const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
   const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
-
-  setStep(4);
-  hideArrows();
-  hideDims();
-  btnNext.style.display = "none";
-  panel.classList.remove("open");
-  infoPanel.classList.remove("open");
-  roofPanel.classList.remove("open");
-  $("iwPanel").classList.remove("open");
-  hint.style.display = "none";
-
-  // Design groups already hidden by setStep(4) → syncOverlay (or kept visible
-  // when the dev-mode overlay is on — we respect that).
-
-  // Show loading overlay
-  const overlay = $("loadingOverlay");
-  overlay.classList.add("active");
-
-  const reqBody = {
+  return {
     x0, y0, x1, y1,
     height: +inH.value,
     thickness: +inT.value,
@@ -4581,6 +4566,29 @@ async function generateFrame() {
     materialFactor: materialFactor,
     fabFactor: fabFactor,
   };
+}
+
+
+async function generateFrame() {
+  const reqBody = buildRequestBody();
+  if (!reqBody) return;
+
+  setStep(4);
+  hideArrows();
+  hideDims();
+  btnNext.style.display = "none";
+  panel.classList.remove("open");
+  infoPanel.classList.remove("open");
+  roofPanel.classList.remove("open");
+  $("iwPanel").classList.remove("open");
+  hint.style.display = "none";
+
+  // Design groups already hidden by setStep(4) → syncOverlay (or kept visible
+  // when the dev-mode overlay is on — we respect that).
+
+  // Show loading overlay
+  const overlay = $("loadingOverlay");
+  overlay.classList.add("active");
 
   // Step 5 parity diagnostic: builds the same spec bundle in JS and diffs
   // it against /api/compute-specs. Runs in parallel, logs to console only.
@@ -6786,6 +6794,31 @@ onResize();
 
   init();
 })();
+
+/* ────────────────── spec mesh debug toggle (Step 6) ────────────────── */
+// Renders the JS spec bundle as Three.js geometry alongside the legacy
+// preview. Toggle from the dev console:
+//   toggleSpecMesh()
+// When on, refreshes automatically on every rebuildScene().
+let specDebugGroup = null;
+let specDebugOn = false;
+
+function updateSpecMesh() {
+  if (specDebugGroup) { scene.remove(specDebugGroup); specDebugGroup = null; }
+  if (!specDebugOn) return;
+  const reqBody = buildRequestBody();
+  if (!reqBody) return;
+  const bundle = computeGeometrySpecs(reqBody);
+  specDebugGroup = specsToGroup(bundle);
+  scene.add(specDebugGroup);
+}
+
+window.toggleSpecMesh = function() {
+  specDebugOn = !specDebugOn;
+  updateSpecMesh();
+  console.log(`[specmesh] ${specDebugOn ? "ON" : "off"}`);
+};
+
 
 /* ────────────────── parity diagnostic (Step 5) ────────────────── */
 // Mirrors compute_geometry_specs in JS (specs.js) and diffs against the
