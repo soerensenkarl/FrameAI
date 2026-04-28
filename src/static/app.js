@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { computeGeometrySpecs } from "./specs.js";
-import { specsToGroup, specsToRoom, specsToRoofGroup } from "./specMesher.js";
+import { specsToRoom, specsToRoofGroup } from "./specMesher.js";
 
 /* ────────────────── renderer ────────────────── */
 const vp = document.getElementById("viewport");
@@ -2038,7 +2038,6 @@ function rebuildScene() {
   rebuildOpenings();
   rebuildInteriorWalls();
   positionScaleWorker();
-  updateSpecMesh();
 }
 
 let fitTweenRAF = 0;
@@ -4351,15 +4350,15 @@ async function generateFrame() {
   const overlay = $("loadingOverlay");
   overlay.classList.add("active");
 
-  // Step 5 parity diagnostic: builds the same spec bundle in JS and diffs
-  // it against /api/compute-specs. Runs in parallel, logs to console only.
-  runSpecParityDiff(reqBody);
+  // Spec is the source of truth: build it in JS and POST directly to
+  // /solve-frame, which turns it into Breps and runs Grasshopper.
+  const specs = computeGeometrySpecs(reqBody);
 
   try {
-    const res = await fetch("/generate-frame", {
+    const res = await fetch("/solve-frame", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reqBody),
+      body: JSON.stringify(specs),
     });
     const json = await res.json();
     if (json.error) { alert("Error: " + json.error); return; }
@@ -6555,98 +6554,6 @@ onResize();
 
   init();
 })();
-
-/* ────────────────── spec mesh debug toggle (Step 6) ────────────────── */
-// Renders the JS spec bundle as Three.js geometry alongside the legacy
-// preview. Toggle from the dev console:
-//   toggleSpecMesh()
-// When on, refreshes automatically on every rebuildScene().
-let specDebugGroup = null;
-let specDebugOn = false;
-
-function updateSpecMesh() {
-  if (specDebugGroup) { scene.remove(specDebugGroup); specDebugGroup = null; }
-  if (!specDebugOn) return;
-  const reqBody = buildRequestBody();
-  if (!reqBody) return;
-  const bundle = computeGeometrySpecs(reqBody);
-  specDebugGroup = specsToGroup(bundle);
-  scene.add(specDebugGroup);
-}
-
-window.toggleSpecMesh = function() {
-  specDebugOn = !specDebugOn;
-  updateSpecMesh();
-  console.log(`[specmesh] ${specDebugOn ? "ON" : "off"}`);
-};
-
-
-/* ────────────────── parity diagnostic (Step 5) ────────────────── */
-// Mirrors compute_geometry_specs in JS (specs.js) and diffs against the
-// Python-built spec returned by /api/compute-specs. Console-only — never
-// blocks generation. Will be removed once the JS spec drives the preview
-// AND the GH solve directly (Step 8).
-async function runSpecParityDiff(reqBody) {
-  try {
-    const jsSpecs = computeGeometrySpecs(reqBody);
-    const res = await fetch("/api/compute-specs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reqBody),
-    });
-    const pySpecs = await res.json();
-    if (pySpecs.error) {
-      console.warn("[parity] python spec error:", pySpecs.error);
-      return;
-    }
-    const diffs = deepSpecDiff(jsSpecs, pySpecs);
-    const summary = `${jsSpecs.walls.length} walls, ${jsSpecs.roof.length} roof, ` +
-                    `${jsSpecs.doors.length} doors, ${jsSpecs.windows.length} windows`;
-    if (diffs.length === 0) {
-      console.log(`[parity] specs match: ${summary} ✓`);
-    } else {
-      console.warn(`[parity] DIFF (${diffs.length}, ${summary}):`, diffs.slice(0, 10));
-      console.log("[parity] js:", jsSpecs);
-      console.log("[parity] py:", pySpecs);
-    }
-  } catch (err) {
-    console.warn("[parity] check failed:", err);
-  }
-}
-
-function deepSpecDiff(a, b, path = "") {
-  const TOL = 1e-6;
-  if (typeof a !== typeof b) return [`${path}: type js=${typeof a} py=${typeof b}`];
-  if (a === null || b === null) {
-    return a === b ? [] : [`${path}: null mismatch js=${a} py=${b}`];
-  }
-  if (typeof a === "number") {
-    return Math.abs(a - b) <= TOL ? [] : [`${path}: js=${a} py=${b}`];
-  }
-  if (typeof a !== "object") {
-    return a === b ? [] : [`${path}: js=${JSON.stringify(a)} py=${JSON.stringify(b)}`];
-  }
-  if (Array.isArray(a)) {
-    if (!Array.isArray(b)) return [`${path}: js array, py not`];
-    if (a.length !== b.length) return [`${path}: length js=${a.length} py=${b.length}`];
-    const out = [];
-    for (let i = 0; i < a.length; i++) {
-      out.push(...deepSpecDiff(a[i], b[i], `${path}[${i}]`));
-    }
-    return out;
-  }
-  const aKeys = Object.keys(a).sort();
-  const bKeys = Object.keys(b).sort();
-  if (aKeys.length !== bKeys.length || aKeys.some((k, i) => k !== bKeys[i])) {
-    return [`${path}: keys js=[${aKeys.join(",")}] py=[${bKeys.join(",")}]`];
-  }
-  const out = [];
-  for (const k of aKeys) {
-    out.push(...deepSpecDiff(a[k], b[k], path ? `${path}.${k}` : k));
-  }
-  return out;
-}
-
 
 /* ────────────────── tooltip ────────────────── */
 (function(){

@@ -1,44 +1,16 @@
 // Build Three.js geometry from a spec bundle (the same shape
-// compute_geometry_specs / computeGeometrySpecs produce).
+// computeGeometrySpecs produces in specs.js).
 //
 // Two entry points:
-//   specsToGroup(bundle)  – translucent overlay used by the debug toggle.
-//   specsToRoom(bundle, opts) – full room preview (walls with cutouts, roof,
-//     floor, edges) — replaces buildRoom + buildRoof.
+//   specsToRoom(bundle, opts) – walls (with cutouts), floor, edges.
+//   specsToRoofGroup(roofSpecs, opts) – the roof, kept as a separate group
+//     so visibility can be toggled independently of walls.
 //
 // Door/window panes still come from the legacy makeOpeningGroup; they're not
 // in the spec contract.
 
 import * as THREE from "three";
 
-const DEFAULT_OVERLAY_MAT = new THREE.MeshStandardMaterial({
-  color: 0xF9BC06,
-  transparent: true,
-  opacity: 0.35,
-  side: THREE.DoubleSide,
-});
-
-
-/* ─────────────────── Translucent overlay (Step 6 toggle) ─────────────────── */
-
-export function specsToGroup(specBundle, material) {
-  const mat = material || DEFAULT_OVERLAY_MAT;
-  const group = new THREE.Group();
-  const all = [
-    ...(specBundle.walls   || []),
-    ...(specBundle.roof    || []),
-    ...(specBundle.doors   || []),
-    ...(specBundle.windows || []),
-  ];
-  for (const s of all) {
-    const geo = specToGeometry(s);
-    if (geo) group.add(new THREE.Mesh(geo, mat));
-  }
-  return group;
-}
-
-
-/* ─────────────────── Full room preview (Step 7) ─────────────────── */
 
 // Renders exterior walls (with cutouts driven by spec doors+windows), roof,
 // and floor. Caller passes materials. Walls are tagged with userData.isWall

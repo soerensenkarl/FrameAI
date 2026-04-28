@@ -1,5 +1,4 @@
 """Flask app – wall framing via rhinoinside."""
-import json
 import math
 import os
 from functools import wraps
@@ -9,8 +8,6 @@ RHINO_SYSTEM = r"C:\Program Files\Rhino 8\System"
 os.environ["PATH"] = RHINO_SYSTEM + os.pathsep + os.environ.get("PATH", "")
 
 from flask import Flask, request, send_file, jsonify
-
-from specs import compute_geometry_specs
 
 # Dev/prod coexistence mode. Only one process can hold the Rhino license,
 # so the dev process loads without rhinoinside and forwards geometry
@@ -442,51 +439,11 @@ def index():
     return send_file(os.path.join(app.static_folder, "index.html"))
 
 
-@app.route("/api/compute-specs", methods=["POST"])
-def compute_specs_endpoint():
-    """Return the Python-built spec bundle for the given design data, without
-    solving GH. Used by the dev-mode parity diagnostic to verify that
-    JS-built specs match Python-built specs."""
-    try:
-        data = request.get_json()
-        return jsonify(compute_geometry_specs(data))
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/generate-frame", methods=["POST"])
-def generate_frame():
-    """Front door. Always does the pure-Python spec computation; then either
-    solves locally (when Rhino is available) or forwards specs to prod's
-    /solve-frame endpoint (when running as dev)."""
-    try:
-        data = request.get_json()
-        specs = compute_geometry_specs(data)
-
-        if not RHINO_AVAILABLE:
-            if RHINO_PROXY_URL:
-                return _post_to_rhino_proxy(
-                    "/solve-frame", json.dumps(specs).encode("utf-8"),
-                )
-            return jsonify({
-                "error": "FRAMEAI_SKIP_RHINO=1 but RHINO_PROXY_URL is empty. Start dev via run_dev.bat (it sets both), or stop prod and restart this process without FRAMEAI_SKIP_RHINO=1."
-            }), 503
-
-        return _solve_and_respond(specs)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
 @app.route("/solve-frame", methods=["POST"])
 @requires_rhino
 def solve_frame():
-    """Rhino-side entry point. Takes a pre-computed spec bundle (usually from
-    dev), builds Breps, runs GH, returns the same response shape as
-    /generate-frame."""
+    """Geometry entry point. Receives a JS-built spec bundle, builds Breps,
+    runs Grasshopper, returns mesh + part list + saved files."""
     try:
         specs = request.get_json()
         return _solve_and_respond(specs)
