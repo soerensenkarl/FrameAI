@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { computeGeometrySpecs } from "./specs.js";
+import { computeGeometrySpecs, computeIwJoints } from "./specs.js";
 import { specsToRoom, specsToRoofGroup } from "./specMesher.js";
 
 /* ────────────────── renderer ────────────────── */
@@ -1080,28 +1080,20 @@ $("fabFactor").addEventListener("input", e => {
   if (window._lastFrameStats) applyPriceFactor(window._lastFrameStats);
 });
 
-// Indkøbspriser per meter (DKK). Server has the same table; client-side copy
-// lets the admin slider update the price lines live without a regenerate.
-const TIMBER_PRICE_PER_M = {
-  "295x45": 48.00,
-  "245x45": 36.00,
-  "220x45": 32.00,
-  "195x45": 27.00,
-  "170x45": 24.50,
-  "145x45": 21.00,
-  "120x45": 18.95,
-  "95x45": 14.00,
-  "70x45": 11.00,
-  "50x45": 7.00,
-  "45x45": 7.00,
-};
-// Render the read-only indkøbspriser list into the admin panel at startup.
-// Sections sort by the larger (first) dimension, descending — matches how
-// the purchase-price sheet is usually read.
-(function renderPriceTable() {
+// Render the read-only indkøbspriser list into the admin panel.
+// Source: /api/timber-prices (backend is the single source of truth).
+async function renderPriceTable() {
   const host = $("adminPriceTable");
   if (!host) return;
-  const rows = Object.entries(TIMBER_PRICE_PER_M)
+  let prices;
+  try {
+    const r = await fetch("/api/timber-prices");
+    prices = await r.json();
+  } catch {
+    host.innerHTML = '<div class="cut-row">unable to load prices</div>';
+    return;
+  }
+  const rows = Object.entries(prices)
     .map(([section, rate]) => {
       const [a, b] = section.split("x").map(n => parseInt(n, 10));
       return { section, rate, size: Math.max(a, b) };
@@ -1111,58 +1103,18 @@ const TIMBER_PRICE_PER_M = {
   host.innerHTML = rows.map(r =>
     `<div class="cut-row"><span class="cut-sec">${r.section}</span><span class="cut-len">${fmt(r.rate)}</span></div>`
   ).join("");
-})();
+}
+renderPriceTable();
 
 /* ───────────────────────── Pricing ─────────────────────────
- * Single source of truth is the server's part_list. The three displayed
- * amounts are derived from it:
+ * Backend computes raw_timber_cost (Σ indkøbspris × meters) at /solve-frame
+ * and returns it in stats. The client multiplies by the admin sliders for
+ * a live update without a regenerate:
  *
- *   rawCost   = Σ  indkøbspris(section) × meters     (purchase cost)
- *   material  = rawCost × materialFactor             (admin slider, default 3.10)
- *   fabric.   = rawCost × fabFactor                  (admin slider, default 1.00)
+ *   material  = raw_timber_cost × materialFactor   (default 3.10)
+ *   fabric.   = raw_timber_cost × fabFactor        (default 1.00)
  *   total     = material + fabrication
- *
- * Each factor scales rawCost independently — moving materialFactor does not
- * drag fabrication with it, and vice versa. The server mirrors this formula
- * so the persisted response is consistent; the client recomputes on every
- * slider change so the UI responds instantly without a regenerate.
- *
- * The price table TIMBER_PRICE_PER_M is duplicated on the server (app.py,
- * timber_price_per_m). Keep them in sync whenever you edit one.
  * ───────────────────────────────────────────────────────── */
-
-// Look up a section's DKK/m rate, tolerating both "295x45" (canonical) and
-// "45x295" (legacy prod). Unknown sections → volumetric fallback
-// (~C24 at ~3350 DKK/m³), with a one-shot console warning per section.
-function rateForSection(section) {
-  if (!section) return 0;
-  const parts = String(section).toLowerCase().split("x").map(n => parseInt(n, 10));
-  if (parts.length !== 2 || parts.some(isNaN)) return 0;
-  const bigger = Math.max(parts[0], parts[1]);
-  const smaller = Math.min(parts[0], parts[1]);
-  const key = `${bigger}x${smaller}`;
-  const rate = TIMBER_PRICE_PER_M[key];
-  if (rate != null) return rate;
-  if (!rateForSection._warned) rateForSection._warned = new Set();
-  if (!rateForSection._warned.has(key)) {
-    rateForSection._warned.add(key);
-    console.warn(`[pricing] no indkøbspris for ${key} — using volumetric fallback`);
-  }
-  return (bigger * smaller / 1e6) * 3350;
-}
-
-function rawTimberCost(partList) {
-  if (!Array.isArray(partList)) return 0;
-  let total = 0;
-  for (const it of partList) {
-    const meters = +it.meters;
-    if (!Number.isFinite(meters) || meters <= 0) continue;
-    total += rateForSection(it.section) * meters;
-  }
-  return Number.isFinite(total) ? total : 0;
-}
-// Back-compat alias for any older callers.
-const timberCostFromPartList = rawTimberCost;
 
 function formatDKK(n) {
   const v = Number.isFinite(n) ? n : 0;
@@ -1170,8 +1122,7 @@ function formatDKK(n) {
 }
 
 function applyPriceFactor(stats) {
-  const partList = stats && stats.part_list;
-  const raw  = rawTimberCost(partList);
+  const raw = (stats && Number.isFinite(stats.raw_timber_cost)) ? stats.raw_timber_cost : 0;
   const matF = Number.isFinite(materialFactor) ? materialFactor : 3.1;
   const fabF = Number.isFinite(fabFactor)      ? fabFactor      : 1.0;
   const material = raw * matF;
@@ -3039,80 +2990,11 @@ function finishOpeningDrag(e) {
 const iwMat         = new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.82, metalness: 0 });
 const iwSelectedMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6,  metalness: 0 });
 
-// Joint analysis: how far each interior wall's end should retract to meet its
-// neighbour cleanly. Per-end retraction is computed from the current centerline
-// layout and current iw_t — so changing thickness automatically re-resolves
-// T-junctions and corners.
-function computeIwJoints(walls, iwT) {
-  const EPS = 1.0;  // 1 mm
-  const b = (typeof getInnerBounds === 'function') ? getInnerBounds() : null;
-  const onExteriorFace = (x, y) => {
-    if (!b) return false;
-    const onVert = (Math.abs(x - b.ix0) < EPS || Math.abs(x - b.ix1) < EPS) &&
-                    y >= b.iy0 - EPS && y <= b.iy1 + EPS;
-    const onHoriz = (Math.abs(y - b.iy0) < EPS || Math.abs(y - b.iy1) < EPS) &&
-                     x >= b.ix0 - EPS && x <= b.ix1 + EPS;
-    return onVert || onHoriz;
-  };
-  const pointVsWall = (px, py, w) => {
-    const isHoriz = Math.abs(w.y1 - w.y0) < 1;
-    if (isHoriz) {
-      if (Math.abs(py - w.y0) > EPS) return null;
-      const xmin = Math.min(w.x0, w.x1), xmax = Math.max(w.x0, w.x1);
-      if (Math.abs(px - xmin) < EPS || Math.abs(px - xmax) < EPS) return 'endpoint';
-      if (px > xmin + EPS && px < xmax - EPS) return 'mid';
-      return null;
-    }
-    if (Math.abs(px - w.x0) > EPS) return null;
-    const ymin = Math.min(w.y0, w.y1), ymax = Math.max(w.y0, w.y1);
-    if (Math.abs(py - ymin) < EPS || Math.abs(py - ymax) < EPS) return 'endpoint';
-    if (py > ymin + EPS && py < ymax - EPS) return 'mid';
-    return null;
-  };
-  const wallLen = (w) => Math.hypot(w.x1 - w.x0, w.y1 - w.y0);
-
-  const retract = walls.map(() => [0, 0]);
-  walls.forEach((w, i) => {
-    const myLen = wallLen(w);
-    const myIsHoriz = Math.abs(w.y1 - w.y0) < 1;
-    const ends = [ { x: w.x0, y: w.y0, side: 0 }, { x: w.x1, y: w.y1, side: 1 } ];
-    for (const { x, y, side } of ends) {
-      if (onExteriorFace(x, y)) continue;   // flush with exterior inner face — no retract
-      let mid = 0;
-      const endpointHits = [];
-      walls.forEach((w2, j) => {
-        if (j === i) return;
-        const rel = pointVsWall(x, y, w2);
-        if (rel === 'mid') mid++;
-        else if (rel === 'endpoint') {
-          // Only perpendicular L-corners — collinear end-to-end walls don't conflict.
-          const w2IsHoriz = Math.abs(w2.y1 - w2.y0) < 1;
-          if (myIsHoriz !== w2IsHoriz) endpointHits.push({ idx: j, len: wallLen(w2) });
-        }
-      });
-      if (mid > 0) { retract[i][side] = iwT / 2; continue; }
-      if (endpointHits.length > 0) {
-        // Longest wins; tiebreak by lower index.
-        // Loser retracts by t/2 (stops at winner's face).
-        // Winner extends by t/2 into the corner to close the gap.
-        let winnerIdx = i, winnerLen = myLen;
-        for (const h of endpointHits) {
-          if (h.len > winnerLen + EPS ||
-              (Math.abs(h.len - winnerLen) < EPS && h.idx < winnerIdx)) {
-            winnerIdx = h.idx; winnerLen = h.len;
-          }
-        }
-        retract[i][side] = (winnerIdx !== i) ? iwT / 2 : -iwT / 2;
-      }
-    }
-  });
-  return retract;
-}
-
 function rebuildInteriorWalls() {
   while (iwGroup.children.length) iwGroup.remove(iwGroup.children[0]);
   const h = +inH.value, t = +inTI.value;
-  const iwJoints = computeIwJoints(interiorWalls, t);
+  const b = getInnerBounds();
+  const iwJoints = computeIwJoints(interiorWalls, t, b.ix0, b.iy0, b.ix1, b.iy1);
 
   // Gable-roof parameters (only used when iwToRidge && roofType === 'gable').
   // Interior walls stop at the UNDERSIDE of the roof slab, not its top. The top

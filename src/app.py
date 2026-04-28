@@ -439,6 +439,16 @@ def index():
     return send_file(os.path.join(app.static_folder, "index.html"))
 
 
+@app.route("/api/timber-prices", methods=["GET"])
+def timber_prices():
+    """Indkøbspriser table (DKK per linear meter, keyed by 'WxD').
+
+    Single source of truth — the admin price-list panel fetches this so the
+    frontend never has to mirror the table.
+    """
+    return jsonify(TIMBER_PRICE_PER_M)
+
+
 @app.route("/solve-frame", methods=["POST"])
 @requires_rhino
 def solve_frame():
