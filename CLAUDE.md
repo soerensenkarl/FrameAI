@@ -25,18 +25,19 @@ Rhino 8 is installed at `C:\Program Files\Rhino 8`; rhinoinside loads it headles
 cd src && source ../.venv/Scripts/activate && python app.py
 ```
 
-Opens at http://localhost:5000. Adjust box dimensions with sliders, click "Download .3dm" to get a Rhino file.
+Opens at http://localhost:5000. Design a house through the four steps, then
+"Generate Frame" runs Grasshopper and renders the timber members.
 The server must run single-threaded (`threaded=False`) because .NET/RhinoCommon is not thread-safe.
 
 ## Project structure
 
-- **src/** – All geometry logic lives here. Every function that touches RhinoCommon belongs in `src/`.
-- **tests/** – pytest tests. `conftest.py` handles `sys.path` and `rhinoinside.load()`.
-- **gh_components/** – Grasshopper component wrappers (thin shims that call into `src/`).
+- **src/** – Python (Flask + RhinoCommon glue). `app.py` routes; `specs.js` IS NOT here.
+- **src/static/** – the front-end. `specs.js` is the single spec source of truth (drives preview AND the `/solve-frame` request body); `specMesher.js` renders specs to Three.js geometry.
+- **tests/** – pytest. `conftest.py` handles `sys.path` and `rhinoinside.load()`.
 
 ## Key rule
 
-All logic lives in `src/`. Grasshopper components and tests import from `src/` — they never contain geometry logic themselves.
+The geometry spec (`src/static/specs.js`) is the only spec implementation. Both the on-screen preview and the Grasshopper input come from one `computeGeometrySpecs(uiState)` call. Don't reintroduce a Python copy.
 
 ## Multiple agents. 
 User often runs two agents in parallel by simply launching two terminals in the same folder. Therefore you might sometimes clash with code being rewritten by another agent in front of you. Just fyi.
