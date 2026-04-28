@@ -36,8 +36,8 @@ def _sample_frame_request(**overrides):
 
 
 def test_compute_specs_flat_roof_bundle_shape():
-    from app import _compute_geometry_specs
-    specs = _compute_geometry_specs(_sample_frame_request())
+    from specs import compute_geometry_specs
+    specs = compute_geometry_specs(_sample_frame_request())
     assert {"walls", "roof", "doors", "windows"}.issubset(specs.keys())
     assert len(specs["walls"]) == 4  # four exterior walls
     assert len(specs["roof"]) == 1   # single flat box
@@ -50,8 +50,8 @@ def test_compute_specs_gable_produces_pentagon_walls():
     walls are boxes. Both pentagons place their profile on the OUTER face and
     extrude INWARD — keeps the reference face consistent so GH frames both
     sides identically."""
-    from app import _compute_geometry_specs
-    specs = _compute_geometry_specs(_sample_frame_request(
+    from specs import compute_geometry_specs
+    specs = compute_geometry_specs(_sample_frame_request(
         roofType="gable", ridgeH=1500))
     extruded = [w for w in specs["walls"] if w["kind"] == "extruded"]
     boxes = [w for w in specs["walls"] if w["kind"] == "box"]
@@ -67,11 +67,11 @@ def test_compute_specs_gable_produces_pentagon_walls():
 
 def test_compute_specs_gable_with_overhangs():
     """eaveOH / gableOH extend the gable slab outward past the wall footprint."""
-    from app import _compute_geometry_specs
+    from specs import compute_geometry_specs
     base = _sample_frame_request(roofType="gable", ridgeH=1500)
     base["eaveOH"] = 500
     base["gableOH"] = 300
-    specs = _compute_geometry_specs(base)
+    specs = compute_geometry_specs(base)
     expected_x_ref = base["x0"] - 300
     expected_dir_x = (base["x1"] - base["x0"]) + 2 * 300
     for r in specs["roof"]:
@@ -80,8 +80,8 @@ def test_compute_specs_gable_with_overhangs():
 
 
 def test_compute_specs_flat_sloped_uses_planar_solid():
-    from app import _compute_geometry_specs
-    specs = _compute_geometry_specs(_sample_frame_request(
+    from specs import compute_geometry_specs
+    specs = compute_geometry_specs(_sample_frame_request(
         flatSlopeH=[0, 800]))
     assert specs["roof"][0]["kind"] == "planar_solid"
 
@@ -95,8 +95,8 @@ def test_generate_frame_endpoint_end_to_end():
 
 
 def test_solve_frame_accepts_spec_bundle():
-    from app import _compute_geometry_specs
-    specs = _compute_geometry_specs(_sample_frame_request())
+    from specs import compute_geometry_specs
+    specs = compute_geometry_specs(_sample_frame_request())
     resp = _client().post("/solve-frame", json=specs)
     assert resp.status_code == 200, resp.data.decode()
     data = resp.get_json()
@@ -107,12 +107,12 @@ def test_solve_frame_accepts_spec_bundle():
 
 def test_iw_joint_t_into_long_wall_retracts_butting_end():
     """Short horizontal wall butting mid-span of a long vertical wall retracts by t/2."""
-    from app import _compute_iw_joints
+    from specs import compute_iw_joints
     walls = [
         {"x0": 5000, "y0": 1000, "x1": 5000, "y1": 7000},  # long vertical
         {"x0": 5000, "y0": 3000, "x1": 8000, "y1": 3000},  # horizontal butting in
     ]
-    r = _compute_iw_joints(walls, iw_t=120)
+    r = compute_iw_joints(walls, iw_t=120)
     # Long wall: both ends free (inside footprint-less test world) → no retract.
     assert r[0] == [0, 0]
     # Short wall: side 0 hits long wall's mid-span → retract 60; side 1 free → 0.
@@ -122,23 +122,23 @@ def test_iw_joint_t_into_long_wall_retracts_butting_end():
 
 def test_iw_joint_end_on_exterior_face_no_retract():
     """End flush with an exterior inner face doesn't retract."""
-    from app import _compute_iw_joints
+    from specs import compute_iw_joints
     walls = [
         {"x0": 195, "y0": 1500, "x1": 5000, "y1": 1500},  # starts on west inner face
     ]
-    r = _compute_iw_joints(walls, iw_t=120,
+    r = compute_iw_joints(walls, iw_t=120,
                             ix0=195, iy0=195, ix1=5000, iy1=3000)
     assert r[0][0] == 0  # flush with ext face → no retract at side 0
 
 
 def test_iw_thickness_change_re_resolves_retraction():
     """Doubling iw_t doubles the retraction amount."""
-    from app import _compute_iw_joints
+    from specs import compute_iw_joints
     walls = [
         {"x0": 0, "y0": 0, "x1": 0, "y1": 5000},
         {"x0": 0, "y0": 2500, "x1": 3000, "y1": 2500},
     ]
-    r_thin = _compute_iw_joints(walls, iw_t=100)
-    r_thick = _compute_iw_joints(walls, iw_t=200)
+    r_thin = compute_iw_joints(walls, iw_t=100)
+    r_thick = compute_iw_joints(walls, iw_t=200)
     assert r_thin[1][0] == 50
     assert r_thick[1][0] == 100
