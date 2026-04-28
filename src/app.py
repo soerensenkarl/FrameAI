@@ -118,8 +118,38 @@ def requires_rhino(fn):
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "output")
 FEEDBACK_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "feedback")
+PROJECTS_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "projects")
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+def _safe_dirname(name):
+    """Sanitize a user-supplied string for use as a single path segment.
+
+    Strips path separators and `..`, collapses unsupported chars to `_`,
+    drops leading dots so we don't accidentally create hidden directories.
+    """
+    import re
+    s = (name or "").strip()
+    s = re.sub(r"[^\w .()\-]", "_", s, flags=re.UNICODE)
+    s = s.replace("..", "_").lstrip(".").rstrip(". ")
+    return s or "untitled"
+
+
+def _resolve_project_dir(project):
+    """Return absolute path to projects/<user>/<name>/ for a project descriptor,
+    or None if the descriptor is missing/invalid. Creates the directory."""
+    if not isinstance(project, dict):
+        return None
+    user = _safe_dirname(project.get("user"))
+    name = _safe_dirname(project.get("name"))
+    if user == "untitled" and not project.get("user"):
+        return None
+    if name == "untitled" and not project.get("name"):
+        return None
+    path = os.path.join(PROJECTS_DIR, user, name)
+    os.makedirs(path, exist_ok=True)
+    return os.path.abspath(path)
 
 # Indkøbspriser per linear meter (DKK), keyed by canonical "WxD" (W >= D).
 # Sections not in the table fall back to a volumetric estimate so one
@@ -318,24 +348,24 @@ def _members_to_triangles(mesh_geoms, brep_geoms):
     return verts, normals, tangents, tris
 
 
-def _write_3dm(model, filename):
-    """Write a File3dm to OUTPUT_DIR as Rhino 7 format. Returns abs path."""
-    path = os.path.join(OUTPUT_DIR, filename)
+def _write_3dm(model, filename, out_dir=None):
+    """Write a File3dm as Rhino 7 format to `out_dir` (default OUTPUT_DIR)."""
+    path = os.path.join(out_dir or OUTPUT_DIR, filename)
     opts = rio.File3dmWriteOptions()
     opts.Version = 7
     model.Write(path, opts)
     return os.path.abspath(path)
 
 
-def _save_breps_3dm(breps, filename):
+def _save_breps_3dm(breps, filename, out_dir=None):
     """Save a list of Breps to a Rhino 7 .3dm file."""
     model = rio.File3dm()
     for b in breps:
         model.Objects.AddBrep(b)
-    return _write_3dm(model, filename)
+    return _write_3dm(model, filename, out_dir=out_dir)
 
 
-def _save_layered_breps_3dm(layer_groups, filename):
+def _save_layered_breps_3dm(layer_groups, filename, out_dir=None):
     """Save Breps grouped onto named layers.
 
     `layer_groups` is an iterable of (layer_name, (r, g, b), [breps]).
@@ -352,7 +382,7 @@ def _save_layered_breps_3dm(layer_groups, filename):
         for b in breps:
             if b is not None:
                 model.Objects.AddBrep(b, attrs)
-    return _write_3dm(model, filename)
+    return _write_3dm(model, filename, out_dir=out_dir)
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -400,6 +430,30 @@ def _solid_from_profile(profile_pts, direction):
     if joined and len(joined) > 0:
         return joined[0]
     return None
+
+
+def _subtract_breps(subjects, cutters):
+    """Subtract `cutters` from each Brep in `subjects` independently. Per-subject
+    so a failure on one piece doesn't lose the rest; falls back to the original
+    Brep when the boolean returns null (degenerate/touching geometry)."""
+    if not subjects or not cutters:
+        return subjects
+    tol = 0.01
+    cutter_arr = System.Array[rg.Brep](cutters)
+    out = []
+    for s in subjects:
+        try:
+            result = rg.Brep.CreateBooleanDifference(
+                System.Array[rg.Brep]([s]), cutter_arr, tol,
+            )
+        except Exception:
+            out.append(s)
+            continue
+        if result is None or len(result) == 0:
+            out.append(s)
+        else:
+            out.extend(result)
+    return out
 
 
 def _breps_from_specs(specs):
@@ -469,10 +523,18 @@ def _solve_inputs(specs):
 
     Returns (outputs, wall_breps, door_breps, window_breps, roof_breps).
     """
-    wall_breps   = _breps_from_specs(specs["walls"])
+    wall_specs   = specs["walls"]
+    wall_breps   = _breps_from_specs(wall_specs)
     door_breps   = _breps_from_specs(specs["doors"])
     window_breps = _breps_from_specs(specs["windows"])
     roof_breps   = _breps_from_specs(specs["roof"])
+    # Notch the roof where the eave (long) walls pass through, so the rafters
+    # land on a clean cut. Skip the gable pentagons — the user wants those
+    # walls intact and protruding to the apex.
+    eave_wall_breps = _breps_from_specs(
+        [s for s in wall_specs if s.get("role") != "gable"]
+    )
+    roof_breps = _subtract_breps(roof_breps, eave_wall_breps)
     outputs = solve_definition("generator_3.0.gh", {
         "WallBreps":   wall_breps,
         "DoorBreps":   door_breps,
@@ -483,18 +545,21 @@ def _solve_inputs(specs):
 
 
 def _save_design_artifacts(wall_breps, door_breps, window_breps, roof_breps,
-                           breps_out, joined_mesh):
+                           breps_out, joined_mesh, project_dir=None):
     """Save design.3dm (inputs, layered), frame.3dm (output Breps), and
-    frame_mesh.3dm (display mesh). Returns the three file paths (any may
-    be None if the source was empty).
-    """
-    design_path = _save_layered_breps_3dm([
-        ("walls",   (180, 140,  90), wall_breps),
-        ("windows", ( 80, 170, 220), window_breps),
-        ("doors",   (230, 150,  60), door_breps),
-        ("roof",    (200,  70,  60), roof_breps),
-    ], "design.3dm")
+    frame_mesh.3dm (display mesh) into OUTPUT_DIR.
 
+    If `project_dir` is given, also mirror design.3dm + frame.3dm there so
+    each saved project keeps its own snapshot. Returns the three OUTPUT_DIR
+    file paths (any may be None if the source was empty).
+    """
+    layer_groups = [
+        ("Walls",   (180, 140,  90), wall_breps),
+        ("Windows", ( 80, 170, 220), window_breps),
+        ("Doors",   (230, 150,  60), door_breps),
+        ("Roof",    (200,  70,  60), roof_breps),
+    ]
+    design_path = _save_layered_breps_3dm(layer_groups, "design.3dm")
     frame_brep_path = _save_breps_3dm(breps_out, "frame.3dm") if breps_out else None
 
     frame_mesh_path = None
@@ -502,6 +567,11 @@ def _save_design_artifacts(wall_breps, door_breps, window_breps, roof_breps,
         model = rio.File3dm()
         model.Objects.AddMesh(joined_mesh)
         frame_mesh_path = _write_3dm(model, "frame_mesh.3dm")
+
+    if project_dir:
+        _save_layered_breps_3dm(layer_groups, "design.3dm", out_dir=project_dir)
+        if breps_out:
+            _save_breps_3dm(breps_out, "frame.3dm", out_dir=project_dir)
 
     return design_path, frame_brep_path, frame_mesh_path
 
@@ -618,8 +688,10 @@ def _solve_and_respond(specs):
 
     breps_out = [b for b in (_to_brep(g) for g in brep_geoms) if b is not None]
 
+    project_dir = _resolve_project_dir(specs.get("project"))
     design_saved, frame_brep_saved, frame_mesh_saved = _save_design_artifacts(
         wall_breps, door_breps, window_breps, roof_breps, breps_out, joined,
+        project_dir=project_dir,
     )
 
     verts, normals, tangents, tris = _members_to_triangles(mesh_geoms, breps_out)
