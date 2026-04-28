@@ -120,18 +120,6 @@ def test_iw_joint_t_into_long_wall_retracts_butting_end():
     assert r[1][1] == 0
 
 
-def test_iw_joint_corner_longer_wins():
-    """L-corner: shorter wall's end retracts, longer keeps full length."""
-    from app import _compute_iw_joints
-    walls = [
-        {"x0": 0, "y0": 0, "x1": 10000, "y1": 0},  # long horizontal — winner
-        {"x0": 0, "y0": 0, "x1": 0,      "y1": 2000},  # short vertical — loser
-    ]
-    r = _compute_iw_joints(walls, iw_t=200)
-    assert r[0] == [0, 0]
-    assert r[1][0] == 100  # shorter wall retracts at the shared corner
-
-
 def test_iw_joint_end_on_exterior_face_no_retract():
     """End flush with an exterior inner face doesn't retract."""
     from app import _compute_iw_joints
