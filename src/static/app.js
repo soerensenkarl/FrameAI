@@ -253,7 +253,7 @@ const doorMat = new THREE.MeshStandardMaterial({ color: 0x8B7355, roughness: 0.5
 const doorFrameMat = new THREE.LineBasicMaterial({ color: 0x6b5335 });
 const ghostOpeningMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.35, roughness: 0.5, side: THREE.DoubleSide, depthTest: false });
 const ghostOpeningEdgeMat = new THREE.LineBasicMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.5 });
-const roofMat = new THREE.MeshStandardMaterial({ color: 0xc8bfb0, roughness: 0.7, metalness: 0, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+const roofMat = new THREE.MeshStandardMaterial({ color: 0xc8bfb0, roughness: 0.7, metalness: 0, side: THREE.DoubleSide, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 const roofEdgeMat = new THREE.LineBasicMaterial({ color: 0x999999 });
 
 /* ────────────────── drag arrows ────────────────── */
@@ -516,16 +516,31 @@ function positionSlideHandle(idx) {
   avgPos /= indices.length;
   avgZ /= indices.length;
 
-  // Sit flush on the wall's outer face — depthTest:false keeps it visible,
-  // a tiny outward bump (2 mm) avoids z-fighting with the wall surface.
-  const cx = info.origin.x + info.along.x * avgPos + info.outward.x * 2;
-  const cy = info.origin.y + info.along.y * avgPos + info.outward.y * 2;
+  // Sit flush on the front face of the opening's pane (which is recessed into
+  // the wall opening), not on the wall's outer face — otherwise the gimbal
+  // floats ~t/2 in front of the visible glass. Pane center is at the wall
+  // centerline (origin - outward·outwardOffset); pane front is +paneDepth/2
+  // outward from that. A 2 mm bump avoids z-fighting with the pane.
+  // depthTest:false keeps it visible regardless.
+  const tVal = +inT.value;
+  const firstOpening = openings[indices[0]];
+  const paneDepth = firstOpening.type === "window" ? 20 : 40;
+  const outwardOffset = info.isInterior ? 0 : (tVal / 2);
+  const depthOffset = paneDepth / 2 - outwardOffset + 2;
+  const cx = info.origin.x + info.along.x * avgPos + info.outward.x * depthOffset;
+  const cy = info.origin.y + info.along.y * avgPos + info.outward.y * depthOffset;
   slideHandle.position.set(cx, cy, avgZ);
 
-  // Orient: local +X → info.along, local +Y → world Z, local +Z → info.outward.
-  const m = new THREE.Matrix4().makeBasis(
-    info.along, new THREE.Vector3(0, 0, 1), info.outward
-  );
+  // Orient: local +X → info.along, local +Y → world Z, local +Z → wall normal.
+  // Note: (info.along, info.outward) is left-handed for north/west/free-form
+  // walls, so we can't feed (along, Z, outward) to setFromRotationMatrix
+  // directly — the quaternion would come out wrong and the arrows render
+  // rotated. Build the third axis from cross(X, Y) to force a right-handed
+  // orthonormal basis. The arrow shape is double-sided so the resulting
+  // local +Z direction (outward vs inward) doesn't affect visibility.
+  const upY = new THREE.Vector3(0, 0, 1);
+  const localZ = new THREE.Vector3().crossVectors(info.along, upY).normalize();
+  const m = new THREE.Matrix4().makeBasis(info.along, upY, localZ);
   slideHandle.quaternion.setFromRotationMatrix(m);
 
   // Vertical arrows only make sense for a single window (sill is window-only,
@@ -610,11 +625,12 @@ function positionRoofArrows() {
     const slopeAngle = Math.atan(slope);
     for (const a of roofArrows) a.rotation.set(0, 0, 0);
     if (ridgeAlongX) {
-      // S/N = eave, W/E = gable
+      // S/N = eave, W/E = gable. Gable arrows anchor at the inside face of the
+      // gable wall (matches the roof's actual gable-end position).
       roofArrows[0].position.set((x0 + x1) / 2, y0 - eaveOH - off, eaveZ);
       roofArrows[1].position.set((x0 + x1) / 2, y1 + eaveOH + off, eaveZ);
-      roofArrows[2].position.set(x0 - gableOH - off, (y0 + y1) / 2, h + rh + s);
-      roofArrows[3].position.set(x1 + gableOH + off, (y0 + y1) / 2, h + rh + s);
+      roofArrows[2].position.set(x0 + t - gableOH - off, (y0 + y1) / 2, h + rh + s);
+      roofArrows[3].position.set(x1 - t + gableOH + off, (y0 + y1) / 2, h + rh + s);
       roofArrows[0].userData.role = roofArrows[1].userData.role = "eave";
       roofArrows[2].userData.role = roofArrows[3].userData.role = "gable";
       // Tilt south/north arrows around world X so the outward-pointing tip
@@ -625,8 +641,8 @@ function positionRoofArrows() {
       // W/E = eave, S/N = gable
       roofArrows[2].position.set(x0 - eaveOH - off, (y0 + y1) / 2, eaveZ);
       roofArrows[3].position.set(x1 + eaveOH + off, (y0 + y1) / 2, eaveZ);
-      roofArrows[0].position.set((x0 + x1) / 2, y0 - gableOH - off, h + rh + s);
-      roofArrows[1].position.set((x0 + x1) / 2, y1 + gableOH + off, h + rh + s);
+      roofArrows[0].position.set((x0 + x1) / 2, y0 + t - gableOH - off, h + rh + s);
+      roofArrows[1].position.set((x0 + x1) / 2, y1 - t + gableOH + off, h + rh + s);
       roofArrows[2].userData.role = roofArrows[3].userData.role = "eave";
       roofArrows[0].userData.role = roofArrows[1].userData.role = "gable";
       // West/east arrows tilt around world Y for the same effect.
@@ -4236,6 +4252,11 @@ async function generateFrame() {
   // Spec is the source of truth: build it in JS and POST directly to
   // /solve-frame, which turns it into Breps and runs Grasshopper.
   const specs = computeGeometrySpecs(reqBody);
+  // Identify the saved project so the backend can also mirror design.3dm +
+  // frame.3dm into projects/<user>/<name>/. Skipped for unsaved sessions.
+  if (currentProjectId && currentProjectName && currentUser) {
+    specs.project = { user: currentUser.name, name: currentProjectName };
+  }
 
   try {
     const res = await fetch("/solve-frame", {
@@ -4706,12 +4727,16 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
       const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
       const off = 350;
-      // side 0=S, 1=N, 2=W, 3=E. Distance from outer wall face along outward normal.
+      // side 0=S, 1=N, 2=W, 3=E. Distance from outward face along outward normal.
+      // For gable role on a gable roof the reference face is the INSIDE face of
+      // the gable wall (matches the roof's gable-end position in specs.js).
+      const tOff = (roofType === "gable" && draggingRoofOH.role === "gable")
+                   ? +inT.value : 0;
       let v = 0;
-      if (draggingRoofOH.side === 0)      v = y0 - hitPt.y - off;
-      else if (draggingRoofOH.side === 1) v = hitPt.y - y1 - off;
-      else if (draggingRoofOH.side === 2) v = x0 - hitPt.x - off;
-      else                                v = hitPt.x - x1 - off;
+      if (draggingRoofOH.side === 0)      v = (y0 + tOff) - hitPt.y - off;
+      else if (draggingRoofOH.side === 1) v = hitPt.y - (y1 - tOff) - off;
+      else if (draggingRoofOH.side === 2) v = (x0 + tOff) - hitPt.x - off;
+      else                                v = hitPt.x - (x1 - tOff) - off;
       // 20 mm step (2 cm) — overhangs are read in cm-precision in real frames.
       const snapped = clamp(Math.round(v / 20) * 20, 0, OH_MAX);
       if (draggingRoofOH.role === "eave") eaveOH = snapped;

@@ -113,8 +113,12 @@ export function roofSpecs(x0, y0, x1, y1, h, roofType,
       const yEaveS = y0 - eaveOH;
       const yEaveN = y1 + eaveOH;
       const eaveZ = h + s - eaveOH * slope;
-      const xRef = x0 - gableOH;
-      const xLen = w + 2 * gableOH;
+      // Gable-axis: roof is bounded by the INSIDE face of the gable walls so
+      // the wall pentagon stays visible up to the apex from outside. gableOH
+      // measures overhang past the inside face (so gableOH = t lines the roof
+      // edge up with the outer face; gableOH > t is real verge overhang).
+      const xRef = x0 + t - gableOH;
+      const xLen = w - 2 * t + 2 * gableOH;
       const direction = [xLen, 0, 0];
       specs.push({ kind: "planar_solid", dir: direction, profile: [
         [xRef, yEaveS, eaveZ],
@@ -137,8 +141,9 @@ export function roofSpecs(x0, y0, x1, y1, h, roofType,
       const xEaveW = x0 - eaveOH;
       const xEaveE = x1 + eaveOH;
       const eaveZ = h + s - eaveOH * slope;
-      const yRef = y0 - gableOH;
-      const yLen = d + 2 * gableOH;
+      // See note above: gable-axis bound is the inside face of the gable wall.
+      const yRef = y0 + t - gableOH;
+      const yLen = d - 2 * t + 2 * gableOH;
       const direction = [0, yLen, 0];
       specs.push({ kind: "planar_solid", dir: direction, profile: [
         [xEaveW, yRef, eaveZ],
@@ -283,7 +288,7 @@ export function exteriorWallSpecs(x0, y0, x1, y1, h, t, roofType, flatSlope,
         direction = [0, dirY, 0];
       }
       pts = ensureOutwardPolygon(pts, direction);
-      specs.push({ kind: "extruded", pts, dir: direction, cap: true });
+      specs.push({ kind: "extruded", pts, dir: direction, cap: true, role: "gable" });
       continue;
     }
 
