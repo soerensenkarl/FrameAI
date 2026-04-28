@@ -1,8 +1,9 @@
-// Pure-JS geometry spec builders. Mirror of src/specs.py.
+// Geometry spec builders — the single source of truth.
 //
-// While both implementations exist, the dev-mode parity diagnostic in app.js
-// diffs JS-built specs against Python-built specs to prove byte-equivalence
-// before retiring the Python side in a later step.
+// computeGeometrySpecs(uiState) → bundle of { walls, roof, doors, windows,
+// material_factor, fab_factor }. The bundle is JSON-serialized and POSTed
+// to /solve-frame, where it becomes RhinoCommon Breps that GH frames into
+// timber members. The same bundle drives the on-screen preview (specMesher).
 
 export const WINDOW_W = 1000, WINDOW_H = 1000, WINDOW_SILL = 900;
 export const DOOR_W = 900, DOOR_H = 2100;

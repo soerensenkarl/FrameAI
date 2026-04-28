@@ -4178,7 +4178,8 @@ function applyFrameJson(json) {
   markFrameFresh();
 }
 
-// Build the request body for /generate-frame and the JS spec parity check.
+// Snapshot the current UI design state — passed to computeGeometrySpecs to
+// produce the spec bundle for both the preview and the /solve-frame request.
 // Returns null when the design isn't placed yet (e.g., before step 0 finishes).
 function buildRequestBody() {
   if (!c1 || !c2) return null;

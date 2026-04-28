@@ -357,8 +357,9 @@ def _save_layered_breps_3dm(layer_groups, filename):
 
 # ────────────────────────────────────────────────────────────────────────────
 # Rhino-dependent Brep construction (only reached when RHINO_AVAILABLE).
-# Pure-Python spec builders live in specs.py — these helpers turn those
-# JSON-serializable dicts into RhinoCommon Breps for the GH solve.
+# Spec bundles arrive from the front-end (built in static/specs.js); these
+# helpers turn the JSON-serializable dicts into RhinoCommon Breps for the GH
+# solve.
 # ────────────────────────────────────────────────────────────────────────────
 
 

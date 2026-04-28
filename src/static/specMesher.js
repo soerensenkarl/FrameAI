@@ -12,9 +12,9 @@
 import * as THREE from "three";
 
 
-// Renders exterior walls (with cutouts driven by spec doors+windows), roof,
-// and floor. Caller passes materials. Walls are tagged with userData.isWall
-// and userData.wallIdx for raycasting (matching legacy buildRoom).
+// Renders exterior walls (with cutouts driven by spec doors+windows) and
+// floor. Caller passes materials. Walls are tagged with userData.isWall
+// and userData.wallIdx for raycasting.
 //
 // Interior walls and door/window panes are NOT rendered here — those stay
 // with rebuildInteriorWalls and makeOpeningGroup.
@@ -145,8 +145,8 @@ function prismGeometry(pts, dir) {
 
 
 // Wall spec → render info { from, to, outward, topPoints, t }.
-// Convention (matches legacy buildRoom): walking from→to has the outer face
-// on the right (CCW around the building footprint in plan view).
+// Convention: walking from→to has the outer face on the right (CCW around
+// the building footprint in plan view).
 function wallToRenderInfo(wall, bbox) {
   if (wall.kind === "box") return boxWallInfo(wall, bbox);
   if (wall.kind === "extruded") return extrudedWallInfo(wall);
@@ -272,8 +272,9 @@ function cutoutToLocalRect(cutter, info) {
 }
 
 
-// Build a wall mesh in local space (length, height, thickness) and orient
-// it into world space via a basis matrix. Mirrors the legacy buildWallMesh.
+// Build a wall mesh in local space (length, height, thickness) via a 2D
+// Shape (with cutout holes) extruded by t, then oriented into world space
+// via a basis matrix.
 function buildSpecWallMesh(info, cutouts, wallMat, edgeMat, drawEdges) {
   const { from, to, outward, topPoints, t } = info;
   const fromV = new THREE.Vector3(from[0], from[1], 0);
