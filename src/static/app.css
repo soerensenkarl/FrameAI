@@ -1,0 +1,1361 @@
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: #0a0a0a;
+    color: #fafafa;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  #viewport { position: fixed; inset: 0; }
+
+  /* ── Glass panels ── */
+  .glass {
+    background: rgba(28, 28, 30, 0.82);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+  }
+
+  /* ── Top row ── */
+  .toprow {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 10;
+  }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 6px 10px;
+  }
+
+  /* Steps */
+  .steps { display: flex; align-items: center; gap: 0; }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 0;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.25);
+    white-space: nowrap;
+    transition: color 0.3s;
+    cursor: pointer;
+  }
+
+  .step-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.15);
+    font-size: 11px;
+    font-weight: 600;
+    transition: all 0.3s;
+  }
+
+  .step.active { color: #F9BC06; }
+  .step.active .step-num { border-color: #F9BC06; background: #F9BC06; color: #0a0a0a; }
+
+  .step.done { color: rgba(255, 255, 255, 0.4); }
+  .step.done .step-num { border-color: rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.5); }
+
+  .step-arrow {
+    margin: 0 12px;
+    color: rgba(255, 255, 255, 0.12);
+    font-size: 11px;
+  }
+
+  /* ── Development preview badge ── */
+  .dev-badge {
+    position: fixed;
+    top: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 13px;
+    background: rgba(249, 188, 6, 0.12);
+    border: 1px solid rgba(249, 188, 6, 0.5);
+    border-radius: 999px;
+    color: #F9BC06;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    white-space: nowrap;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    z-index: 9;
+    user-select: none;
+    pointer-events: none;
+  }
+  .dev-badge.hidden { display: none; }
+
+  /* Locked tile (coming soon) */
+  .house-tile.locked {
+    cursor: not-allowed;
+    position: relative;
+    overflow: hidden;
+    opacity: 0.6;
+  }
+  .house-tile.locked:hover {
+    border-color: rgba(251, 250, 249, 0.2);
+    color: rgba(251, 250, 249, 0.9);
+    background: rgba(251, 250, 249, 0.06);
+  }
+  .house-tile.locked svg { stroke: rgba(249, 188, 6, 0.55); }
+  .coming-soon-stamp {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-18deg);
+    padding: 6px 18px;
+    border: 3px solid #ff5252;
+    border-radius: 6px;
+    color: #ff5252;
+    font-size: 20px;
+    font-weight: 900;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: rgba(255, 82, 82, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(255, 82, 82, 0.35);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    user-select: none;
+  }
+  .dev-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #F9BC06;
+    box-shadow: 0 0 0 0 rgba(249, 188, 6, 0.6);
+    animation: devPulse 2s infinite;
+  }
+  @keyframes devPulse {
+    0%   { box-shadow: 0 0 0 0   rgba(249, 188, 6, 0.55); }
+    70%  { box-shadow: 0 0 0 7px rgba(249, 188, 6, 0);    }
+    100% { box-shadow: 0 0 0 0   rgba(249, 188, 6, 0);    }
+  }
+
+  /* First-visit tutorial tip next to the compass/top-view button */
+  .compass-tip {
+    position: fixed;
+    top: 34px;
+    left: 90px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px 9px 10px;
+    background: rgba(249, 188, 6, 0.14);
+    border: 1px solid rgba(249, 188, 6, 0.55);
+    border-radius: 999px;
+    color: #F9BC06;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    z-index: 11;
+    pointer-events: none;
+    white-space: nowrap;
+    animation: compassTipBounce 1.4s ease-in-out infinite;
+  }
+  .compass-tip.hidden { display: none; }
+  .compass-tip svg { width: 20px; height: 20px; stroke: #F9BC06; fill: none; flex-shrink: 0; }
+  @keyframes compassTipBounce {
+    0%, 100% { transform: translateX(0);    }
+    50%      { transform: translateX(-6px); }
+  }
+
+
+  /* Buttons */
+  .btn-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-icon:hover { color: rgba(255, 255, 255, 0.85); }
+  .btn-icon svg { width: 16px; height: 16px; }
+  .btn-icon.active { color: #F9BC06; border: 1.5px solid rgba(249,188,6,0.35); }
+  .btn-icon.active:hover { color: #F9BC06; }
+  .btn-icon:disabled { color: rgba(255, 255, 255, 0.15); cursor: default; }
+  .btn-icon:disabled:hover { color: rgba(255, 255, 255, 0.15); }
+
+  /* Top-view toggle — fixed top-left */
+  #btnTopView {
+    position: fixed;
+    left: 20px;
+    top: 20px;
+    display: none;
+    z-index: 10;
+    width: 57px;
+    height: 57px;
+  }
+  #btnTopView svg { width: 24px; height: 24px; }
+
+  /* ── Dev mode ── */
+  .dev-btn {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    z-index: 100;
+  }
+  .dev-btn.active { color: #F9BC06; }
+  .dev-panel {
+    position: fixed;
+    bottom: 62px;
+    left: 16px;
+    width: 180px;
+    padding: 14px 16px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 100;
+  }
+  .dev-panel.open { display: flex; }
+  .dev-opt {
+    font-size: 12px;
+    color: rgba(255,255,255,0.7);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .dev-opt input[type="checkbox"] {
+    accent-color: #F9BC06;
+  }
+  /* iOS-style slide toggle (pill with sliding circle) */
+  input[type="checkbox"].ios-toggle {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    width: 38px;
+    height: 22px;
+    background: rgba(255,255,255,0.22);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .18s ease;
+    outline: none;
+    border: none;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+  }
+  input[type="checkbox"].ios-toggle::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform .18s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+  }
+  input[type="checkbox"].ios-toggle:checked {
+    background: #F9BC06;
+  }
+  input[type="checkbox"].ios-toggle:checked::before {
+    transform: translateX(16px);
+  }
+  .dev-opt input[type="range"] {
+    accent-color: #F9BC06;
+    width: 100%;
+  }
+  .dev-options {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
+  .dev-options.open { display: flex; }
+
+  /* ── Test-mode feedback ── */
+  .btn-add-comment {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    padding: 12px 20px;
+    background: #F9BC06;
+    color: #0a0a0a;
+    border: none;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    display: none;
+    z-index: 95;
+    transition: background .15s, transform .15s;
+  }
+  .btn-add-comment:hover { background: #e5ab00; transform: translateY(-1px); }
+  .btn-add-comment.visible { display: inline-block; }
+  #annotateCanvas {
+    position: fixed;
+    inset: 0;
+    display: none;
+    z-index: 80;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  #annotateCanvas.active { display: block; }
+  .comment-panel {
+    position: fixed;
+    right: 20px;
+    top: 20px;
+    width: 320px;
+    padding: 22px;
+    display: none;
+    flex-direction: column;
+    gap: 14px;
+    z-index: 90;
+    max-height: calc(100vh - 40px);
+  }
+  .comment-panel.open { display: flex; }
+  .comment-hint {
+    margin: 0;
+    font-size: 12px;
+    color: rgba(255,255,255,0.6);
+    line-height: 1.4;
+  }
+  #commentText {
+    min-height: 140px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: #fff;
+    padding: 10px 12px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: vertical;
+    outline: none;
+  }
+  #commentText:focus { border-color: #F9BC06; }
+  .comment-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .btn-primary {
+    background: #F9BC06;
+    color: #0a0a0a;
+    border: none;
+    border-radius: 999px;
+    padding: 9px 18px;
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-primary:hover { background: #e5ab00; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    background: rgba(255,255,255,0.08);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 999px;
+    padding: 9px 16px;
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+  .comment-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 40px;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(20,20,20,0.95);
+    color: #fff;
+    padding: 12px 22px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    border: 1px solid rgba(249,188,6,0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s, transform .2s;
+    z-index: 200;
+  }
+  .comment-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  .btn-next {
+    padding: 7px 22px;
+    background: #F9BC06;
+    border: none;
+    border-radius: 8px;
+    color: #0a0a0a;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .btn-next:hover { background: #e5ab00; }
+
+  /* ── Dimension panel ── */
+  .panel {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 196px;
+    padding: 18px;
+    display: none;
+    flex-direction: column;
+    gap: 14px;
+    z-index: 10;
+  }
+
+  .panel.open { display: flex; }
+
+  /* Opening inspector floats next to the selected opening */
+  #openingInspector, #ffInspector {
+    right: auto;
+    top: auto;
+    transform: none;
+    pointer-events: auto;
+  }
+  /* Openings-only: floating orange button, no panel chrome */
+  #openingInspector {
+    width: auto;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  #openingInspector .btn-delete {
+    width: auto;
+    padding: 8px 18px;
+    background: #F9BC06;
+    border: none;
+    border-radius: 999px;
+    color: #0a0a0a;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    transition: background 0.15s;
+  }
+  #openingInspector .btn-delete:hover {
+    background: #e5ab00;
+  }
+
+  /* Multi-select distribute panel — same floating pill style as the opening inspector */
+  #distributePanel {
+    position: fixed;
+    display: none;
+    width: auto;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    pointer-events: auto;
+    z-index: 20;
+  }
+  #distributePanel.open { display: flex; gap: 6px; }
+
+  #scaleWorkerPill {
+    position: fixed;
+    display: none;
+    width: auto;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    pointer-events: auto;
+    z-index: 20;
+  }
+  #scaleWorkerPill.open { display: block; }
+
+  /* Construction-guy speech bubble. Appears over his head, F9BC06-accented,
+     with a little tail pointing down. Shown briefly when the user hits a
+     not-yet-implemented button (currently: Buy Frame). */
+  #scaleWorkerSpeech {
+    position: fixed;
+    display: none;
+    max-width: 240px;
+    padding: 10px 14px;
+    background: #F9BC06;
+    color: #0a0a0a;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    border-radius: 12px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    user-select: none;
+    z-index: 21;
+    transform-origin: bottom center;
+    animation: workerSpeechIn 0.22s ease-out;
+  }
+  #scaleWorkerSpeech.open { display: block; }
+  #scaleWorkerSpeech::after {
+    content: "";
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0; height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 10px solid #F9BC06;
+  }
+  @keyframes workerSpeechIn {
+    from { transform: translateY(6px) scale(0.85); opacity: 0; }
+    to   { transform: translateY(0)   scale(1);    opacity: 1; }
+  }
+  #distributePanel .btn-distribute {
+    width: auto;
+    padding: 8px 18px;
+    background: #F9BC06;
+    border: none;
+    border-radius: 999px;
+    color: #0a0a0a;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin: 0;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    transition: background 0.15s;
+    cursor: pointer;
+  }
+  #distributePanel .btn-distribute:hover:not(:disabled) { background: #e5ab00; }
+  #distributePanel .btn-distribute:disabled { opacity: 0.45; cursor: not-allowed; }
+  #distributePanel #btnDeleteOpening {
+    background: rgba(28, 28, 30, 0.92);
+    color: #fafafa;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  #distributePanel #btnDeleteOpening:hover:not(:disabled) {
+    background: rgba(255, 90, 90, 0.85);
+    border-color: rgba(255, 90, 90, 0.85);
+    color: #fff;
+  }
+
+  /* Free-form wall hover hint */
+  .ff-hover-hint {
+    position: fixed;
+    pointer-events: none;
+    padding: 5px 10px;
+    background: rgba(0, 0, 0, 0.75);
+    color: #fff;
+    font-size: 11px;
+    border-radius: 6px;
+    z-index: 20;
+    display: none;
+    white-space: nowrap;
+  }
+
+  .panel-title {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .f { display: flex; flex-direction: column; gap: 4px; }
+  .f label { font-size: 12px; color: rgba(255, 255, 255, 0.4); }
+  .fr { display: flex; align-items: center; gap: 7px; }
+
+  .f input[type="number"] {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    -moz-appearance: textfield;
+  }
+
+  .f select {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 8px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    cursor: pointer;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.3)'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 26px;
+  }
+  .f select:focus { border-color: rgba(255, 255, 255, 0.22); }
+  .f select option { background: #1a1a1a; color: #fff; }
+
+  .f input:focus { border-color: rgba(255, 255, 255, 0.22); }
+  .f input::-webkit-inner-spin-button,
+  .f input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .f .u { font-size: 11px; color: rgba(255, 255, 255, 0.2); min-width: 22px; }
+
+  /* ── Hint ── */
+  .hint {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 24px 32px;
+    font-size: 18px;
+    font-weight: 500;
+    color: rgba(251, 250, 249, 0.95);
+    z-index: 10;
+    pointer-events: none;
+    transition: all 0.4s ease;
+    background: rgba(28, 28, 30, 0.62);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+
+  .hint.small {
+    top: auto;
+    bottom: 20px;
+    transform: translateX(-50%);
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.35);
+    border-radius: 8px;
+    background: rgba(251, 250, 249, 0.06);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  /* ── Example link ── */
+  .example-link {
+    position: fixed;
+    top: calc(50% + 40px);
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.35);
+    z-index: 10;
+  }
+  .example-link a {
+    color: #F9BC06;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .example-link a:hover { text-decoration: underline; }
+
+  /* ── House type picker ── */
+  .house-picker {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    gap: 20px;
+    z-index: 11;
+  }
+  .house-tile {
+    width: 200px;
+    height: 200px;
+    background: rgba(251, 250, 249, 0.06);
+    border: 1px solid rgba(251, 250, 249, 0.2);
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    cursor: pointer;
+    color: rgba(251, 250, 249, 0.9);
+    font-family: inherit;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    padding: 0;
+  }
+  .house-tile:hover {
+    border-color: #F9BC06;
+    color: #F9BC06;
+    background: rgba(249, 188, 6, 0.08);
+  }
+  .house-tile svg {
+    width: 72px;
+    height: 72px;
+    stroke: #F9BC06;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .house-tile .label {
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+
+  /* ── Loading overlay ── */
+  .loading-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 18px;
+    background: rgba(10, 10, 10, 0.5);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .loading-overlay.active { display: flex; }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: #F9BC06;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-overlay .loading-text {
+    font-size: 14px;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.6);
+  }
+
+  /* ── Inline dim editor ── */
+  .dim-edit {
+    position: fixed;
+    display: none;
+    width: 90px;
+    padding: 6px 10px;
+    background: rgba(28, 28, 30, 0.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1.5px solid #F9BC06;
+    border-radius: 8px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    text-align: center;
+    outline: none;
+    z-index: 30;
+    -moz-appearance: textfield;
+  }
+  .dim-edit::-webkit-inner-spin-button,
+  .dim-edit::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+  /* ── Tooltip ── */
+  .tip {
+    position: fixed;
+    display: none;
+    padding: 4px 10px;
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 6px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.65);
+    pointer-events: none;
+    z-index: 20;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Unified left sidebar ──
+     One panel, always visible, vertically centered on the left edge.
+     Two sections: a step-specific "step" area (top) that expands the panel
+     upward with contextual tools (Window/Door on step 2, Flat/Gable on step
+     3), and a "persist" area (bottom) that holds tools that are always
+     available (e.g. Measure). The divider between them only appears when
+     the step section has content, so idle steps just show the persist row.
+  */
+  .leftbar {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    gap: 0;
+    z-index: 10;
+  }
+  .leftbar-step {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .leftbar-step.hidden { display: none; }
+  .leftbar-persist {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .leftbar-step:not(.hidden) + .leftbar-persist {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+  /* Persistent tools read as round icon buttons — a deliberate visual break
+     from the square step-specific tiles above. */
+  .leftbar-persist .tool-item {
+    width: 56px;
+    height: 56px;
+    min-width: 0;
+    padding: 0;
+    border-radius: 50%;
+    justify-content: center;
+    gap: 0;
+    font-size: 0;            /* hide the "Measure" text label (title= still tooltips) */
+  }
+  .leftbar-persist .tool-item svg { width: 28px; height: 28px; }
+  /* Step-scoped buttons hidden by default; the matching step makes them visible. */
+  .leftbar-step > [data-step-for] { display: none; }
+  .leftbar[data-current-step="2"] .leftbar-step > [data-step-for="2"] { display: flex; }
+  .leftbar[data-current-step="3"] .leftbar-step > [data-step-for="3"] { display: flex; }
+
+  /* Interior Walls panel is variables/info → force right side, match .panel width */
+  #iwPanel {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 196px;
+    padding: 18px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 10;
+  }
+  #iwPanel.open { display: flex; }
+
+  .tool-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 14px;
+    min-width: 92px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: grab;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .tool-item:hover {
+    border-color: rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .tool-item:active { cursor: grabbing; }
+  .tool-item.active {
+    border-color: #F9BC06;
+    color: #F9BC06;
+    background: rgba(249, 188, 6, 0.08);
+  }
+  .tool-item svg { width: 36px; height: 36px; flex-shrink: 0; }
+
+  /* ── Delete button ── */
+  .btn-delete {
+    padding: 7px 12px;
+    background: rgba(255, 60, 60, 0.1);
+    border: 1px solid rgba(255, 60, 60, 0.2);
+    border-radius: 8px;
+    color: rgba(255, 110, 110, 0.75);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: 100%;
+    margin-top: 2px;
+  }
+  .btn-delete:hover {
+    background: rgba(255, 60, 60, 0.22);
+    border-color: rgba(255, 80, 80, 0.45);
+    color: #ff7070;
+  }
+  .btn-delete-float {
+    position: fixed;
+    width: auto;
+    padding: 8px 14px;
+    z-index: 30;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+
+  /* Cursor ghost while dragging from panel */
+  .drag-ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.7;
+    transform: translate(-50%, -50%);
+    display: none;
+  }
+  .drag-ghost svg { width: 48px; height: 48px; }
+
+  /* ── Roof panel ── */
+  .roof-panel {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 196px;
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 18px;
+    z-index: 10;
+  }
+  .roof-panel.open { display: flex; }
+
+  .roof-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 14px;
+    min-width: 92px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1.5px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .roof-option:hover {
+    border-color: rgba(255, 255, 255, 0.18);
+    color: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .roof-option.active {
+    border-color: #F9BC06;
+    color: #F9BC06;
+    background: rgba(249, 188, 6, 0.08);
+  }
+  .roof-option svg { width: 36px; height: 36px; }
+
+  /* ── Frame info panel (right side, after generation) ── */
+  .info-panel {
+    position: fixed;
+    right: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 260px;
+    padding: 22px;
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 10;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+  }
+  .info-panel.open { display: flex; }
+
+  .info-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 13px;
+  }
+  .info-row .info-label {
+    color: rgba(255, 255, 255, 0.45);
+  }
+  .info-row .info-value {
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .info-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.06);
+    margin: 2px 0;
+  }
+
+  .info-price-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .info-price-row .info-label {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .info-price-row .info-value {
+    color: #F9BC06;
+    font-size: 20px;
+  }
+
+  .btn-buy {
+    padding: 12px 22px;
+    background: #F9BC06;
+    border: none;
+    border-radius: 10px;
+    color: #0a0a0a;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s;
+    text-align: center;
+    letter-spacing: 0.02em;
+  }
+  .btn-buy:hover { background: #e5ab00; }
+
+  .cut-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 0;
+  }
+  .cut-sec {
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+  }
+  .cut-count {
+    color: rgba(255, 255, 255, 0.55);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+    margin-right: 10px;
+    min-width: 44px;
+    text-align: right;
+  }
+  .cut-len {
+    color: rgba(255, 255, 255, 0.45);
+    text-align: right;
+    min-width: 60px;
+  }
+
+  /* ── Login modal ── */
+  .login-veil {
+    position: fixed; inset: 0;
+    background: rgba(10, 10, 10, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 1000;
+  }
+  .login-veil.open { display: flex; }
+  .login-card {
+    position: relative;
+    width: 320px;
+    padding: 24px 22px 20px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .login-close {
+    position: absolute;
+    top: 8px; right: 10px;
+    background: transparent; border: none;
+    color: rgba(255,255,255,0.4);
+    font-size: 22px; line-height: 1;
+    width: 26px; height: 26px;
+    cursor: pointer;
+    border-radius: 6px;
+    font-family: inherit;
+    padding: 0;
+  }
+  .login-close:hover { color: #fafafa; background: rgba(255,255,255,0.06); }
+  .login-title {
+    font-size: 18px; font-weight: 600; color: #fafafa;
+    text-align: center; margin-bottom: 2px;
+  }
+  .login-sub {
+    font-size: 12px; color: rgba(255,255,255,0.45);
+    text-align: center; margin-bottom: 6px;
+  }
+  .login-card input {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: #fafafa;
+    padding: 9px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .login-card input:focus { border-color: rgba(249,188,6,0.6); }
+  .login-card button {
+    background: #F9BC06;
+    color: #0a0a0a;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .login-card button:hover { background: #ffc91a; }
+  .login-card button:disabled { opacity: 0.5; cursor: default; }
+  .login-error {
+    font-size: 12px;
+    color: #ff7a6b;
+    min-height: 14px;
+    text-align: center;
+  }
+
+  /* ── Top-right cluster (save + user pill) ── */
+  .topright {
+    position: fixed;
+    top: 20px; right: 20px;
+    display: flex; align-items: center; gap: 8px;
+    z-index: 10;
+  }
+  .topright > * { position: static !important; }
+
+  .btn-save {
+    display: none;
+    align-items: center; gap: 7px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.55);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 14px;
+    font-family: inherit;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .btn-save.shown { display: inline-flex; }
+  .btn-save:hover { color: #fafafa; border-color: rgba(255,255,255,0.45); }
+  .btn-save.dirty {
+    color: #F9BC06;
+    border-color: #F9BC06;
+    background: transparent;
+  }
+  .btn-save.dirty:hover { color: #ffc91a; border-color: #ffc91a; }
+  .btn-save svg { width: 14px; height: 14px; }
+  .btn-save.saving { opacity: 0.6; cursor: default; }
+
+  /* ── Hover tooltip ── */
+  #ui-tooltip {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    max-width: 220px;
+    padding: 7px 11px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: rgba(255,255,255,0.82);
+    background: rgba(22,22,24,0.96);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  #ui-tooltip.visible { opacity: 1; }
+
+  /* ── User pill (top-right) ── */
+  .user-pill {
+    display: none;
+    align-items: center; gap: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.85);
+    cursor: pointer;
+  }
+  .user-pill.shown { display: flex; }
+  .user-pill .user-name { font-weight: 500; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-pill .user-proj {
+    color: rgba(255,255,255,0.45);
+    font-size: 12px;
+    padding-left: 8px;
+    border-left: 1px solid rgba(255,255,255,0.12);
+    max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .user-pill .user-proj.dirty::after { content: " •"; color: #F9BC06; }
+  .user-pill svg { width: 12px; height: 12px; opacity: 0.5; }
+  .user-pill.guest svg { display: none; }
+  .user-pill.guest .user-name { color: rgba(255,255,255,0.55); font-weight: 500; }
+
+  .user-menu {
+    position: fixed;
+    top: 60px; right: 20px;
+    width: 180px;
+    padding: 6px;
+    display: none; flex-direction: column;
+    z-index: 11;
+  }
+  .user-menu.open { display: flex; }
+  .user-menu button {
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.85);
+    font-size: 13px;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .user-menu button:hover { background: rgba(255,255,255,0.06); }
+  .user-menu .menu-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 4px 0; }
+
+  /* ── Projects panel (right slide-in) ── */
+  .projects-panel {
+    position: fixed;
+    top: 80px; right: 20px;
+    width: 320px;
+    max-height: calc(100vh - 100px);
+    padding: 16px 16px 14px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 12;
+  }
+  .projects-panel.open { display: flex; }
+  .projects-panel .panel-title {
+    font-size: 13px; font-weight: 600;
+    color: rgba(255,255,255,0.9);
+    margin-bottom: 4px;
+  }
+  .projects-close {
+    position: absolute;
+    top: 8px; right: 10px;
+    background: transparent; border: none;
+    color: rgba(255,255,255,0.4);
+    font-size: 22px; line-height: 1;
+    width: 26px; height: 26px;
+    cursor: pointer;
+    border-radius: 6px;
+    font-family: inherit;
+    padding: 0;
+  }
+  .projects-close:hover { color: #fafafa; background: rgba(255,255,255,0.06); }
+  .projects-save-row { display: flex; gap: 6px; }
+  .projects-save-row input {
+    flex: 1;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    color: #fafafa;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    min-width: 0;
+  }
+  .projects-save-row input:focus { border-color: rgba(249,188,6,0.6); }
+  .projects-save-row button {
+    background: #F9BC06; color: #0a0a0a;
+    border: none; border-radius: 6px;
+    padding: 7px 12px; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+    white-space: nowrap;
+  }
+  .projects-save-row button:hover { background: #ffc91a; }
+  .projects-save-row button.ghost {
+    background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.85);
+  }
+  .projects-save-row button.ghost:hover { background: rgba(255,255,255,0.12); }
+  .projects-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 2px 0 4px; }
+  .projects-list {
+    display: flex; flex-direction: column; gap: 2px;
+    overflow-y: auto;
+    margin: 0 -8px;
+    padding: 0 8px;
+  }
+  .project-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .project-row:hover { background: rgba(255,255,255,0.05); }
+  .project-row.current { background: rgba(249,188,6,0.10); }
+  .project-row .pname {
+    flex: 1; min-width: 0;
+    font-size: 13px; color: #fafafa;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .project-row .pdate { font-size: 11px; color: rgba(255,255,255,0.4); white-space: nowrap; }
+  .project-row .pdelete {
+    background: transparent; border: none;
+    color: rgba(255,255,255,0.3);
+    cursor: pointer; padding: 2px 6px; font-size: 16px; line-height: 1;
+    border-radius: 4px;
+    font-family: inherit;
+  }
+  .project-row .pdelete:hover { color: #ff7a6b; background: rgba(255,255,255,0.06); }
+  .projects-empty {
+    font-size: 12px; color: rgba(255,255,255,0.4);
+    text-align: center; padding: 12px 0;
+  }
