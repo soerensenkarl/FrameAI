@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { computeGeometrySpecs } from "./specs.js";
-import { specsToGroup } from "./specMesher.js";
+import { specsToGroup, specsToRoom, specsToRoofGroup } from "./specMesher.js";
 
 /* ────────────────── renderer ────────────────── */
 const vp = document.getElementById("viewport");
@@ -1967,90 +1967,19 @@ function buildWallMesh(spec, t, wMat, eMat, wallCutouts) {
   return [mesh, edges];
 }
 
-function buildRoom(a, b, h, t, wMat, eMat, fMat, wallCutouts) {
-  const g = new THREE.Group();
-
-  const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
-  const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
-  const w = x1 - x0, d = y1 - y0;
-
-  const isGable = roofType === "gable";
-  const ridgeH = isGable ? getRidgeH() : 0;
-  const ridgeAlongX = w >= d;
-  const isFlatSloped = roofType === "flat" && (flatSlopeH[0] !== 0 || flatSlopeH[1] !== 0);
-  const e0h = h + flatSlopeH[0], e1h = h + flatSlopeH[1];
-
-  // Pentagon eave lift: lift the gable so the roof's BOTTOM plane passes through
-  // the inner-top corner of the long walls. s = roofT - ridgeH*t/halfSpan.
-  const gableEaveLift = isGable ? ((+inTR.value) - ridgeH * t / (ridgeAlongX ? d / 2 : w / 2)) : 0;
-
-  // Wall specs: "perp" walls own the corners (full length, sloped/gabled top);
-  // "long" walls are inset by t on each end (flat top).
-  //   ridgeAlongX  → perp = W,E (slope runs along Y or gable spans Y)
-  //   ridgeAlongY  → perp = S,N
-  const specs = [];
-  const flat = (hVal) => [[0, hVal], [1, hVal]];
-  const gableProfile = [[0, h + gableEaveLift], [0.5, h + ridgeH + gableEaveLift], [1, h + gableEaveLift]];
-
-  if (ridgeAlongX) {
-    // Long S/N: inset by t, flat top at eave height (or edge height for sloped flat)
-    const sh = isFlatSloped ? e0h : h;
-    const nh = isFlatSloped ? e1h : h;
-    specs.push(
-      { idx: 0, from: [x0 + t, y0],       to: [x1 - t, y0],       outward: [0, -1], topPoints: flat(sh) },
-      { idx: 1, from: [x1 - t, y1],       to: [x0 + t, y1],       outward: [0,  1], topPoints: flat(nh) },
-    );
-    // Perp W/E: full depth, sloped/gabled top
-    let wTop, eTop;
-    if (isGable)          { wTop = gableProfile;            eTop = gableProfile; }
-    else if (isFlatSloped){ wTop = [[0, e1h], [1, e0h]];    eTop = [[0, e0h], [1, e1h]]; }
-    else                  { wTop = flat(h);                 eTop = flat(h); }
-    specs.push(
-      { idx: 2, from: [x0, y1], to: [x0, y0], outward: [-1, 0], topPoints: wTop },
-      { idx: 3, from: [x1, y0], to: [x1, y1], outward: [ 1, 0], topPoints: eTop },
-    );
-  } else {
-    // Perp S/N: full width, sloped/gabled top
-    let sTop, nTop;
-    if (isGable)           { sTop = gableProfile;            nTop = gableProfile; }
-    else if (isFlatSloped) { sTop = [[0, e0h], [1, e1h]];    nTop = [[0, e1h], [1, e0h]]; }
-    else                   { sTop = flat(h);                 nTop = flat(h); }
-    specs.push(
-      { idx: 0, from: [x0, y0], to: [x1, y0], outward: [0, -1], topPoints: sTop },
-      { idx: 1, from: [x1, y1], to: [x0, y1], outward: [0,  1], topPoints: nTop },
-    );
-    // Long W/E: inset, flat top at edge height
-    const wh = isFlatSloped ? e0h : h;
-    const eh = isFlatSloped ? e1h : h;
-    specs.push(
-      { idx: 2, from: [x0, y1 - t], to: [x0, y0 + t], outward: [-1, 0], topPoints: flat(wh) },
-      { idx: 3, from: [x1, y0 + t], to: [x1, y1 - t], outward: [ 1, 0], topPoints: flat(eh) },
-    );
-  }
-
-  for (const spec of specs) {
-    const items = buildWallMesh(spec, t, wMat, eMat, wallCutouts);
-    for (const it of items) g.add(it);
-  }
-
-  // Floor
-  const fw = w - 2 * t, fd = d - 2 * t;
-  if (fw > 0 && fd > 0) {
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(fw, fd), fMat);
-    // Preview only — lifted 10 cm off z=0 to avoid z-fighting with the world
-    // grid helper on the ground plane. Backend geometry is untouched.
-    floor.position.set(x0 + w / 2, y0 + d / 2, 100);
-    floor.receiveShadow = true;
-    g.add(floor);
-  }
-
-  return g;
-}
-
 /* ────────────────── place / preview ────────────────── */
 function showGhost(a, b) {
   if (ghostGroup) scene.remove(ghostGroup);
-  ghostGroup = buildRoom(a, b, +inH.value, +inT.value, ghostMat, ghostEdge, ghostFloor);
+  const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+  const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+  const bundle = computeGeometrySpecs({
+    x0, y0, x1, y1,
+    height: +inH.value, thickness: +inT.value,
+    roofType: "none", openings: [], interiorWalls: [],
+  });
+  ghostGroup = specsToRoom(bundle, {
+    wallMat: ghostMat, edgeMat: ghostEdge, floorMat: ghostFloor,
+  });
   scene.add(ghostGroup);
 }
 
@@ -2058,8 +1987,12 @@ function placeRoom() {
   if (ghostGroup) { scene.remove(ghostGroup); ghostGroup = null; }
   if (roomGroup)  { scene.remove(roomGroup);  roomGroup = null; }
 
-  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat);
-  scene.add(roomGroup);
+  const reqBody = buildRequestBody();
+  if (reqBody) {
+    const bundle = computeGeometrySpecs(reqBody);
+    roomGroup = specsToRoom(bundle, { wallMat, edgeMat, floorMat });
+    scene.add(roomGroup);
+  }
   positionArrows();
   updateDims();
   positionScaleWorker();
@@ -2084,10 +2017,19 @@ function rebuildScene() {
   }
 
   if (!c1 || !c2) return;
-  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat, openings);
+  if (roofGroup) { scene.remove(roofGroup); roofGroup = null; }
+  const reqBody = buildRequestBody();
+  if (!reqBody) return;
+  const bundle = computeGeometrySpecs(reqBody);
+
+  roomGroup = specsToRoom(bundle, { wallMat, edgeMat, floorMat });
   scene.add(roomGroup);
-  if (currentStep >= 3) buildRoof();
-  else if (roofGroup) { scene.remove(roofGroup); roofGroup = null; }
+
+  if (currentStep >= 3 && roofType !== "none") {
+    roofGroup = specsToRoofGroup(bundle.roof, { roofMat, edgeMat: roofEdgeMat });
+    roofGroup.position.z = 10;  // preview-only lift to avoid z-fighting
+    scene.add(roofGroup);
+  }
   if (currentStep === 0) positionArrows();
   positionRoofArrows();
   if (currentStep === 0) updateDims();
@@ -2805,7 +2747,10 @@ function rebuildWalls() {
   }
   if (!c1 || !c2) return;
   if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
-  roomGroup = buildRoom(c1, c2, +inH.value, +inT.value, wallMat, edgeMat, floorMat, openings);
+  const reqBody = buildRequestBody();
+  if (!reqBody) return;
+  const bundle = computeGeometrySpecs(reqBody);
+  roomGroup = specsToRoom(bundle, { wallMat, edgeMat, floorMat });
   scene.add(roomGroup);
 }
 
@@ -3091,190 +3036,6 @@ function finishOpeningDrag(e) {
  *   Gable → two sloped quads from eave to ridge, each thickened into a wedge
  * Overhang extends past the outer footprint on all sides.
  */
-function buildRoof() {
-  if (roofGroup) { scene.remove(roofGroup); roofGroup = null; }
-  if (!c1 || !c2) return;
-  if (roofType === "none") return;   // walls-only mode — no roof geometry
-
-  const x0 = Math.min(c1.x, c2.x) - 10, x1 = Math.max(c1.x, c2.x) + 10;  // +10mm preview expand
-  const y0 = Math.min(c1.y, c2.y) - 10, y1 = Math.max(c1.y, c2.y) + 10;
-  const h = +inH.value;
-  const t = +inT.value;
-  const w = x1 - x0, d = y1 - y0;
-  const roofT = +inTR.value;
-
-  roofGroup = new THREE.Group();
-
-  if (roofType === "flat") {
-    const f = flatSlopeH[0], b = flatSlopeH[1];
-    const ridgeAlongX = w >= d;
-    // eaveOH extends along the slope axis; gableOH along the perpendicular.
-    const ohX = ridgeAlongX ? gableOH : eaveOH;
-    const ohY = ridgeAlongX ? eaveOH : gableOH;
-
-    if (f === 0 && b === 0) {
-      // Perfectly flat — simple box slab
-      const geo = new THREE.BoxGeometry(w + ohX * 2, d + ohY * 2, roofT);
-      const mesh = new THREE.Mesh(geo, roofMat);
-      mesh.position.set(x0 + w / 2, y0 + d / 2, h + roofT / 2);
-      mesh.castShadow = true;
-      roofGroup.add(mesh);
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
-      edges.position.copy(mesh.position);
-      roofGroup.add(edges);
-    } else {
-      // Sloped flat roof — tilted slab. eaveOH extends past the slope ends
-      // and extrapolates the same slope so the slab plane stays continuous.
-      let top, bot;
-      if (ridgeAlongX) {
-        const mY = (b - f) / d;
-        const fOH = f - mY * eaveOH, bOH = b + mY * eaveOH;
-        top = [
-          x0 - ohX, y0 - ohY, h + roofT + fOH,
-          x1 + ohX, y0 - ohY, h + roofT + fOH,
-          x1 + ohX, y1 + ohY, h + roofT + bOH,
-          x0 - ohX, y1 + ohY, h + roofT + bOH,
-        ];
-        bot = [
-          x0 - ohX, y0 - ohY, h + fOH,
-          x1 + ohX, y0 - ohY, h + fOH,
-          x1 + ohX, y1 + ohY, h + bOH,
-          x0 - ohX, y1 + ohY, h + bOH,
-        ];
-      } else {
-        const mX = (b - f) / w;
-        const fOH = f - mX * eaveOH, bOH = b + mX * eaveOH;
-        top = [
-          x0 - ohX, y0 - ohY, h + roofT + fOH,
-          x0 - ohX, y1 + ohY, h + roofT + fOH,
-          x1 + ohX, y1 + ohY, h + roofT + bOH,
-          x1 + ohX, y0 - ohY, h + roofT + bOH,
-        ];
-        bot = [
-          x0 - ohX, y0 - ohY, h + fOH,
-          x0 - ohX, y1 + ohY, h + fOH,
-          x1 + ohX, y1 + ohY, h + bOH,
-          x1 + ohX, y0 - ohY, h + bOH,
-        ];
-      }
-      const verts = new Float32Array([...top, ...bot]);
-      const idx = [
-        0,1,2, 0,2,3,       // top
-        4,6,5, 4,7,6,       // bottom
-        0,5,1, 0,4,5,       // front edge
-        2,7,3, 2,6,7,       // back edge
-        0,3,7, 0,7,4,       // left side
-        1,6,2, 1,5,6,       // right side
-      ];
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
-      geo.setIndex(idx);
-      geo.computeVertexNormals();
-      const mesh = new THREE.Mesh(geo, roofMat);
-      mesh.castShadow = true;
-      roofGroup.add(mesh);
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
-      roofGroup.add(edges);
-    }
-  } else {
-    // Gable. Slab spans flush with outer wall faces by default; eaveOH and
-    // gableOH extend it outward (perpendicular to and along the ridge). Eave
-    // Z drops along the slope as the slab extends past the wall.
-    const ridgeH = getRidgeH();
-    const ridgeAlongX = w >= d;
-    const halfSpan = ridgeAlongX ? d / 2 : w / 2;
-    const s = roofT - ridgeH * t / halfSpan;
-    const ridgeZ = h + ridgeH + s;
-    const slope = ridgeH / halfSpan;
-    const eaveZ = h + s - eaveOH * slope;
-    let faces;
-    if (ridgeAlongX) {
-      const midY = y0 + d / 2;
-      const xL = x0 - gableOH, xR = x1 + gableOH;
-      const yS = y0 - eaveOH, yN = y1 + eaveOH;
-      faces = [
-        { // south face — eave at south, ridge at center
-          top: [
-            [xL, yS, eaveZ],  [xR, yS, eaveZ],
-            [xR, midY, ridgeZ],  [xL, midY, ridgeZ],
-          ],
-          bot: [
-            [xL, yS, eaveZ - roofT],  [xR, yS, eaveZ - roofT],
-            [xR, midY, ridgeZ - roofT],  [xL, midY, ridgeZ - roofT],
-          ],
-        },
-        { // north face
-          top: [
-            [xL, midY, ridgeZ],  [xR, midY, ridgeZ],
-            [xR, yN, eaveZ],  [xL, yN, eaveZ],
-          ],
-          bot: [
-            [xL, midY, ridgeZ - roofT],  [xR, midY, ridgeZ - roofT],
-            [xR, yN, eaveZ - roofT],  [xL, yN, eaveZ - roofT],
-          ],
-        },
-      ];
-    } else {
-      const midX = x0 + w / 2;
-      const yL = y0 - gableOH, yR = y1 + gableOH;
-      const xW = x0 - eaveOH, xE = x1 + eaveOH;
-      faces = [
-        { // west face
-          top: [
-            [xW, yL, eaveZ],  [xW, yR, eaveZ],
-            [midX, yR, ridgeZ],  [midX, yL, ridgeZ],
-          ],
-          bot: [
-            [xW, yL, eaveZ - roofT],  [xW, yR, eaveZ - roofT],
-            [midX, yR, ridgeZ - roofT],  [midX, yL, ridgeZ - roofT],
-          ],
-        },
-        { // east face
-          top: [
-            [midX, yL, ridgeZ],  [midX, yR, ridgeZ],
-            [xE, yR, eaveZ],  [xE, yL, eaveZ],
-          ],
-          bot: [
-            [midX, yL, ridgeZ - roofT],  [midX, yR, ridgeZ - roofT],
-            [xE, yR, eaveZ - roofT],  [xE, yL, eaveZ - roofT],
-          ],
-        },
-      ];
-    }
-
-    for (const face of faces) {
-      // 8 verts: 0-3 top, 4-7 bottom
-      const verts = new Float32Array([...face.top.flat(), ...face.bot.flat()]);
-      const idx = [
-        // top face
-        0,1,2, 0,2,3,
-        // bottom face (reversed winding)
-        4,6,5, 4,7,6,
-        // eave edge (0-1 top, 4-5 bottom)
-        0,5,1, 0,4,5,
-        // ridge edge (2-3 top, 6-7 bottom)
-        2,7,3, 2,6,7,
-        // left side (0-3 top, 4-7 bottom)
-        0,3,7, 0,7,4,
-        // right side (1-2 top, 5-6 bottom)
-        1,6,2, 1,5,6,
-      ];
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.BufferAttribute(verts, 3));
-      geo.setIndex(idx);
-      geo.computeVertexNormals();
-      const mesh = new THREE.Mesh(geo, roofMat);
-      mesh.castShadow = true;
-      roofGroup.add(mesh);
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), roofEdgeMat);
-      roofGroup.add(edges);
-    }
-  }
-
-  roofGroup.position.z = 10;  // preview-only: lifts roof 10 mm to prevent z-fighting with wall tops
-  scene.add(roofGroup);
-}
-
 /* ────────────────── interior walls ────────────────── */
 const iwMat         = new THREE.MeshStandardMaterial({ color: 0xf2f0ec, roughness: 0.82, metalness: 0 });
 const iwSelectedMat = new THREE.MeshStandardMaterial({ color: 0xF9BC06, roughness: 0.6,  metalness: 0 });
@@ -3358,7 +3119,7 @@ function rebuildInteriorWalls() {
   // Interior walls stop at the UNDERSIDE of the roof slab, not its top. The top
   // of the slab (hEave/hApex) is offset upward by roofT so the slab's BOTTOM
   // plane passes through the inner-top corner of the long walls (see the
-  // gableEaveLift derivation in buildRoom). So the underside = top − roofT.
+  // gableEaveLift derivation in specs.js). So the underside = top − roofT.
   const useGable = iwToRidge && roofType === "gable" && c1 && c2 && houseMode !== "free";
   let gable = null;
   if (useGable) {
@@ -5804,7 +5565,7 @@ inD.addEventListener("change", () => { inD.value = Math.round(clamp(+inD.value |
 inH.addEventListener("change", () => { inH.value = Math.round(clamp(+inH.value || LIM.H_MIN, LIM.H_MIN, LIM.H_MAX)); rebuildRoom(); pushHistory(); });
 inT.addEventListener("change", () => { rebuildRoom(); pushHistory(); });
 inTI.addEventListener("change", () => { markFrameStale(); rebuildInteriorWalls(); if (selectedIW >= 0) { const prev = selectedIW; deselectIW(); selectIW(prev); } pushHistory(); });
-inTR.addEventListener("change", () => { rebuildRoom(); if (roofGroup) { buildRoof(); positionRoofArrows(); } pushHistory(); });
+inTR.addEventListener("change", () => { rebuildRoom(); positionRoofArrows(); pushHistory(); });
 
 // Opening inspector inputs
 $("oInspW").addEventListener("input", () => {

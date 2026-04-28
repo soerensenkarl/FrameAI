@@ -31,25 +31,25 @@ def opening_spec(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type,
 
     if wall_idx == 0:  # south wall, along +X
         cx = x0 + pos_along
-        return {"kind": "box",
+        return {"kind": "box", "wall_idx": wall_idx,
                 "x": [cx - ow / 2, cx + ow / 2],
                 "y": [y0 - pad, y0 + t + pad],
                 "z": [z_base, z_base + oh]}
     if wall_idx == 1:  # north wall, along +X
         cx = x0 + pos_along
-        return {"kind": "box",
+        return {"kind": "box", "wall_idx": wall_idx,
                 "x": [cx - ow / 2, cx + ow / 2],
                 "y": [y1 - t - pad, y1 + pad],
                 "z": [z_base, z_base + oh]}
     if wall_idx == 2:  # west wall, along +Y (origin at y0+t)
         cy = y0 + t + pos_along
-        return {"kind": "box",
+        return {"kind": "box", "wall_idx": wall_idx,
                 "x": [x0 - pad, x0 + t + pad],
                 "y": [cy - ow / 2, cy + ow / 2],
                 "z": [z_base, z_base + oh]}
     if wall_idx == 3:  # east wall, along +Y (origin at y0+t)
         cy = y0 + t + pos_along
-        return {"kind": "box",
+        return {"kind": "box", "wall_idx": wall_idx,
                 "x": [x1 - t - pad, x1 + pad],
                 "y": [cy - ow / 2, cy + ow / 2],
                 "z": [z_base, z_base + oh]}
@@ -67,16 +67,40 @@ def opening_spec(x0, y0, x1, y1, t, wall_idx, pos_along, opening_type,
     if is_horiz:
         xMin = min(ix0, ix1)
         cx = xMin + pos_along
-        return {"kind": "box",
+        return {"kind": "box", "wall_idx": wall_idx,
                 "x": [cx - ow / 2, cx + ow / 2],
                 "y": [iy0 - i_t / 2 - pad, iy0 + i_t / 2 + pad],
                 "z": [z_base, z_base + oh]}
     yMin = min(iy0, iy1)
     cy = yMin + pos_along
-    return {"kind": "box",
+    return {"kind": "box", "wall_idx": wall_idx,
             "x": [ix0 - i_t / 2 - pad, ix0 + i_t / 2 + pad],
             "y": [cy - ow / 2, cy + ow / 2],
             "z": [z_base, z_base + oh]}
+
+
+def _ensure_outward_polygon(pts, direction):
+    """Reverse a polygon's vertex order if its computed normal opposes the
+    outward direction (= -direction).
+
+    The profile face must have its normal pointing OUTWARD from the brep
+    solid; otherwise GH can identify the wrong face as the wall's outer
+    reference, and the framed studs end up offset inward by one wall
+    thickness on those walls.
+    """
+    if len(pts) < 3:
+        return pts
+    p0, p1, p2 = pts[0], pts[1], pts[2]
+    e1 = (p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2])
+    e2 = (p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2])
+    nx = e1[1] * e2[2] - e1[2] * e2[1]
+    ny = e1[2] * e2[0] - e1[0] * e2[2]
+    nz = e1[0] * e2[1] - e1[1] * e2[0]
+    # Outward = -direction; polygon normal should point along outward.
+    dot = -(nx * direction[0] + ny * direction[1] + nz * direction[2])
+    if dot < 0:
+        return list(reversed(pts))
+    return pts
 
 
 def roof_specs(x0, y0, x1, y1, h, roof_type, ridge_h=None, flat_slope=None,
@@ -281,36 +305,45 @@ def exterior_wall_specs(x0, y0, x1, y1, h, t, roof_type, flat_slope,
                     [ox,        outer_y, 0],
                 ]
                 direction = [0, dir_y, 0]
+            pts = _ensure_outward_polygon(pts, direction)
             specs.append({"kind": "extruded", "pts": pts, "dir": direction, "cap": True})
             continue
 
         if is_flat_sloped:
             is_trap = (ridge_along_x and i in (2, 3)) or (not ridge_along_x and i in (0, 1))
             if is_trap:
+                # Same convention as the gable pentagon: profile at OUTER face,
+                # extrude INWARD. Far-side walls (East / North) flip outer_x/y
+                # to (ox+sx) / (oy+sy) and negate dir.
                 if ridge_along_x:
-                    # W/E walls run along Y: south end at flat_slope[0], north end at flat_slope[1]
+                    far_side = (i == 3)
+                    outer_x = (ox + sx) if far_side else ox
+                    dir_x = -sx if far_side else sx
                     h_start = h + flat_slope[0]
                     h_end = h + flat_slope[1]
                     pts = [
-                        [ox, oy, 0],
-                        [ox, oy + sy, 0],
-                        [ox, oy + sy, h_end],
-                        [ox, oy, h_start],
-                        [ox, oy, 0],
+                        [outer_x, oy, 0],
+                        [outer_x, oy + sy, 0],
+                        [outer_x, oy + sy, h_end],
+                        [outer_x, oy, h_start],
+                        [outer_x, oy, 0],
                     ]
-                    direction = [sx, 0, 0]
+                    direction = [dir_x, 0, 0]
                 else:
-                    # S/N walls run along X: west end at flat_slope[0], east end at flat_slope[1]
+                    far_side = (i == 1)
+                    outer_y = (oy + sy) if far_side else oy
+                    dir_y = -sy if far_side else sy
                     h_start = h + flat_slope[0]
                     h_end = h + flat_slope[1]
                     pts = [
-                        [ox, oy, 0],
-                        [ox + sx, oy, 0],
-                        [ox + sx, oy, h_end],
-                        [ox, oy, h_start],
-                        [ox, oy, 0],
+                        [ox, outer_y, 0],
+                        [ox + sx, outer_y, 0],
+                        [ox + sx, outer_y, h_end],
+                        [ox, outer_y, h_start],
+                        [ox, outer_y, 0],
                     ]
-                    direction = [0, sy, 0]
+                    direction = [0, dir_y, 0]
+                pts = _ensure_outward_polygon(pts, direction)
                 specs.append({"kind": "extruded", "pts": pts, "dir": direction, "cap": True})
                 continue
             # Constant-height wall at the roof edge height
@@ -483,6 +516,7 @@ def interior_wall_specs(interior_walls_list, iw_t, h, iw_to_ridge,
                 pts.append([bx0, by0, z_bot])
                 pts.append([bx0, by0, 0])
                 direction = [iw_t, 0, 0]
+            pts = _ensure_outward_polygon(pts, direction)
             specs.append({"kind": "extruded", "pts": pts, "dir": direction, "cap": True})
         else:
             specs.append({"kind": "box",

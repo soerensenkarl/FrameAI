@@ -21,28 +21,28 @@ export function openingSpec(x0, y0, x1, y1, t, wallIdx, posAlong, openingType,
 
   if (wallIdx === 0) {
     const cx = x0 + posAlong;
-    return { kind: "box",
+    return { kind: "box", wall_idx: wallIdx,
              x: [cx - ow/2, cx + ow/2],
              y: [y0 - pad, y0 + t + pad],
              z: [zBase, zBase + oh] };
   }
   if (wallIdx === 1) {
     const cx = x0 + posAlong;
-    return { kind: "box",
+    return { kind: "box", wall_idx: wallIdx,
              x: [cx - ow/2, cx + ow/2],
              y: [y1 - t - pad, y1 + pad],
              z: [zBase, zBase + oh] };
   }
   if (wallIdx === 2) {
     const cy = y0 + t + posAlong;
-    return { kind: "box",
+    return { kind: "box", wall_idx: wallIdx,
              x: [x0 - pad, x0 + t + pad],
              y: [cy - ow/2, cy + ow/2],
              z: [zBase, zBase + oh] };
   }
   if (wallIdx === 3) {
     const cy = y0 + t + posAlong;
-    return { kind: "box",
+    return { kind: "box", wall_idx: wallIdx,
              x: [x1 - t - pad, x1 + pad],
              y: [cy - ow/2, cy + ow/2],
              z: [zBase, zBase + oh] };
@@ -58,17 +58,36 @@ export function openingSpec(x0, y0, x1, y1, t, wallIdx, posAlong, openingType,
   if (isHoriz) {
     const xMin = Math.min(ix0, ix1);
     const cx = xMin + posAlong;
-    return { kind: "box",
+    return { kind: "box", wall_idx: wallIdx,
              x: [cx - ow/2, cx + ow/2],
              y: [iy0 - iT/2 - pad, iy0 + iT/2 + pad],
              z: [zBase, zBase + oh] };
   }
   const yMin = Math.min(iy0, iy1);
   const cy = yMin + posAlong;
-  return { kind: "box",
+  return { kind: "box", wall_idx: wallIdx,
            x: [ix0 - iT/2 - pad, ix0 + iT/2 + pad],
            y: [cy - ow/2, cy + ow/2],
            z: [zBase, zBase + oh] };
+}
+
+
+function ensureOutwardPolygon(pts, dir) {
+  // Reverse a polygon's vertex order if its computed normal opposes the
+  // outward direction (= -dir). The profile face must have its normal
+  // pointing OUTWARD from the brep solid; otherwise GH can identify the
+  // wrong face as the wall's outer reference, and the framed studs end up
+  // offset inward by one wall thickness on those walls.
+  if (pts.length < 3) return pts;
+  const p0 = pts[0], p1 = pts[1], p2 = pts[2];
+  const e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+  const e2 = [p2[0] - p1[0], p2[1] - p1[1], p2[2] - p1[2]];
+  const nx = e1[1] * e2[2] - e1[2] * e2[1];
+  const ny = e1[2] * e2[0] - e1[0] * e2[2];
+  const nz = e1[0] * e2[1] - e1[1] * e2[0];
+  const dot = -(nx * dir[0] + ny * dir[1] + nz * dir[2]);
+  if (dot < 0) return pts.slice().reverse();
+  return pts;
 }
 
 
@@ -262,6 +281,7 @@ export function exteriorWallSpecs(x0, y0, x1, y1, h, t, roofType, flatSlope,
         ];
         direction = [0, dirY, 0];
       }
+      pts = ensureOutwardPolygon(pts, direction);
       specs.push({ kind: "extruded", pts, dir: direction, cap: true });
       continue;
     }
@@ -270,28 +290,38 @@ export function exteriorWallSpecs(x0, y0, x1, y1, h, t, roofType, flatSlope,
       const isTrap = (ridgeAlongX && (i === 2 || i === 3)) ||
                      (!ridgeAlongX && (i === 0 || i === 1));
       if (isTrap) {
+        // Same convention as the gable pentagon: profile at OUTER face,
+        // extrude INWARD. Far-side walls (East / North) flip outerX/Y
+        // to (ox+sx) / (oy+sy) and negate dir.
         let pts, direction;
         const hStart = h + flatSlope[0];
         const hEnd = h + flatSlope[1];
         if (ridgeAlongX) {
+          const farSide = (i === 3);
+          const outerX = farSide ? (ox + sx) : ox;
+          const dirX = farSide ? -sx : sx;
           pts = [
-            [ox, oy, 0],
-            [ox, oy + sy, 0],
-            [ox, oy + sy, hEnd],
-            [ox, oy, hStart],
-            [ox, oy, 0],
+            [outerX, oy, 0],
+            [outerX, oy + sy, 0],
+            [outerX, oy + sy, hEnd],
+            [outerX, oy, hStart],
+            [outerX, oy, 0],
           ];
-          direction = [sx, 0, 0];
+          direction = [dirX, 0, 0];
         } else {
+          const farSide = (i === 1);
+          const outerY = farSide ? (oy + sy) : oy;
+          const dirY = farSide ? -sy : sy;
           pts = [
-            [ox, oy, 0],
-            [ox + sx, oy, 0],
-            [ox + sx, oy, hEnd],
-            [ox, oy, hStart],
-            [ox, oy, 0],
+            [ox, outerY, 0],
+            [ox + sx, outerY, 0],
+            [ox + sx, outerY, hEnd],
+            [ox, outerY, hStart],
+            [ox, outerY, 0],
           ];
-          direction = [0, sy, 0];
+          direction = [0, dirY, 0];
         }
+        pts = ensureOutwardPolygon(pts, direction);
         specs.push({ kind: "extruded", pts, dir: direction, cap: true });
         continue;
       }
@@ -470,6 +500,7 @@ export function interiorWallSpecs(interiorWallsList, iwT, h, iwToRidge,
         pts.push([bx0, by0, 0]);
         direction = [iwT, 0, 0];
       }
+      pts = ensureOutwardPolygon(pts, direction);
       specs.push({ kind: "extruded", pts, dir: direction, cap: true });
     } else {
       specs.push({ kind: "box",
