@@ -708,6 +708,14 @@
     gap: 22px;
     z-index: 11;
   }
+  .picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9;  /* above the 3D canvas, below the UI chrome (toolbar/panels/leftbar at z-10) */
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
   .house-picker-heading {
     margin: 0;
     font-size: 18px;

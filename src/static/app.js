@@ -19,7 +19,7 @@ const clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 2400);
 /* ────────────────── scene / camera ────────────────── */
 const scene = new THREE.Scene();
 const cam = new THREE.PerspectiveCamera(35, 1, 10, 200000);
-cam.position.set(9000, -7000, 7000);
+cam.position.set(18000, -14000, 14000);
 cam.up.set(0, 0, 1);
 
 const orbit = new OrbitControls(cam, renderer.domElement);
@@ -577,10 +577,12 @@ let eaveOH = 0;           // gable-roof eave overhang (mirrored, both sides)
 let gableOH = 0;          // gable-roof gable overhang (mirrored, both sides)
 const OH_MAX = 500;       // max overhang in mm (50 cm)
 
+const DEFAULT_GABLE_DEG = 25;
 function defaultRidgeH() {
   if (!c1 || !c2) return 500;
   const w = Math.abs(c2.x - c1.x), d = Math.abs(c2.y - c1.y);
-  return Math.min(w, d) * 0.35;
+  // Default gable pitch: ridgeH = halfSpan * tan(DEFAULT_GABLE_DEG).
+  return Math.min(w, d) * 0.5 * Math.tan(DEFAULT_GABLE_DEG * Math.PI / 180);
 }
 
 function getRidgeH() {
@@ -1161,7 +1163,12 @@ function syncOverlay() {
   // Interior walls stay visible from step 0 onward so the user can see how
   // their design is developing while editing the exterior shell.
   iwGroup.visible                           = (n <= 3)               || (overlay && inFrame);
-  if (roofGroup)     roofGroup.visible     = (n === 3)              || (overlay && inFrame);
+  const roofVisible = (n === 3) || (overlay && inFrame);
+  if (roofGroup)     roofGroup.visible     = roofVisible;
+  roofMat.transparent = (n === 3);
+  roofMat.opacity     = (n === 3) ? 0.2 : 1.0;
+  roofMat.depthWrite  = (n !== 3);
+  roofMat.needsUpdate = true;
 }
 $("devOverlayCb").addEventListener("change", e => {
   window._devOverlay = e.target.checked;
@@ -1994,7 +2001,7 @@ function rebuildScene() {
 
   if (currentStep >= 1 && roofType !== "none") {
     roofGroup = specsToRoofGroup(bundle.roof, { roofMat, edgeMat: roofEdgeMat });
-    roofGroup.position.z = 10;  // preview-only lift to avoid z-fighting
+    roofGroup.position.z = 0;
     scene.add(roofGroup);
   }
   if (currentStep === 0) positionArrows();
@@ -2227,6 +2234,7 @@ function rebuildRoom() {
   c2 = new THREE.Vector3(c1.x + wVal * signX, c1.y + dVal * signY, 0);
   clipInteriorWallsToFootprint();
   rebuildScene();
+  maybeFitExtents();
 }
 
 /* ────────────────── openings ────────────────── */
@@ -3783,7 +3791,6 @@ function goToStep(n) {
         renderer.domElement.style.cursor = "crosshair";
         btnNext.textContent = NEXT_LABELS[0];
         btnNext.style.display = footprintWalls.length ? "" : "none";
-        if (footprintWalls.length) maybeFitExtents(true);
       } else if (mode === M.SET) {
         panel.classList.add("open");
         positionArrows();
@@ -3792,7 +3799,6 @@ function goToStep(n) {
         btnNext.style.display = "";
         hint.classList.add("small");
         hint.innerHTML = "Drag arrows or edit dimensions";
-        maybeFitExtents(true);
       } else {
         btnNext.style.display = "none";
         if (firstVisit) {
@@ -3916,29 +3922,77 @@ $("btnTopView").style.display = "flex";
 // House type picker — shown first, dismisses to reveal the footprint flow
 let houseTypePicked = false;
 const housePicker = $("housePicker");
-$("tileBox").addEventListener("click", () => {
-  houseMode = 'box';
-  houseTypePicked = true;
-  housePicker.style.display = "none";
-  // Standard Danish parcelhus envelope: 8 × 12 m footprint, 2.5 m wall height.
+// Standard Danish parcelhus envelope: 8 x 12 m footprint, 2.5 m wall height.
+function spawnDefaultBox() {
   c1 = new THREE.Vector3(-4000, -6000, 0);
   c2 = new THREE.Vector3( 4000,  6000, 0);
   signX = 1; signY = 1;
   inW.value = 8000;
   inD.value = 12000;
   inH.value = 2500;
-  hint.style.display = "";
   placeRoom();
-  enterSet();
-  // Pull the camera back a couple of notches so the whole envelope sits in
-  // frame on first paint — the default startup distance is sized for the
-  // small empty grid, not a 12m-long house.
-  const cxCam = (c1.x + c2.x) / 2;
-  const cyCam = (c1.y + c2.y) / 2;
-  cam.position.set(cxCam + 18000, cyCam - 14000, 14000);
-  orbit.update();
-  $("exampleLink").style.display = "none";
+  // No dim labels or resize arrows on the picker-phase preview.
+  hideArrows();
+  hideDims();
+}
+function unspawnBox() {
+  c1 = null; c2 = null;
+  if (roomGroup) { scene.remove(roomGroup); roomGroup = null; }
+  hideArrows();
+  hideDims();
+}
+$("tileBox").addEventListener("mouseenter", () => {
+  // Preview the spawn while the envelope picker is still up; click commits.
+  if (housePicker.style.display === "none") return;
+  spawnDefaultBox();
 });
+$("tileBox").addEventListener("mouseleave", () => {
+  if (housePicker.style.display === "none") return;
+  unspawnBox();
+});
+$("tileBox").addEventListener("click", () => {
+  houseMode = 'box';
+  houseTypePicked = true;
+  housePicker.style.display = "none";
+  // Box may already be staged from hover preview - re-spawn to be safe.
+  spawnDefaultBox();
+  // Ask for roof shape next - picker overlays the spawned box.
+  $("pickerBackdrop").style.display = "";
+  $("roofPicker").style.display = "";
+});
+
+// Roof shape picker - hover previews the roof on the design, click commits.
+function previewRoofType(type) {
+  if ($("roofPicker").style.display === "none") return;
+  roofType = type;
+  if (type === "gable") flatSlopeH = [0, 0];
+  if (type === "none") { eaveOH = 0; gableOH = 0; }
+  rebuildScene();
+  // No dim labels or resize arrows on the picker-phase preview.
+  hideArrows();
+  hideDims();
+}
+function pickRoofShape(type) {
+  $("roofPicker").style.display = "none";
+  $("pickerBackdrop").style.display = "none";
+  if (measureActive) setMeasureActive(false);
+  markFrameStale();
+  roofType = type;
+  if (type === "gable") flatSlopeH = [0, 0];
+  document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
+  $("roofIwToRidgeRow").style.display = roofType === "gable" ? "" : "none";
+  rebuildScene();
+  pushHistory();
+  hint.style.display = "";
+  enterSet();
+  $("exampleLink").style.display = "none";
+}
+const roofTilesContainer = $("roofPicker").querySelector(".house-picker-tiles");
+$("rpTileGable").addEventListener("mouseenter", () => previewRoofType("gable"));
+$("rpTileFlat").addEventListener("mouseenter", () => previewRoofType("flat"));
+roofTilesContainer.addEventListener("mouseleave", () => previewRoofType("none"));
+$("rpTileGable").addEventListener("click", () => pickRoofShape("gable"));
+$("rpTileFlat").addEventListener("click", () => pickRoofShape("flat"));
 $("tileFree").addEventListener("click", (e) => {
   if (e.currentTarget.classList.contains("locked")) { e.preventDefault(); return; }
   houseMode = 'free';
@@ -4997,6 +5051,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   }
 
   if (currentStep !== 0) return;
+  if (!houseTypePicked) return;
 
   const pt = groundHit(e);
   if (!pt) return;
@@ -5899,11 +5954,6 @@ function enterSet() {
   hint.classList.add("small");
   hint.innerHTML = "Drag arrows or edit dimensions";
 
-  // Frame the room in view
-  const cx = (c1.x + c2.x) / 2;
-  const cy = (c1.y + c2.y) / 2;
-  orbit.target.set(cx, cy, (+inH.value) / 3);
-
   undoStack.length = 0; histIdx = -1;
   pushHistory();
 }
@@ -5915,6 +5965,7 @@ function loadExample() {
   signX = 1; signY = 1;
   inW.value = 7000; inD.value = 5000; inH.value = 2400; inT.value = 195; inTI.value = 120; inTR.value = 295;
   roofType = "none";
+  $("pickerBackdrop").style.display = "none";
   placeRoom();
   placeOpening(0, 3500, "door");
   placeOpening(2, 1200, "window");
@@ -5953,6 +6004,7 @@ function startDrawing() {
   houseMode = 'box';
   houseTypePicked = false;
   housePicker.style.display = "";  // re-show picker to let user choose again
+  $("pickerBackdrop").style.display = "";  // re-frost the backdrop while picker is up
   $("rowW").style.display = "";
   $("rowD").style.display = "";
   hideArrows();
@@ -6343,6 +6395,10 @@ onResize();
     }
     const picker = document.getElementById("housePicker");
     if (picker) picker.style.display = "none";
+    const roofPickerEl = document.getElementById("roofPicker");
+    if (roofPickerEl) roofPickerEl.style.display = "none";
+    const backdrop = document.getElementById("pickerBackdrop");
+    if (backdrop) backdrop.style.display = "none";
     const hintEl = document.getElementById("hint");
     if (hintEl) hintEl.style.display = "none";
     const exLink = document.getElementById("exampleLink");

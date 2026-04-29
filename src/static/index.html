@@ -271,6 +271,31 @@
   </div>
 </div>
 
+<!-- Frosted-glass backdrop shown behind the envelope and roof pickers; blurs
+     and dims the 3D scene (or initial empty grid) so the user's eye lands
+     on the picker tiles. Hidden once a roof shape is chosen. -->
+<div class="picker-backdrop" id="pickerBackdrop"></div>
+
+<!-- Roof shape picker (shown after the user picks a building envelope) -->
+<div class="house-picker" id="roofPicker" style="display:none">
+  <h2 class="house-picker-heading">Choose roof shape:</h2>
+  <div class="house-picker-tiles">
+    <button type="button" class="house-tile" id="rpTileGable">
+      <svg viewBox="0 0 64 64">
+        <polygon points="10,52 10,30 32,10 54,30 54,52"/>
+      </svg>
+      <span class="label">Gable Roof</span>
+    </button>
+    <button type="button" class="house-tile" id="rpTileFlat">
+      <svg viewBox="0 0 64 64">
+        <rect x="10" y="30" width="44" height="22" rx="1"/>
+        <line x1="6" y1="30" x2="58" y2="30" stroke-width="2.5"/>
+      </svg>
+      <span class="label">Flat Roof</span>
+    </button>
+  </div>
+</div>
+
 <!-- Hint bar -->
 <div class="hint" id="hint" style="display:none">Click to place your house</div>
 <div class="example-link" id="exampleLink" style="display:none">or <a href="#" id="loadExample">load example</a></div>
