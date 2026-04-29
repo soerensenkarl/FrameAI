@@ -590,7 +590,7 @@ function getRidgeH() {
 function positionRoofArrows() {
   // Arrows are roof-editing handles (ridge height for gable, edge slope for
   // flat, eave/gable overhang for gable). Hide whenever no roof is selected.
-  if (!c1 || !c2 || currentStep !== 3 || roofType === "none") {
+  if (!c1 || !c2 || currentStep !== 1 || roofType === "none") {
     ridgeArrow.visible = false;
     slopeArrows[0].visible = false;
     slopeArrows[1].visible = false;
@@ -1039,7 +1039,7 @@ function updateLeftBar() {
   if (!bar) return;
   bar.dataset.currentStep = String(currentStep);
   const stepSection = $("leftBarStep");
-  const hasStepContent = (currentStep === 2 || currentStep === 3);
+  const hasStepContent = (currentStep === 3 || currentStep === 1);
   stepSection.classList.toggle("hidden", !hasStepContent);
 }
 const inW = $("inW"), inD = $("inD"), inH = $("inH"), inT = $("inT"), inTI = $("inTI"), inTR = $("inTR");
@@ -1445,7 +1445,7 @@ $("btnSendComment").addEventListener("click", async () => {
 
 const stepEls = [$("step0"), $("step1"), $("step2"), $("step3"), $("step4"), $("step5")];
 const infoPanel = $("infoPanel");
-const NEXT_LABELS = ["Walls \u2192", "Openings \u2192", "Roof \u2192", "Generate \u2192", "Buy \u2192"];
+const NEXT_LABELS = ["Roof \u2192", "Walls \u2192", "Openings \u2192", "Generate \u2192", "Buy \u2192"];
 
 let currentStep = 0;
 let activeTool = null;       // "window" | "door" | null
@@ -1456,9 +1456,9 @@ const stepVisited = [false, false, false, false, false, false];  // track first 
 // Intro hints shown centered on first visit to each tab
 const stepIntroHints = [
   "Click to place your house",
-  "Click inside to draw interior walls • Click a wall to edit",
-  "Drag windows and doors onto walls \u2022 click to edit",
   "Pick a roof style for your house",
+  "Click inside to draw interior walls \u2022 Click a wall to edit",
+  "Drag windows and doors onto walls \u2022 click to edit",
   "Generate the timber frame",
   "Review and purchase your frame"
 ];
@@ -1992,7 +1992,7 @@ function rebuildScene() {
   roomGroup = specsToRoom(bundle, { wallMat, edgeMat, floorMat });
   scene.add(roomGroup);
 
-  if (currentStep >= 3 && roofType !== "none") {
+  if (currentStep >= 1 && roofType !== "none") {
     roofGroup = specsToRoofGroup(bundle.roof, { roofMat, edgeMat: roofEdgeMat });
     roofGroup.position.z = 10;  // preview-only lift to avoid z-fighting
     scene.add(roofGroup);
@@ -2000,7 +2000,7 @@ function rebuildScene() {
   if (currentStep === 0) positionArrows();
   positionRoofArrows();
   if (currentStep === 0) updateDims();
-  else if (currentStep === 3 && (roofType === 'gable' || roofType === 'flat')) showRoofDims();
+  else if (currentStep === 1 && (roofType === 'gable' || roofType === 'flat')) showRoofDims();
   else hideDims();
   rebuildOpenings();
   rebuildInteriorWalls();
@@ -3210,7 +3210,7 @@ function deselectIW() {
   $("btnDeleteIW").style.display = "none";
   hideFFDim();
   // Re-arm the draw tool while we're still on the IW step.
-  if (currentStep === 1) renderer.domElement.style.cursor = "crosshair";
+  if (currentStep === 2) renderer.domElement.style.cursor = "crosshair";
 }
 
 function deleteSelectedIW() {
@@ -3221,7 +3221,7 @@ function deleteSelectedIW() {
   $("btnDeleteIW").style.display = "none";
   rebuildInteriorWalls();
   hideFFDim();
-  if (currentStep === 1) renderer.domElement.style.cursor = "crosshair";
+  if (currentStep === 2) renderer.domElement.style.cursor = "crosshair";
   pushHistory();
 }
 
@@ -3713,8 +3713,8 @@ function goToStep(n) {
   clearMultiSelection();
   deselectIW();
   if (n !== 0) { cancelFFDraw(); $("ffInspector").style.display = "none"; ffEndpointGroup.visible = false; hideFFHoverHint(); }
-  if (n !== 1) { cancelIWDraw(); hideIWHoverHint(); }
-  if (n !== 2) hideCompassTip();
+  if (n !== 2) { cancelIWDraw(); hideIWHoverHint(); }
+  if (n !== 3) hideCompassTip();
   hideArrows();
   hideDot();
   hideSnapBars();
@@ -3724,10 +3724,10 @@ function goToStep(n) {
   document.querySelectorAll(".tool-item").forEach(t => t.classList.remove("active"));
   dimEdit.style.display = "none"; editingAxis = null;
 
-  // Top-view button in steps 0, 1, and 2; stay in top view for Walls step and free-form footprint
-  const keepTop = (n === 1) || (n === 0 && houseMode === 'free');
+  // Top-view button in Exterior, Interior Walls, Openings; stay in top view for Walls step and free-form footprint
+  const keepTop = (n === 2) || (n === 0 && houseMode === 'free');
   if (!keepTop && isTopView) disableTopView();
-  $("btnTopView").style.display = (n <= 2) ? "flex" : "none";
+  $("btnTopView").style.display = (n === 0 || n === 2 || n === 3) ? "flex" : "none";
 
   // Common visibility — authoritative for design/frame groups.
   syncOverlay();
@@ -3738,9 +3738,9 @@ function goToStep(n) {
   // Small hints shown after intro dismisses (or on revisit)
   const stepSmallHints = [
     "Drag arrows or edit dimensions",
+    "Choose a roof type",
     "Click to draw \u2022 Click to edit",
     "Drag to add \u2022 Click to inspect",
-    "Choose a roof type",
     "",
     ""
   ];
@@ -3807,40 +3807,7 @@ function goToStep(n) {
       }
       break;
 
-    case 1: // Interior Walls
-      orbit.enabled = true;
-      renderer.domElement.style.cursor = "crosshair";
-      $("iwPanel").classList.add("open");
-      iwGroup.visible = true;
-      btnNext.textContent = NEXT_LABELS[1];
-      btnNext.style.display = "";
-      if (!isTopView) enableTopView();
-      rebuildIWEndpointMarkers();
-      if (firstVisit) {
-        showIntroThenSmall();
-      } else {
-        hint.classList.add("small");
-        hint.innerHTML = "Click empty space to draw • Click a wall to edit";
-      }
-      break;
-
-    case 2: // Openings
-      orbit.enabled = true;
-      renderer.domElement.style.cursor = "";
-      openingsGroup.visible = true;
-      btnNext.textContent = NEXT_LABELS[2];
-      btnNext.style.display = "";
-      if (firstVisit) {
-        showIntroThenSmall();
-        // Tutorial: point at the compass so the user knows how to leave top view.
-        if (isTopView) showCompassTip();
-      } else {
-        hint.classList.add("small");
-        hint.innerHTML = "Drag a window or door onto a wall";
-      }
-      break;
-
-    case 3: // Roof
+    case 1: // Roof
       orbit.enabled = true;
       renderer.domElement.style.cursor = "";
       // Thickness panel only matters when a roof is selected.
@@ -3856,13 +3823,46 @@ function goToStep(n) {
         o.classList.toggle("active", o.dataset.roof === roofType);
       });
       $("roofIwToRidgeRow").style.display = roofType === "gable" ? "" : "none";
-      btnNext.textContent = NEXT_LABELS[3];
+      btnNext.textContent = NEXT_LABELS[1];
       btnNext.style.display = "";
       if (firstVisit) {
         showIntroThenSmall();
       } else {
         hint.classList.add("small");
         hint.innerHTML = "Drag arrow to adjust slope";
+      }
+      break;
+
+    case 2: // Interior Walls
+      orbit.enabled = true;
+      renderer.domElement.style.cursor = "crosshair";
+      $("iwPanel").classList.add("open");
+      iwGroup.visible = true;
+      btnNext.textContent = NEXT_LABELS[2];
+      btnNext.style.display = "";
+      if (!isTopView) enableTopView();
+      rebuildIWEndpointMarkers();
+      if (firstVisit) {
+        showIntroThenSmall();
+      } else {
+        hint.classList.add("small");
+        hint.innerHTML = "Click empty space to draw • Click a wall to edit";
+      }
+      break;
+
+    case 3: // Openings
+      orbit.enabled = true;
+      renderer.domElement.style.cursor = "";
+      openingsGroup.visible = true;
+      btnNext.textContent = NEXT_LABELS[3];
+      btnNext.style.display = "";
+      if (firstVisit) {
+        showIntroThenSmall();
+        // Tutorial: point at the compass so the user knows how to leave top view.
+        if (isTopView) showCompassTip();
+      } else {
+        hint.classList.add("small");
+        hint.innerHTML = "Drag a window or door onto a wall";
       }
       break;
 
@@ -3965,7 +3965,7 @@ $("tileFree").addEventListener("click", (e) => {
 //   Step 1 (Interior) not in top view: exterior fades, interior full.
 //   Otherwise: both full.
 function updateExtWallOpacity() {
-  const extGhost = currentStep === 1 && !isTopView;
+  const extGhost = currentStep === 2 && !isTopView;
   const intGhost = currentStep === 0;
   wallMat.transparent = extGhost;
   wallMat.opacity = extGhost ? 0.3 : 1.0;
@@ -4351,12 +4351,12 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   }
 
   // ── Interior Walls step: record mouse down position (handled on pointerup) ──
-  if (currentStep === 1) {
+  if (currentStep === 2) {
     iwPointerDown = { x: e.clientX, y: e.clientY };
   }
 
   // ── Openings step: click to select opening ──
-  if (currentStep === 2) {
+  if (currentStep === 3) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -4481,7 +4481,7 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   }
 
   // Roof arrow drag start (roof step)
-  if (currentStep === 3) {
+  if (currentStep === 1) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -4540,7 +4540,13 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
     const hit = hitArrow(e);
     if (hit) {
       const idx = hit.userData.idx;
-      dragging = { idx, ...ARROW_DIRS[idx] };
+      const dir = ARROW_DIRS[idx];
+      const pt0 = groundHit(e);
+      const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+      const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+      const edgeStart = [y0, y1, x0, x1][idx];
+      const mouseStart = pt0 ? (dir.axis === "x" ? pt0.x : pt0.y) : edgeStart;
+      dragging = { idx, ...dir, edgeStart, mouseStart };
       orbit.enabled = false;
       renderer.domElement.style.cursor = "grabbing";
       return;
@@ -4644,7 +4650,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   }
 
   // Interior wall snap dot + ghost preview; hover hint when idle
-  if (currentStep === 1) {
+  if (currentStep === 2) {
     // Draw tool is disabled while a wall is selected — no snap dot, no ghost,
     // no snap bars. Click another wall to switch, or click empty space to
     // deselect and start drawing.
@@ -4776,7 +4782,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     vertPlane.constant = -vertPlane.normal.dot(centerPos);
     const hitPt = new THREE.Vector3();
     if (rc.ray.intersectPlane(vertPlane, hitPt)) {
-      const newH = clamp(snap(hitPt.z - 350), LIM.H_MIN, LIM.H_MAX);  // subtract the arrow's 350mm offset
+      const newH = clamp(Math.round((hitPt.z - 350) / 10) * 10, LIM.H_MIN, LIM.H_MAX);  // subtract the arrow's 350mm offset
       inH.value = Math.round(newH);
       markFrameStale();
       rebuildScene();
@@ -4820,7 +4826,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   }
 
   // Roof arrow hover (roof step — ridge for gable, slope arrows for flat)
-  if (currentStep === 3 && !dragging && draggingSlopeEdge < 0) {
+  if (currentStep === 1 && !dragging && draggingSlopeEdge < 0) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -4922,7 +4928,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   }
 
   // Opening hover cursor (step 2)
-  if (currentStep === 2 && !draggingOpening) {
+  if (currentStep === 3 && !draggingOpening) {
     const r = renderer.domElement.getBoundingClientRect();
     ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
     ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
@@ -4959,7 +4965,8 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   if (dragging) {
     const pt = groundHit(e);
     if (!pt) return;
-    const sv = snap(dragging.axis === "x" ? pt.x : pt.y);
+    const rawPos = dragging.axis === "x" ? pt.x : pt.y;
+    const sv = Math.round((dragging.edgeStart + (rawPos - dragging.mouseStart)) / 10) * 10;
     const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
     const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
 
@@ -5113,7 +5120,7 @@ renderer.domElement.addEventListener("pointerup", (e) => {
 
   // ── Interior Walls (left-click does everything) ──
   // Same priority order as free-form above.
-  if (currentStep === 1 && iwPointerDown) {
+  if (currentStep === 2 && iwPointerDown) {
     const dx = e.clientX - iwPointerDown.x;
     const dy = e.clientY - iwPointerDown.y;
     iwPointerDown = null;
@@ -5400,7 +5407,7 @@ document.addEventListener("keydown", (e) => {
       cancelFFDraw();
       return;
     }
-    if (currentStep === 1 && iwDrawStart) {
+    if (currentStep === 2 && iwDrawStart) {
       cancelIWDraw();
       hint.classList.add("small");
       hint.innerHTML = "Click empty space to draw • Click a wall to edit";
@@ -5411,13 +5418,13 @@ document.addEventListener("keydown", (e) => {
       deselectFFWall();
       return;
     }
-    if (currentStep === 1 && selectedIW >= 0) {
+    if (currentStep === 2 && selectedIW >= 0) {
       deselectIW();
       return;
     }
     // Nothing in progress, nothing selected — do nothing.
   }
-  if (e.key === "Delete" && currentStep === 2 && selectedOpening >= 0) {
+  if (e.key === "Delete" && currentStep === 3 && selectedOpening >= 0) {
     const idx = selectedOpening;
     deselectOpening();
     removeOpeningByIdx(idx);
@@ -5425,7 +5432,7 @@ document.addEventListener("keydown", (e) => {
     pushHistory();
   }
   // Interior wall: Delete to remove selected (Escape handled above)
-  if (e.key === "Delete" && currentStep === 1 && selectedIW >= 0) {
+  if (e.key === "Delete" && currentStep === 2 && selectedIW >= 0) {
     deleteSelectedIW();
   }
   if (e.key === "Delete" && currentStep === 0 && houseMode === 'free' && selectedFF >= 0) {
@@ -5869,7 +5876,7 @@ document.querySelectorAll(".roof-option").forEach(el => {
     document.querySelectorAll(".roof-option").forEach(o => o.classList.toggle("active", o.dataset.roof === roofType));
     $("roofIwToRidgeRow").style.display = roofType === "gable" ? "" : "none";
     // Thickness panel is only meaningful when there's a roof to thicken.
-    roofPanel.classList.toggle("open", currentStep === 3 && roofType !== "none");
+    roofPanel.classList.toggle("open", currentStep === 1 && roofType !== "none");
     rebuildScene();
     pushHistory();
   });

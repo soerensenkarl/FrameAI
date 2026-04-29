@@ -93,11 +93,11 @@
     <div class="steps">
       <div class="step active" id="step0"><span class="step-num">1</span> Exterior Walls</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step1"><span class="step-num">2</span> Interior Walls</div>
+      <div class="step" id="step1"><span class="step-num">2</span> Roof</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step2"><span class="step-num">3</span> Openings</div>
+      <div class="step" id="step2"><span class="step-num">3</span> Interior Walls</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step3"><span class="step-num">4</span> Roof</div>
+      <div class="step" id="step3"><span class="step-num">4</span> Openings</div>
       <span class="step-arrow">&#9656;</span>
       <div class="step" id="step4"><span class="step-num">5</span> Generate</div>
       <span class="step-arrow">&#9656;</span>
@@ -131,20 +131,20 @@
 <div class="leftbar glass" id="leftBar">
   <div class="leftbar-step" id="leftBarStep">
     <!-- Step 2: openings (drag onto walls) -->
-    <div class="tool-item" data-tool="window" data-step-for="2" data-tip="Drag onto a wall to place a window opening">
+    <div class="tool-item" data-tool="window" data-step-for="3" data-tip="Drag onto a wall to place a window opening">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="8" width="30" height="24" rx="2"/><line x1="20" y1="8" x2="20" y2="32"/><line x1="5" y1="20" x2="35" y2="20"/></svg>
       Window
     </div>
-    <div class="tool-item" data-tool="door" data-step-for="2" data-tip="Drag onto a wall to place a door opening">
+    <div class="tool-item" data-tool="door" data-step-for="3" data-tip="Drag onto a wall to place a door opening">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="8" y="4" width="24" height="32" rx="2"/><circle cx="27" cy="22" r="2" fill="currentColor" stroke="none"/></svg>
       Door
     </div>
     <!-- Step 3: roof tiles -->
-    <div class="roof-option" data-roof="flat" data-step-for="3" data-tip="Flat roof — horizontal top structure with no slope">
+    <div class="roof-option" data-roof="flat" data-step-for="1" data-tip="Flat roof — horizontal top structure with no slope">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="16" width="28" height="18" rx="1"/><line x1="4" y1="16" x2="36" y2="16" stroke-width="2.2"/></svg>
       Flat
     </div>
-    <div class="roof-option" data-roof="gable" data-step-for="3" data-tip="Gable roof — pitched with a central ridge beam running the length of the house">
+    <div class="roof-option" data-roof="gable" data-step-for="1" data-tip="Gable roof — pitched with a central ridge beam running the length of the house">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6,34 6,20 20,6 34,20 34,34"/></svg>
       Gable
     </div>
