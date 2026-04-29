@@ -48,18 +48,14 @@ if errorlevel 1 (
 
 :restart
 echo === Stopping old prod server ===
-REM Close any window titled "FrameAI Prod Server"
-taskkill /F /FI "WINDOWTITLE eq FrameAI Prod Server*" >nul 2>&1
-REM Belt-and-braces: kill whatever is still listening on :5000
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:":5000 " ^| findstr LISTENING') do (
-  taskkill /F /PID %%a >nul 2>&1
-)
-
-REM Give the OS a moment to release the port
+REM Old Flask runs as user 'frameai' (Rhino license B). Cross-user
+REM taskkill needs admin, so we runas into frameai's session to issue
+REM the kill via the shared _kill_prod.bat helper.
+runas /savecred /user:%COMPUTERNAME%\frameai "%~dp0_kill_prod.bat"
 timeout /t 2 /nobreak >nul
 
 echo === Launching new prod server in its own window ===
-start "FrameAI Prod Server" cmd /k "%~dp0run_prod.bat"
+start "FrameAI Prod Launcher" cmd /k "%~dp0run_prod.bat"
 
 echo.
 echo Done. A new "FrameAI Prod Server" window is opening now.

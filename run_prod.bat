@@ -1,9 +1,18 @@
 @echo off
-title FrameAI Prod Server
-REM Starts the PROD Flask server on port 5000 AND the Cloudflare tunnel.
-REM MUST be run from C:\FrameAI (the master-branch worktree).
-REM The window title "FrameAI Prod Server" is used by 2_UPDATE_PROD.BAT
-REM to find and close this window when shipping new code.
+title FrameAI Prod Launcher
+REM Launches the PROD Flask server (port 5000) under the local Windows
+REM user 'frameai' (Rhino license B = kjs@woodstock-robotics.com).
+REM Your normal user (woods, license A) keeps Rhino 8 GUI free for
+REM design work. No license contention because each Windows user has
+REM its own Cloud Zoo seat.
+REM
+REM First run on this machine: runas /savecred prompts ONCE for
+REM frameai's password; the credential is then saved in your Credential
+REM Manager and reused silently on every later launch.
+REM
+REM MUST be run from C:\FrameAI (master-branch worktree).
+REM Flask opens its own window titled "FrameAI Prod Server" which
+REM 2_UPDATE_PROD.BAT finds and closes when shipping new code.
 pushd "%~dp0"
 
 REM --- Guard: refuse to run from the wrong worktree.
@@ -17,24 +26,24 @@ if /i not "%BRANCH%"=="master" (
   popd & pause & exit /b 1
 )
 
-REM --- Heads-up if Rhino GUI is open. Usually fine ^(one license supports
-REM     concurrent use on the same PC^), but occasional license blips may
-REM     happen. Backend auto-retries once so testers rarely notice.
-tasklist /FI "IMAGENAME eq Rhino.exe" 2>nul | find /I "Rhino.exe" >nul
-if not errorlevel 1 (
+REM --- Sanity check: venv must exist at C:\FrameAI\.venv.
+if not exist "%~dp0.venv\Scripts\python.exe" (
   echo.
-  echo Note: Rhino 8 GUI is currently open. Prod should still work, but if
-  echo testers ever see "Rhino license unavailable", close Rhino briefly.
-  echo.
+  echo ERROR: could not find .venv at %~dp0.venv
+  echo The venv should have been created during initial setup.
+  popd & pause & exit /b 1
 )
 
-REM --- Kill anything already on port 5000 (defensive).
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr /C:":5000 " ^| findstr LISTENING') do (
-  taskkill /F /PID %%a >nul 2>&1
-)
+REM --- Clear any stale prod server. Old Flask runs under frameai, so
+REM     the kill must run as frameai too.
+echo === Clearing any stale prod server ===
+runas /savecred /user:%COMPUTERNAME%\frameai "%~dp0_kill_prod.bat"
+timeout /t 2 /nobreak >nul
 
-REM --- Ensure the Cloudflare tunnel is running. If one is already alive
-REM     from an earlier session, leave it alone (URL stays stable).
+REM --- Ensure the Cloudflare tunnel is running. Tunnel runs in THIS
+REM     (woods) session because cloudflared config lives in
+REM     C:\Users\woods\.cloudflared. If one is already alive from an
+REM     earlier session, leave it alone (URL stays stable).
 set CFLARED="C:\Program Files (x86)\cloudflared\cloudflared.exe"
 if not exist %CFLARED% (
   echo WARNING: cloudflared not found at %CFLARED%.
@@ -49,20 +58,24 @@ if not exist %CFLARED% (
   )
 )
 
-REM --- Start the Flask server.
-set PORT=5000
-set FRAMEAI_ENV=prod
-pushd src
-if not exist "..\.venv\Scripts\activate.bat" (
+REM --- Launch Flask under frameai (license B) in a new window titled
+REM     "FrameAI Prod Server". The inner cmd /k chain sets the title
+REM     first so the window is recognisable to 2_UPDATE_PROD.BAT and
+REM     _kill_prod.bat the moment it opens.
+echo.
+echo Launching Flask server as 'frameai' ^(Rhino license B^)...
+echo If this is the first launch, you'll be prompted for frameai's password.
+echo.
+runas /savecred /user:%COMPUTERNAME%\frameai "cmd /k title FrameAI Prod Server && cd /d %~dp0src && set PORT=5000 && set FRAMEAI_ENV=prod && %~dp0.venv\Scripts\python.exe app.py"
+if errorlevel 1 (
   echo.
-  echo ERROR: could not find .venv at C:\FrameAI\.venv
-  echo The venv should have been created during initial setup.
-  popd & popd & pause & exit /b 1
+  echo runas failed. If the saved credential is bad, open Credential Manager
+  echo and remove the entry for 'frameai' under "Windows Credentials", then
+  echo re-run this bat to re-enter the password.
 )
-call "..\.venv\Scripts\activate.bat"
-python app.py
-popd
+
 popd
 echo.
-echo Prod server exited. Press any key to close this window.
+echo Launcher done. Flask is running in the "FrameAI Prod Server" window.
+echo Press any key to close THIS launcher window.
 pause >nul
