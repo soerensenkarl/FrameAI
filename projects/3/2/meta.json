@@ -1,0 +1,14 @@
+{
+  "id": 2,
+  "name": "Hovedgade 12",
+  "status": "requested",
+  "owner": {
+    "id": 3,
+    "email": "k@x.com",
+    "display_name": "Karl"
+  },
+  "created_at": 1777468765.6662648,
+  "updated_at": 1777468765.6662648,
+  "created_at_iso": "2026-04-29T15:19:25",
+  "updated_at_iso": "2026-04-29T15:19:25"
+}

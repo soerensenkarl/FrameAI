@@ -41,7 +41,9 @@
 
 <div class="user-menu glass" id="userMenu">
   <button id="menuProjects">My Projects</button>
+  <button id="menuAccount">Account</button>
   <button id="menuNew">New Design</button>
+  <button id="menuAdmin" style="display:none">Launch Dashboard</button>
   <div class="menu-divider"></div>
   <button id="menuSignOut">Sign out</button>
 </div>
@@ -296,6 +298,28 @@
   </div>
 </div>
 
+<!-- Interior wall type picker (shown on first entry to the IW step) -->
+<div class="house-picker" id="iwPicker" style="display:none">
+  <h2 class="house-picker-heading">Choose interior wall height:</h2>
+  <div class="house-picker-tiles">
+    <button type="button" class="house-tile" id="iwTileLoft">
+      <svg viewBox="0 0 64 64">
+        <polygon points="10,52 10,30 32,10 54,30 54,52"/>
+        <line x1="10" y1="30" x2="54" y2="30"/>
+        <line x1="32" y1="30" x2="32" y2="52" stroke-dasharray="3 3"/>
+      </svg>
+      <span class="label">With Loft</span>
+    </button>
+    <button type="button" class="house-tile" id="iwTileRoof">
+      <svg viewBox="0 0 64 64">
+        <polygon points="10,52 10,30 32,10 54,30 54,52"/>
+        <line x1="32" y1="10" x2="32" y2="52" stroke-dasharray="3 3"/>
+      </svg>
+      <span class="label">To Roof</span>
+    </button>
+  </div>
+</div>
+
 <!-- Hint bar -->
 <div class="hint" id="hint" style="display:none">Click to place your house</div>
 <div class="example-link" id="exampleLink" style="display:none">or <a href="#" id="loadExample">load example</a></div>
@@ -331,8 +355,8 @@
   <label class="dev-opt"><input type="checkbox" id="adminModeCb"> Admin</label>
   <div class="dev-options" id="adminOptions">
     <label class="dev-opt" style="flex-direction:column; align-items:stretch; gap:4px;">
-      <span>Material factor <span id="materialFactorVal">3.10×</span></span>
-      <input type="range" id="materialFactor" min="0.00" max="5.00" value="3.10" step="0.05">
+      <span>Material factor <span id="materialFactorVal">2.00×</span></span>
+      <input type="range" id="materialFactor" min="0.00" max="5.00" value="2.00" step="0.05">
     </label>
     <label class="dev-opt" style="flex-direction:column; align-items:stretch; gap:4px;">
       <span>Fabrication factor <span id="fabFactorVal">1.00×</span></span>
@@ -398,6 +422,22 @@
 <!-- ── Tooltip div ── -->
 <div id="ui-tooltip"></div>
 
+<!-- Account / profile modal -->
+<div class="quote-modal-backdrop" id="accountModalBackdrop" style="display:none"></div>
+<div class="quote-modal glass" id="accountModal" style="display:none">
+  <button class="quote-close" id="accountClose" aria-label="Close">×</button>
+  <h2 class="quote-title">Your account</h2>
+  <p class="quote-sub">Update your name, email, or password. Email and password changes require your current password.</p>
+  <div class="quote-grid">
+    <label class="qf qf-msg">Full name<input type="text" id="acctName" maxlength="120" autocomplete="name"></label>
+    <label class="qf qf-msg">Email<input type="email" id="acctEmail" maxlength="200" autocomplete="email"></label>
+    <label class="qf">Current password<input type="password" id="acctCurPw" maxlength="200" autocomplete="current-password" placeholder="leave blank if no email/pw change"></label>
+    <label class="qf">New password<input type="password" id="acctNewPw" maxlength="200" autocomplete="new-password" placeholder="leave blank to keep current"></label>
+  </div>
+  <div class="quote-error" id="accountError"></div>
+  <button class="btn-buy quote-submit" id="accountSubmit">Save changes</button>
+</div>
+
 <!-- Request Quote modal -->
 <div class="quote-modal-backdrop" id="quoteModalBackdrop" style="display:none"></div>
 <div class="quote-modal glass" id="quoteModal" style="display:none">
@@ -426,6 +466,15 @@
   </div>
   <div class="quote-error" id="quoteError"></div>
   <button class="btn-buy quote-submit" id="quoteSubmit">Send request</button>
+  <div class="quote-status" id="quoteStatus" aria-live="polite">
+    <div class="quote-status-spinner" aria-hidden="true"></div>
+    <div class="quote-status-check" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12l5 5L20 7"/>
+      </svg>
+    </div>
+    <div class="quote-status-text" id="quoteStatusText">Sending request…</div>
+  </div>
 </div>
 </body>
 </html>

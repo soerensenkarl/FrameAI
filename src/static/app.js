@@ -1085,7 +1085,7 @@ $("devModeCb").addEventListener("change", e => {
 // admin options. Admin state is NOT persisted across reloads — it's a
 // session-scoped key, not a permission.
 let adminUnlocked = false;
-let materialFactor = 3.10;
+let materialFactor = 2.00;
 let fabFactor = 1.00;
 $("adminModeCb").addEventListener("change", e => {
   if (e.target.checked && !adminUnlocked) {
@@ -1142,7 +1142,7 @@ renderPriceTable();
  * and returns it in stats. The client multiplies by the admin sliders for
  * a live update without a regenerate:
  *
- *   material  = raw_timber_cost × materialFactor   (default 3.10)
+ *   material  = raw_timber_cost × materialFactor   (default 2.00)
  *   fabric.   = raw_timber_cost × fabFactor        (default 1.00)
  *   total     = material + fabrication
  * ───────────────────────────────────────────────────────── */
@@ -1154,7 +1154,7 @@ function formatDKK(n) {
 
 function applyPriceFactor(stats) {
   const raw = (stats && Number.isFinite(stats.raw_timber_cost)) ? stats.raw_timber_cost : 0;
-  const matF = Number.isFinite(materialFactor) ? materialFactor : 3.1;
+  const matF = Number.isFinite(materialFactor) ? materialFactor : 2.0;
   const fabF = Number.isFinite(fabFactor)      ? fabFactor      : 1.0;
   const material = raw * matF;
   const fab      = raw * fabF;
@@ -1176,7 +1176,7 @@ function syncOverlay() {
   // Interior walls stay visible from step 0 onward so the user can see how
   // their design is developing while editing the exterior shell.
   iwGroup.visible                           = (n <= 3)               || (overlay && inFrame);
-  const roofVisible = (n === 3) || (overlay && inFrame);
+  const roofVisible = (n === 1 || n === 3) || (overlay && inFrame);
   if (roofGroup)     roofGroup.visible     = roofVisible;
   roofMat.transparent = (n === 3);
   roofMat.opacity     = (n === 3) ? 0.2 : 1.0;
@@ -2028,6 +2028,10 @@ function rebuildScene() {
   rebuildOpenings();
   rebuildInteriorWalls();
   positionScaleWorker();
+  // Newly-added groups (roof, openings) come in visible by default. Re-apply
+  // the per-step visibility rules so an undo on an earlier step doesn't
+  // resurrect a roof that should be hidden.
+  syncOverlay();
 }
 
 let fitTweenRAF = 0;
@@ -3191,10 +3195,12 @@ function selectIW(idx) {
       len,
       { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" }
     );
+    tagIWLengthLabel(idx);
     $("btnDeleteIW").style.display = "block";
     positionIWInspector();
     showIWPerpDims(iw);
     positionIWSlideHandle(iw);
+    showFreeEnds(idx);
     // Selecting a wall drops out of draw mode — clear any lingering snap UI
     // so the selection feels clean even before the next pointermove.
     hideDot();
@@ -3239,6 +3245,7 @@ function deselectIW() {
   if (currentStep === 2) renderer.domElement.style.cursor = "crosshair";
   hideIWPerpDims();
   hideIWSlideHandle();
+  clearFreeEnds();
 }
 
 // ─── IW perpendicular dim lines + slide gimbal ───────────────────────────
@@ -3471,6 +3478,103 @@ function hideIWSlideHandle() {
   iwSlideHandle.visible = false;
 }
 
+// Tag the sprite inside ffDimGroup (drawn by showFFDim) so the dblclick
+// handler can recognize it as the IW length label and open dimEdit.
+function tagIWLengthLabel(iwIdx) {
+  if (!ffDimGroup) return;
+  ffDimGroup.traverse(c => {
+    if (c.isSprite) {
+      c.userData.dimAxis = "iwLen";
+      c.userData.iwIdx = iwIdx;
+    }
+  });
+}
+
+// ─── Free-end indicators + drag-to-extend ────────────────────────────────
+// An endpoint is "free" when it doesn't terminate at an exterior inner face
+// or another interior wall's centerline. The user can drag it along the
+// wall's own axis to extend or shorten the wall.
+function findFreeEnds(iw) {
+  const b = getInnerBounds();
+  if (!b) return [];
+  const isH = Math.abs(iw.x1 - iw.x0) >= Math.abs(iw.y1 - iw.y0);
+  const tol = 5;
+  const out = [];
+  for (let which = 0; which < 2; which++) {
+    const x = which === 0 ? iw.x0 : iw.x1;
+    const y = which === 0 ? iw.y0 : iw.y1;
+    // Anchored to exterior wall? The variable end of a horizontal wall is X
+    // (so check ix0/ix1); for a vertical wall, the variable end is Y.
+    if (isH && (Math.abs(x - b.ix0) < tol || Math.abs(x - b.ix1) < tol)) continue;
+    if (!isH && (Math.abs(y - b.iy0) < tol || Math.abs(y - b.iy1) < tol)) continue;
+    // Anchored to a perpendicular interior wall's centerline?
+    let anchored = false;
+    for (const other of interiorWalls) {
+      if (other === iw) continue;
+      const otherIsH = Math.abs(other.x1 - other.x0) >= Math.abs(other.y1 - other.y0);
+      if (isH === otherIsH) continue;  // only perpendicular walls can anchor
+      if (isH) {
+        const ox = (other.x0 + other.x1) / 2;
+        const oy0 = Math.min(other.y0, other.y1), oy1 = Math.max(other.y0, other.y1);
+        if (Math.abs(x - ox) < tol && y >= oy0 - tol && y <= oy1 + tol) { anchored = true; break; }
+      } else {
+        const oy = (other.y0 + other.y1) / 2;
+        const ox0 = Math.min(other.x0, other.x1), ox1 = Math.max(other.x0, other.x1);
+        if (Math.abs(y - oy) < tol && x >= ox0 - tol && x <= ox1 + tol) { anchored = true; break; }
+      }
+    }
+    if (!anchored) out.push({ x, y, which });
+  }
+  return out;
+}
+
+const iwFreeEndGroup = new THREE.Group();
+scene.add(iwFreeEndGroup);
+const iwFreeEndMatDefault = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthTest: false });
+const iwFreeEndMatHover   = new THREE.MeshBasicMaterial({ color: 0xF9BC06, transparent: true, opacity: 0.95, depthTest: false });
+let hoveredFreeEnd = null;
+
+function clearFreeEnds() {
+  while (iwFreeEndGroup.children.length) {
+    const c = iwFreeEndGroup.children.pop();
+    if (c.geometry) c.geometry.dispose();
+  }
+  hoveredFreeEnd = null;
+}
+function showFreeEnds(iwIdx) {
+  clearFreeEnds();
+  if (iwIdx < 0) return;
+  const iw = interiorWalls[iwIdx];
+  if (!iw) return;
+  const ends = findFreeEnds(iw);
+  for (const ep of ends) {
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(80, 18, 14),
+      iwFreeEndMatDefault
+    );
+    sphere.position.set(ep.x, ep.y, 50);
+    sphere.userData.isFreeEnd = true;
+    sphere.userData.iwIdx = iwIdx;
+    sphere.userData.which = ep.which;
+    sphere.userData.baseScale = 1;
+    sphere.renderOrder = 999;
+    iwFreeEndGroup.add(sphere);
+  }
+}
+function setFreeEndHover(sphere) {
+  if (hoveredFreeEnd === sphere) return;
+  if (hoveredFreeEnd) {
+    hoveredFreeEnd.material = iwFreeEndMatDefault;
+    hoveredFreeEnd.scale.set(1, 1, 1);
+  }
+  hoveredFreeEnd = sphere;
+  if (hoveredFreeEnd) {
+    hoveredFreeEnd.material = iwFreeEndMatHover;
+    hoveredFreeEnd.scale.set(1.4, 1.4, 1.4);
+  }
+}
+let draggingFreeEnd = null;  // { iwIdx, which, axes, plane, startHit, startCoord }
+
 function deleteSelectedIW() {
   if (selectedIW < 0) return;
   markFrameStale();
@@ -3479,6 +3583,9 @@ function deleteSelectedIW() {
   $("btnDeleteIW").style.display = "none";
   rebuildInteriorWalls();
   hideFFDim();
+  hideIWPerpDims();
+  hideIWSlideHandle();
+  clearFreeEnds();
   if (currentStep === 2) renderer.domElement.style.cursor = "crosshair";
   pushHistory();
 }
@@ -3639,6 +3746,35 @@ function constrainIWEnd(start, pt) {
   // Clamp to inner bounds
   end.x = Math.max(b.ix0, Math.min(b.ix1, end.x));
   end.y = Math.max(b.iy0, Math.min(b.iy1, end.y));
+
+  // Hard clamp: the new wall can't pass through any perpendicular interior
+  // wall. Find the nearest such wall along the start→end direction and stop
+  // there. Mirrors the free-end drag clamp.
+  const isH = dx >= dy;
+  const startCoord = isH ? start.x : start.y;
+  const endCoord = isH ? end.x : end.y;
+  const dir = Math.sign(endCoord - startCoord);
+  if (dir !== 0) {
+    const myOtherCoord = isH ? start.y : start.x;
+    let stopAt = null;
+    for (const other of interiorWalls) {
+      const otherIsH = Math.abs(other.x1 - other.x0) >= Math.abs(other.y1 - other.y0);
+      if (isH === otherIsH) continue;
+      const otherCenter = isH ? (other.x0 + other.x1) / 2 : (other.y0 + other.y1) / 2;
+      const oA0 = isH ? Math.min(other.y0, other.y1) : Math.min(other.x0, other.x1);
+      const oA1 = isH ? Math.max(other.y0, other.y1) : Math.max(other.x0, other.x1);
+      if (myOtherCoord < oA0 - 5 || myOtherCoord > oA1 + 5) continue;
+      if (Math.abs(otherCenter - startCoord) < 5) continue;
+      if ((otherCenter - startCoord) * dir > 0 && (otherCenter - endCoord) * dir <= 0) {
+        if (stopAt === null || (otherCenter - startCoord) * dir < (stopAt - startCoord) * dir) {
+          stopAt = otherCenter;
+        }
+      }
+    }
+    if (stopAt !== null) {
+      if (isH) end.x = stopAt; else end.y = stopAt;
+    }
+  }
 
   return end;
 }
@@ -4165,6 +4301,7 @@ $("btnTopView").style.display = "flex";
 
 // House type picker — shown first, dismisses to reveal the footprint flow
 let houseTypePicked = false;
+let iwTypePicked = false;
 const housePicker = $("housePicker");
 // Standard Danish parcelhus envelope: 8 x 12 m footprint, 2.5 m wall height.
 function spawnDefaultBox() {
@@ -4219,7 +4356,6 @@ function previewRoofType(type) {
 }
 function pickRoofShape(type) {
   $("roofPicker").style.display = "none";
-  $("pickerBackdrop").style.display = "none";
   if (measureActive) setMeasureActive(false);
   markFrameStale();
   roofType = type;
@@ -4228,8 +4364,14 @@ function pickRoofShape(type) {
   $("roofIwToRidgeRow").style.display = roofType === "gable" ? "" : "none";
   rebuildScene();
   pushHistory();
-  hint.style.display = "";
-  enterSet();
+  // Chain into the interior-wall height picker — keeps the backdrop frosted
+  // and seeds a preview floor plan so the user can compare Loft vs To-Roof.
+  $("iwPicker").style.display = "";
+  ensureIWPreview();
+  iwToRidge = false;
+  rebuildInteriorWalls();
+  hideArrows();
+  hideDims();
   $("exampleLink").style.display = "none";
 }
 const roofTilesContainer = $("roofPicker").querySelector(".house-picker-tiles");
@@ -4238,6 +4380,77 @@ $("rpTileFlat").addEventListener("mouseenter", () => previewRoofType("flat"));
 roofTilesContainer.addEventListener("mouseleave", () => previewRoofType("none"));
 $("rpTileGable").addEventListener("click", () => pickRoofShape("gable"));
 $("rpTileFlat").addEventListener("click", () => pickRoofShape("flat"));
+
+// Interior wall height picker (loft vs to-roof). While the picker is open
+// we drop a sample floor plan into the room and flip iwToRidge as the user
+// hovers each tile, so they get a live preview of the choice (mirrors how
+// roof tiles preview the roof).
+let iwPreviewWalls = [];
+function ensureIWPreview() {
+  if (iwPreviewWalls.length || !c1 || !c2) return;
+  const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
+  const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
+  const t = +inT.value;
+  const ix0 = x0 + t, ix1 = x1 - t, iy0 = y0 + t, iy1 = y1 - t;
+  const cx = (ix0 + ix1) / 2, cy = (iy0 + iy1) / 2;
+  const w = ix1 - ix0, d = iy1 - iy0;
+  // A small but legible plan: a main divider along the short axis, plus a
+  // cross wall in one half so the user sees a T-junction (gives both a
+  // long wall and a short wall — useful when comparing Loft vs To-Roof).
+  if (d >= w) {
+    const dx = ix0 + w * 0.65;
+    iwPreviewWalls.push({ x0: dx,  y0: iy0, x1: dx,  y1: iy1 });                                // full-height divider
+    iwPreviewWalls.push({ x0: ix0, y0: iy0 + d * 0.35, x1: ix1, y1: iy0 + d * 0.35 });          // full-width cross wall
+    iwPreviewWalls.push({ x0: dx,  y0: iy0 + d * 0.7,  x1: ix1, y1: iy0 + d * 0.7 });           // small room split
+  } else {
+    const dy = iy0 + d * 0.65;
+    iwPreviewWalls.push({ x0: ix0, y0: dy,  x1: ix1, y1: dy });                                 // full-width divider
+    iwPreviewWalls.push({ x0: ix0 + w * 0.35, y0: iy0, x1: ix0 + w * 0.35, y1: iy1 });          // full-height cross wall
+    iwPreviewWalls.push({ x0: ix0 + w * 0.7,  y0: dy,  x1: ix0 + w * 0.7,  y1: iy1 });          // small room split
+  }
+  for (const w of iwPreviewWalls) interiorWalls.push(w);
+  rebuildInteriorWalls();
+}
+function removeIWPreview() {
+  if (!iwPreviewWalls.length) return;
+  for (const w of iwPreviewWalls) {
+    const idx = interiorWalls.indexOf(w);
+    if (idx >= 0) interiorWalls.splice(idx, 1);
+  }
+  iwPreviewWalls = [];
+  rebuildInteriorWalls();
+}
+function previewIWType(toRidge) {
+  if ($("iwPicker").style.display === "none") return;
+  ensureIWPreview();
+  iwToRidge = toRidge;
+  rebuildInteriorWalls();
+  hideArrows();
+  hideDims();
+}
+function pickIWType(toRidge) {
+  removeIWPreview();
+  $("iwPicker").style.display = "none";
+  $("pickerBackdrop").style.display = "none";
+  iwTypePicked = true;
+  setIwToRidge(toRidge);
+  pushHistory();
+  hint.style.display = "";
+  enterSet();
+  // Defensive: hideArrows()/hideDims() were called when the picker opened.
+  // setStep(0) in enterSet should restore them via positionArrows/updateDims,
+  // but call them explicitly here so the user lands on Exterior Walls with
+  // arrows + dim labels regardless of any state-restoration order quirks.
+  rebuildScene();
+  positionArrows();
+  updateDims();
+}
+const iwTilesContainer = $("iwPicker").querySelector(".house-picker-tiles");
+$("iwTileLoft").addEventListener("mouseenter", () => previewIWType(false));
+$("iwTileRoof").addEventListener("mouseenter", () => previewIWType(true));
+iwTilesContainer.addEventListener("mouseleave", () => previewIWType(false));
+$("iwTileLoft").addEventListener("click", () => pickIWType(false));
+$("iwTileRoof").addEventListener("click", () => pickIWType(true));
 $("tileFree").addEventListener("click", (e) => {
   if (e.currentTarget.classList.contains("locked")) { e.preventDefault(); return; }
   houseMode = 'free';
@@ -4487,6 +4700,9 @@ btnNext.addEventListener("click", () => goToStep(currentStep + 1));
       data._frame = window._lastFrameJson;
     }
     submitBtn.disabled = true;
+    // Cross-fade the form to a spinner: status panel fades in, fields fade out.
+    modal.classList.add("submitting");
+    $("quoteStatusText").textContent = "Sending request…";
     try {
       const res = await fetch("/api/quote-request", {
         method: "POST",
@@ -4502,17 +4718,58 @@ btnNext.addEventListener("click", () => goToStep(currentStep + 1));
       let body = {};
       try { body = await res.json(); } catch { /* ignore */ }
       if (!res.ok) {
+        modal.classList.remove("submitting");
         errEl.textContent = body.error || ("Request failed (" + res.status + ").");
         return;
       }
+      // Success — swap spinner for animated checkmark, then transition out.
+      modal.classList.remove("submitting");
+      modal.classList.add("sent");
+      $("quoteStatusText").textContent = body.project && body.project.id
+        ? "Sent — opening your project"
+        : "Sent";
+
+      if (body.project && body.project.id) {
+        // Hold the success state briefly so the checkmark animation reads,
+        // then collapse the modal and fade the whole page to dark before
+        // navigating. The dashboard fades back in on the next page.
+        await sleep(720);
+        modal.classList.add("leaving");
+        backdrop.classList.add("leaving");
+        const veil = ensurePageVeil();
+        // Force a layout flush so the transition starts cleanly.
+        veil.offsetHeight;  // eslint-disable-line no-unused-expressions
+        veil.classList.add("active");
+        await sleep(420);
+        location.href = "/p/" + body.project.id;
+        return;  // navigation in flight; don't re-enable the button
+      }
+
+      // Fallback: no project id — fall back to the worker speech bubble.
+      await sleep(720);
       close();
+      modal.classList.remove("sent");
       if (typeof workerSay === "function") {
         workerSay("Thanks — quote request sent. We'll be in touch.");
       }
       if (window.refreshAuthFromServer) await window.refreshAuthFromServer(body.project);
+    } catch (err) {
+      modal.classList.remove("submitting", "sent");
+      errEl.textContent = "Request failed: " + (err.message || err);
     } finally {
       submitBtn.disabled = false;
     }
+  }
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function ensurePageVeil() {
+    let v = document.getElementById("pageVeil");
+    if (!v) {
+      v = document.createElement("div");
+      v.id = "pageVeil";
+      v.className = "page-veil";
+      document.body.appendChild(v);
+    }
+    return v;
   }
 
   $("btnBuy").addEventListener("click", open);
@@ -4666,12 +4923,12 @@ async function generateFrame() {
   // Spec is the source of truth: build it in JS and POST directly to
   // /solve-frame, which turns it into Breps and runs Grasshopper.
   const specs = computeGeometrySpecs(reqBody);
-  // Identify the saved project so the backend can also mirror design.3dm +
-  // frame.3dm into projects/<display_name>/<name>/. The backend looks up
-  // the user folder from the session — we just send the project name.
+  // Tell the backend which saved project this generate belongs to so its
+  // .3dm scratch lands in OUTPUT_DIR/<project_id>/. Anonymous / unsaved
+  // sessions still generate fine — they just hit OUTPUT_DIR/_draft/.
   const auth = window.getAuthState?.();
-  if (auth?.user && auth.projectId && auth.projectName) {
-    specs.project = { name: auth.projectName };
+  if (auth?.user && auth.projectId) {
+    specs.project = { id: auth.projectId };
   }
 
   try {
@@ -4712,7 +4969,16 @@ function hitArrow(e) {
 // pans via OrbitControls because that listens to pointer events, not
 // contextmenu. No in-app feature binds to right-click anymore.
 renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
-renderer.domElement.addEventListener("pointerleave", () => { hideFFHoverHint(); hideIWHoverHint(); hideIWHoverDims(); });
+renderer.domElement.addEventListener("pointerleave", () => {
+  hideFFHoverHint(); hideIWHoverHint(); hideIWHoverDims();
+  // Drop hover state for IW affordances if no drag is active (drag handlers
+  // own visibility while running).
+  if (!draggingFreeEnd && !draggingIW) {
+    setArrowHover(null);
+    setFreeEndHover(null);
+    if (selectedIW < 0) clearFreeEnds();
+  }
+});
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;   // right = OrbitControls pan, middle = dolly
   if (!houseTypePicked) return;
@@ -4749,6 +5015,37 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
     ffPointerDown = { x: e.clientX, y: e.clientY };
   }
 
+  // ── Interior Walls step: free-end drag start. Free-end markers can be
+  // visible during hover (no selection) or while a wall is selected.
+  if (currentStep === 2 && iwFreeEndGroup.children.length) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const hits = rc.intersectObjects(iwFreeEndGroup.children);
+    if (hits.length) {
+      const hit = hits[0].object;
+      const iwIdx = hit.userData.iwIdx;
+      const which = hit.userData.which;
+      const iw = interiorWalls[iwIdx];
+      if (iw) {
+        const axes = getIWAxes(iw);
+        const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+        const startHit = new THREE.Vector3();
+        if (rc.ray.intersectPlane(plane, startHit)) {
+          const startCoord = which === 0
+            ? (axes.isH ? iw.x0 : iw.y0)
+            : (axes.isH ? iw.x1 : iw.y1);
+          draggingFreeEnd = { iwIdx, which, axes, plane, startHit, startCoord };
+          orbit.enabled = false;
+          renderer.domElement.style.cursor = "grabbing";
+          iwPointerDown = null;   // suppress pointerup click-to-select
+          return;
+        }
+      }
+    }
+  }
+
   // ── Interior Walls step: gimbal-arrow drag start (intercepts the pointerup
   // selection logic). Falls through to record iwPointerDown only if no arrow
   // was hit, so a normal click-to-select still works.
@@ -4783,8 +5080,19 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
     }
   }
 
-  // ── Interior Walls step: record mouse down position (handled on pointerup) ──
+  // ── Interior Walls step: record mouse down position (handled on pointerup).
+  // Skip the record if the click landed on the IW length label so the dblclick
+  // edit flow can fire without the first pointerup deselecting the wall.
   if (currentStep === 2) {
+    if (selectedIW >= 0 && ffDimGroup) {
+      const r = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      rc.setFromCamera(ndc, cam);
+      const sprites = [];
+      ffDimGroup.traverse(c => { if (c.isSprite && c.userData.dimAxis === "iwLen") sprites.push(c); });
+      if (sprites.length && rc.intersectObjects(sprites).length) return;
+    }
     iwPointerDown = { x: e.clientX, y: e.clientY };
   }
 
@@ -4979,7 +5287,11 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
       const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
       const edgeStart = [y0, y1, x0, x1][idx];
       const mouseStart = pt0 ? (dir.axis === "x" ? pt0.x : pt0.y) : edgeStart;
-      dragging = { idx, ...dir, edgeStart, mouseStart };
+      // Snapshot interior walls so drag is non-destructive — clipping each
+      // frame works against the original set, so dragging back out restores
+      // walls that were temporarily clipped. Final state commits on pointerup.
+      const iwSnapshot = interiorWalls.map(w => ({ ...w }));
+      dragging = { idx, ...dir, edgeStart, mouseStart, iwSnapshot };
       orbit.enabled = false;
       renderer.domElement.style.cursor = "grabbing";
       return;
@@ -5048,6 +5360,164 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     return;
   }
 
+  // Interior wall free-end drag — extends/shortens the wall along its own
+  // axis. Handled before step-specific blocks for the same reason as the
+  // gimbal drag below.
+  if (draggingFreeEnd) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const cur = new THREE.Vector3();
+    if (!rc.ray.intersectPlane(draggingFreeEnd.plane, cur)) return;
+    const { axes, startHit, startCoord, which, iwIdx } = draggingFreeEnd;
+    const iw = interiorWalls[iwIdx];
+    if (!iw) return;
+    const delta = axes.isH ? (cur.x - startHit.x) : (cur.y - startHit.y);
+    let newCoord = Math.round((startCoord + delta) / 100) * 100;
+    const b = getInnerBounds();
+    const lo = axes.isH ? b.ix0 : b.iy0;
+    const hi = axes.isH ? b.ix1 : b.iy1;
+    newCoord = Math.max(lo, Math.min(hi, newCoord));
+    const otherCoord = which === 0
+      ? (axes.isH ? iw.x1 : iw.y1)
+      : (axes.isH ? iw.x0 : iw.y0);
+    const prevCoord = which === 0
+      ? (axes.isH ? iw.x0 : iw.y0)
+      : (axes.isH ? iw.x1 : iw.y1);
+    // Hard clamp on extension: the dragged end can't cross a perpendicular
+    // interior wall — it stops at the first one along the motion path.
+    // Pre-existing crossings (already inside the wall) sit behind the dragged
+    // end during retraction, so retraction stays unconstrained.
+    const wallDir = Math.sign(startCoord - otherCoord) || 1;
+    const moveDir = Math.sign(newCoord - prevCoord);
+    if (moveDir !== 0 && moveDir === wallDir) {
+      const myOtherCoord = axes.isH ? iw.y0 : iw.x0;
+      let stopAt = null;
+      for (const other of interiorWalls) {
+        if (other === iw) continue;
+        const otherIsH = Math.abs(other.x1 - other.x0) >= Math.abs(other.y1 - other.y0);
+        if (axes.isH === otherIsH) continue;
+        const otherCenter = axes.isH ? (other.x0 + other.x1) / 2 : (other.y0 + other.y1) / 2;
+        const oA0 = axes.isH ? Math.min(other.y0, other.y1) : Math.min(other.x0, other.x1);
+        const oA1 = axes.isH ? Math.max(other.y0, other.y1) : Math.max(other.x0, other.x1);
+        if (myOtherCoord < oA0 - 5 || myOtherCoord > oA1 + 5) continue;
+        if (Math.abs(otherCenter - otherCoord) < 5) continue;
+        // Check the entire segment from the fixed end to newCoord — catches
+        // both new crossings and pre-existing ones, so any extension drag
+        // forces a clean termination at the first perpendicular wall.
+        if ((otherCenter - otherCoord) * wallDir > 0 && (otherCenter - newCoord) * wallDir <= 0) {
+          // Pick the perpendicular wall closest to the fixed end (first one
+          // encountered as the wall grows out from otherCoord).
+          if (stopAt === null || (otherCenter - otherCoord) * wallDir < (stopAt - otherCoord) * wallDir) {
+            stopAt = otherCenter;
+          }
+        }
+      }
+      if (stopAt !== null) newCoord = stopAt;
+    }
+    const minGap = 200;
+    // Walls aren't always stored with x0<x1 / y0<y1 — keep the dragged end on
+    // its original side of the fixed end so the wall can't collapse or flip.
+    if ((newCoord - otherCoord) * wallDir < minGap) {
+      newCoord = otherCoord + wallDir * minGap;
+    }
+    if (which === 0) {
+      if (axes.isH) iw.x0 = newCoord; else iw.y0 = newCoord;
+    } else {
+      if (axes.isH) iw.x1 = newCoord; else iw.y1 = newCoord;
+    }
+    markFrameStale();
+    rebuildInteriorWalls();
+    showFreeEnds(iwIdx);
+    if (selectedIW === iwIdx) {
+      const len = Math.hypot(iw.x1 - iw.x0, iw.y1 - iw.y0);
+      showFFDim(
+        new THREE.Vector3(iw.x0, iw.y0, 0),
+        new THREE.Vector3(iw.x1, iw.y1, 0),
+        len,
+        { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" }
+      );
+      tagIWLengthLabel(iwIdx);
+      showIWPerpDims(iw);
+      positionIWSlideHandle(iw);
+      positionIWInspector();
+      showFreeEnds(iwIdx);
+    }
+    return;
+  }
+
+  // Interior wall slide-gimbal drag — handle before any step-specific
+  // pointermove blocks since the step 2 block returns early when an IW is
+  // selected (which is exactly when the gimbal is active).
+  if (draggingIW) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const cur = new THREE.Vector3();
+    if (!rc.ray.intersectPlane(draggingIW.plane, cur)) return;
+    const { axes, startHit, startCoord, iw, neighbors } = draggingIW;
+    const delta = axes.isH ? (cur.y - startHit.y) : (cur.x - startHit.x);
+    let newCoord = Math.round((startCoord + delta) / 100) * 100;
+    const t = +inTI.value;
+    // Soft buffer for parallel-wall neighbors keeps a small gap so users can
+    // still grab between two parallel walls. Hard intersection clamp below
+    // uses t/2 so faces actually touch (no visible gap).
+    const buf = t / 2 + 100;
+    const hardBuf = t / 2;
+    let lo = -Infinity, hi = Infinity;
+    if (neighbors && neighbors.neg) lo = neighbors.neg.coord + buf;
+    if (neighbors && neighbors.pos) hi = neighbors.pos.coord - buf;
+    // Intersection clamp: the wall can't slide INTO a perpendicular wall's
+    // span on the slide axis (would create a +-crossing). Reference startCoord
+    // (drag-start) so a multi-frame drag can't sneak through the boundary.
+    // Pre-existing crossings (slide started inside) stay free to slide out.
+    const ivR = axes.isH
+      ? [Math.min(iw.x0, iw.x1), Math.max(iw.x0, iw.x1)]
+      : [Math.min(iw.y0, iw.y1), Math.max(iw.y0, iw.y1)];
+    const moveDir = Math.sign(newCoord - startCoord);
+    if (moveDir !== 0) {
+      for (const other of interiorWalls) {
+        if (other === iw) continue;
+        const otherIsH = Math.abs(other.x1 - other.x0) >= Math.abs(other.y1 - other.y0);
+        if (axes.isH === otherIsH) continue;
+        const otherCenter = otherIsH
+          ? (other.y0 + other.y1) / 2
+          : (other.x0 + other.x1) / 2;
+        if (otherCenter < ivR[0] - 5 || otherCenter > ivR[1] + 5) continue;
+        const oR = axes.isH
+          ? [Math.min(other.y0, other.y1), Math.max(other.y0, other.y1)]
+          : [Math.min(other.x0, other.x1), Math.max(other.x0, other.x1)];
+        if (moveDir > 0 && startCoord < oR[0] - 5 && newCoord >= oR[0] - 5) {
+          hi = Math.min(hi, oR[0] - hardBuf);
+        } else if (moveDir < 0 && startCoord > oR[1] + 5 && newCoord <= oR[1] + 5) {
+          lo = Math.max(lo, oR[1] + hardBuf);
+        }
+      }
+    }
+    if (lo <= hi) {
+      newCoord = Math.max(lo, Math.min(hi, newCoord));
+      if (axes.isH) { iw.y0 = iw.y1 = newCoord; }
+      else          { iw.x0 = iw.x1 = newCoord; }
+      markFrameStale();
+      rebuildInteriorWalls();
+      const len = Math.hypot(iw.x1 - iw.x0, iw.y1 - iw.y0);
+      showFFDim(
+        new THREE.Vector3(iw.x0, iw.y0, 0),
+        new THREE.Vector3(iw.x1, iw.y1, 0),
+        len,
+        { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" }
+      );
+      tagIWLengthLabel(selectedIW);
+      showIWPerpDims(iw);
+      positionIWSlideHandle(iw);
+      positionIWInspector();
+      showFreeEnds(selectedIW);
+    }
+    return;
+  }
+
   // Free-form footprint: snap dot + ghost preview while drawing; hover hint when idle
   if (currentStep === 0 && houseMode === 'free') {
     const pt = groundHit(e);
@@ -5093,6 +5563,30 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       hideFaceIndicator();
       hideIWHoverHint();
       hideIWHoverDims();
+      // Light up gimbal arrows + free-end markers on hover.
+      const r = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+      ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+      rc.setFromCamera(ndc, cam);
+      let hoveredArrowMesh = null;
+      if (iwSlideHandle.visible) {
+        const gHits = rc.intersectObject(iwSlideHandle, true);
+        if (gHits.length) {
+          let n = gHits[0].object;
+          while (n && n !== iwSlideHandle) {
+            if (n.userData && n.userData.gimbalArrow) { hoveredArrowMesh = n.userData.gimbalArrow; break; }
+            n = n.parent;
+          }
+        }
+      }
+      setArrowHover(hoveredArrowMesh);
+      let hoveredEnd = null;
+      if (iwFreeEndGroup.children.length) {
+        const fHits = rc.intersectObjects(iwFreeEndGroup.children);
+        if (fHits.length) hoveredEnd = fHits[0].object;
+      }
+      setFreeEndHover(hoveredEnd);
+      renderer.domElement.style.cursor = (hoveredArrowMesh || hoveredEnd) ? "grab" : "";
       return;
     }
     const pt = groundHit(e);
@@ -5134,6 +5628,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
           updateFaceIndicator(snapped);
           hideIWHoverHint();
           showIWHoverDims(snapped);
+          if (iwHoverIdx >= 0) iwHoverIdx = -1;
         }
       }
     }
@@ -5276,43 +5771,6 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   }
 
   // Opening gimbal dragging — raycast onto the wall plane, derive
-  // Interior wall slide-gimbal drag — moves the wall perpendicular to its
-  // own axis, clamped between the parallel neighbors captured at drag start.
-  if (draggingIW) {
-    const r = renderer.domElement.getBoundingClientRect();
-    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-    rc.setFromCamera(ndc, cam);
-    const cur = new THREE.Vector3();
-    if (!rc.ray.intersectPlane(draggingIW.plane, cur)) return;
-    const { axes, startHit, startCoord, iw, neighbors } = draggingIW;
-    const delta = axes.isH ? (cur.y - startHit.y) : (cur.x - startHit.x);
-    let newCoord = Math.round((startCoord + delta) / 100) * 100;
-    const t = +inTI.value;
-    const buf = t / 2 + 100;
-    let lo = -Infinity, hi = Infinity;
-    if (neighbors && neighbors.neg) lo = neighbors.neg.coord + buf;
-    if (neighbors && neighbors.pos) hi = neighbors.pos.coord - buf;
-    if (lo > hi) return;  // no room to move (shouldn't happen if start was valid)
-    newCoord = Math.max(lo, Math.min(hi, newCoord));
-    if (axes.isH) { iw.y0 = iw.y1 = newCoord; }
-    else          { iw.x0 = iw.x1 = newCoord; }
-    markFrameStale();
-    rebuildInteriorWalls();
-    // Refresh selection visuals against the moved wall.
-    const len = Math.hypot(iw.x1 - iw.x0, iw.y1 - iw.y0);
-    showFFDim(
-      new THREE.Vector3(iw.x0, iw.y0, 0),
-      new THREE.Vector3(iw.x1, iw.y1, 0),
-      len,
-      { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" }
-    );
-    showIWPerpDims(iw);
-    positionIWSlideHandle(iw);
-    positionIWInspector();
-    return;
-  }
-
   // (along, vertical) deltas, then constrain to the dragged axis.
   //   role "along"    → posAlong only (snap + collision for single)
   //   role "vertical" → sill only (windows; clamped to wall height)
@@ -5450,6 +5908,12 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     c2 = new THREE.Vector3(nx1, ny1, 0);
     signX = 1; signY = 1;
 
+    // Restore interior walls from the drag-start snapshot before re-clipping
+    // so dragging back out reveals walls that were temporarily clipped.
+    if (dragging.iwSnapshot) {
+      interiorWalls.length = 0;
+      for (const w of dragging.iwSnapshot) interiorWalls.push({ ...w });
+    }
     clipInteriorWallsToFootprint();
     rebuildScene();
 
@@ -5540,6 +6004,16 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     iwPointerDown = null;   // suppress the click-to-deselect that would otherwise fire
     orbit.enabled = true;
     renderer.domElement.style.cursor = "";
+    pushHistory();
+    return;
+  }
+  if (draggingFreeEnd) {
+    const idx = draggingFreeEnd.iwIdx;
+    draggingFreeEnd = null;
+    iwPointerDown = null;
+    orbit.enabled = true;
+    renderer.domElement.style.cursor = "";
+    showFreeEnds(idx);   // refresh in case extension reached an anchor (was free, now anchored)
     pushHistory();
     return;
   }
@@ -5662,6 +6136,29 @@ renderer.domElement.addEventListener("dblclick", (e) => {
   ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
   rc.setFromCamera(ndc, cam);
 
+  // IW length label (selected state only) — dblclick to edit length, edit
+  // commits by moving the free end (or x1/y1 if both ends are anchored).
+  if (ffDimGroup && selectedIW >= 0) {
+    const sprites = [];
+    ffDimGroup.traverse(c => { if (c.isSprite && c.userData.dimAxis === "iwLen") sprites.push(c); });
+    const hits = rc.intersectObjects(sprites);
+    if (hits.length) {
+      const sprite = hits[0].object;
+      editingAxis = "iwLen";
+      editingIWIdx = sprite.userData.iwIdx;
+      const iw = interiorWalls[editingIWIdx];
+      if (!iw) { editingAxis = null; return; }
+      const curMM = Math.hypot(iw.x1 - iw.x0, iw.y1 - iw.y0);
+      dimEdit.value = (curMM / 1000).toFixed(2);
+      dimEdit.style.display = "block";
+      dimEdit.style.left = (e.clientX - 45) + "px";
+      dimEdit.style.top = (e.clientY - 18) + "px";
+      dimEdit.focus();
+      dimEdit.select();
+      return;
+    }
+  }
+
   // Opening dim labels (selected state only)
   if (openingDimGroup && selectedOpening >= 0) {
     const oSprites = [];
@@ -5725,6 +6222,7 @@ renderer.domElement.addEventListener("dblclick", (e) => {
 });
 
 let editingOpeningIdx = -1;
+let editingIWIdx = -1;
 
 function openOpeningDimEdit(sprite, e) {
   editingAxis = sprite.userData.dimAxis;           // "ow" | "oh" | "os" | "ogL" | "ogR"
@@ -5751,6 +6249,57 @@ function openOpeningDimEdit(sprite, e) {
 function applyDimEdit() {
   dimEdit.style.display = "none";
   if (!editingAxis) return;
+
+  // IW length editing — change wall length by moving its free end. Anchored
+  // ends stay put; if neither end is free we still allow x1/y1 to move so the
+  // user isn't blocked.
+  if (editingAxis === "iwLen") {
+    const valMM = Math.round(parseFloat(dimEdit.value) * 1000);
+    const idx = editingIWIdx;
+    editingAxis = null; editingIWIdx = -1;
+    if (!isFinite(valMM) || valMM < 200 || idx < 0) return;
+    const iw = interiorWalls[idx];
+    if (!iw) return;
+    const isH = Math.abs(iw.x1 - iw.x0) >= Math.abs(iw.y1 - iw.y0);
+    const free = findFreeEnds(iw);
+    // Pick which endpoint to move: the free one (prefer which=1 for stable feel).
+    let moveWhich;
+    if (free.length === 0)        moveWhich = 1;
+    else if (free.length === 1)   moveWhich = free[0].which;
+    else                          moveWhich = 1;
+    const b = getInnerBounds();
+    if (isH) {
+      const fixedX = moveWhich === 1 ? iw.x0 : iw.x1;
+      const sign = (moveWhich === 1) ? Math.sign(iw.x1 - iw.x0) || 1 : Math.sign(iw.x0 - iw.x1) || -1;
+      let newX = fixedX + sign * valMM;
+      newX = Math.max(b.ix0, Math.min(b.ix1, newX));
+      if (moveWhich === 1) iw.x1 = newX; else iw.x0 = newX;
+    } else {
+      const fixedY = moveWhich === 1 ? iw.y0 : iw.y1;
+      const sign = (moveWhich === 1) ? Math.sign(iw.y1 - iw.y0) || 1 : Math.sign(iw.y0 - iw.y1) || -1;
+      let newY = fixedY + sign * valMM;
+      newY = Math.max(b.iy0, Math.min(b.iy1, newY));
+      if (moveWhich === 1) iw.y1 = newY; else iw.y0 = newY;
+    }
+    markFrameStale();
+    rebuildInteriorWalls();
+    if (selectedIW === idx) {
+      const len = Math.hypot(iw.x1 - iw.x0, iw.y1 - iw.y0);
+      showFFDim(
+        new THREE.Vector3(iw.x0, iw.y0, 0),
+        new THREE.Vector3(iw.x1, iw.y1, 0),
+        len,
+        { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" }
+      );
+      tagIWLengthLabel(idx);
+      showIWPerpDims(iw);
+      positionIWSlideHandle(iw);
+      positionIWInspector();
+      showFreeEnds(idx);
+    }
+    pushHistory();
+    return;
+  }
 
   // Opening dim editing
   if (editingAxis === "ow" || editingAxis === "oh" || editingAxis === "os"
@@ -6450,6 +6999,7 @@ function startDrawing() {
   $("ffInspector").style.display = "none";
   houseMode = 'box';
   houseTypePicked = false;
+  iwTypePicked = false;
   housePicker.style.display = "";  // re-show picker to let user choose again
   $("pickerBackdrop").style.display = "";  // re-frost the backdrop while picker is up
   $("rowW").style.display = "";
@@ -6585,6 +7135,7 @@ onResize();
     // when there are unsaved edits, and stays subtle otherwise.
     btnSaveTop.classList.add("shown");
     userPill.classList.add("shown");
+    const adminBtn = document.getElementById("menuAdmin");
     if (!currentUser) {
       userName.textContent = "Sign in";
       userProj.style.display = "none";
@@ -6592,10 +7143,12 @@ onResize();
       userPill.classList.add("guest");
       btnSaveTop.classList.toggle("dirty", projectDirty);
       btnSaveTopLabel.textContent = "Save design";
+      if (adminBtn) adminBtn.style.display = "none";
       return;
     }
     userPill.classList.remove("guest");
     userName.textContent = currentUser.name;
+    if (adminBtn) adminBtn.style.display = currentUser.is_admin ? "" : "none";
     if (currentProjectName) {
       userProj.style.display = "";
       userProj.textContent = currentProjectName;
@@ -6671,6 +7224,18 @@ onResize();
     // Guests aren't prompted — they can play around freely. The login modal
     // pops only when they try to save.
     refreshPill();
+    // ?project=N in the URL: auto-load that saved project (used by the
+    // project dashboard's "Update Design" button). Skips the envelope/roof
+    // pickers entirely and drops the user straight into the editor.
+    const params = new URLSearchParams(location.search);
+    const wantProject = parseInt(params.get("project") || "", 10);
+    if (wantProject && currentUser) {
+      try { await loadProject(wantProject); }
+      catch (e) { console.warn("auto-load project failed:", e); }
+      // Strip the query so a manual reload doesn't keep re-loading.
+      const cleanUrl = location.pathname + location.hash;
+      history.replaceState({}, "", cleanUrl);
+    }
   }
 
   async function doLogin() {
@@ -6760,6 +7325,81 @@ onResize();
     location.reload();
   });
 
+  // ── Account modal ──
+  const acctModal = $("accountModal");
+  const acctBackdrop = $("accountModalBackdrop");
+  const acctName = $("acctName");
+  const acctEmail = $("acctEmail");
+  const acctCurPw = $("acctCurPw");
+  const acctNewPw = $("acctNewPw");
+  const acctErr = $("accountError");
+  const acctSubmit = $("accountSubmit");
+
+  function openAccount() {
+    if (!currentUser) return;
+    acctName.value = currentUser.display_name || "";
+    acctEmail.value = currentUser.email || "";
+    acctCurPw.value = "";
+    acctNewPw.value = "";
+    acctErr.textContent = "";
+    acctBackdrop.style.display = "";
+    acctModal.style.display = "";
+    setTimeout(() => acctName.focus(), 30);
+  }
+  function closeAccount() {
+    acctBackdrop.style.display = "none";
+    acctModal.style.display = "none";
+  }
+  async function submitAccount() {
+    if (!currentUser) return;
+    const newDisplay = (acctName.value || "").trim();
+    const newEmail = (acctEmail.value || "").trim().toLowerCase();
+    const curPw = acctCurPw.value || "";
+    const newPw = acctNewPw.value || "";
+    acctErr.textContent = "";
+    const emailChanged = newEmail !== (currentUser.email || "");
+    const wantsPwChange = !!newPw;
+    if ((emailChanged || wantsPwChange) && !curPw) {
+      acctErr.textContent = "Enter your current password to change email or password.";
+      return;
+    }
+    acctSubmit.disabled = true;
+    try {
+      const r = await api("/api/auth/me", {
+        method: "PATCH",
+        body: JSON.stringify({
+          display_name: newDisplay,
+          email: newEmail,
+          password: newPw || undefined,
+          current_password: curPw || undefined,
+        }),
+      });
+      if (!r.ok) {
+        acctErr.textContent = (r.json && r.json.error) || ("Update failed (" + r.status + ").");
+        return;
+      }
+      currentUser = r.json.user;
+      refreshPill();
+      loadProjectList();
+      closeAccount();
+    } finally {
+      acctSubmit.disabled = false;
+    }
+  }
+  $("menuAccount").addEventListener("click", () => {
+    userMenu.classList.remove("open");
+    openAccount();
+  });
+  $("menuAdmin").addEventListener("click", () => {
+    location.href = "/dashboard";
+  });
+  $("accountClose").addEventListener("click", closeAccount);
+  acctBackdrop.addEventListener("click", closeAccount);
+  acctSubmit.addEventListener("click", submitAccount);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && acctModal.style.display !== "none") closeAccount();
+  });
+
   // ── Projects list ──
   function fmtDate(ts) {
     if (!ts) return "";
@@ -6790,10 +7430,13 @@ onResize();
       const nm = document.createElement("div");
       nm.className = "pname";
       nm.textContent = p.name;
-      if (p.kind) {
+      if (p.status) {
         const badge = document.createElement("span");
-        badge.className = "pkind pkind-" + p.kind;
-        badge.textContent = (p.kind === "quote") ? "requested" : "draft";
+        // pkind class names kept (CSS already targets them); map to saved/quote
+        // for now since those are the two visual styles defined in app.css.
+        const cls = (p.status === "requested") ? "quote" : "saved";
+        badge.className = "pkind pkind-" + cls;
+        badge.textContent = p.status.replace(/_/g, " ");
         nm.appendChild(badge);
       }
       const dt = document.createElement("div");
@@ -6835,12 +7478,15 @@ onResize();
     // picker is gated by DOM state it doesn't touch — drop the user straight
     // into editing mode on the loaded design.
     enterEditingMode(p.data && p.data.houseMode);
-    // Replay the cached frame if the project was saved post-generation.
-    // applyState always flips frameStale=true, so this must come after.
-    // applyFrameJson re-marks fresh on success.
-    if (p.data && p.data._frame && typeof applyFrameJson === "function") {
-      try { applyFrameJson(p.data._frame); }
-      catch (e) { console.warn("Cached frame failed to load:", e); }
+    // Frame is now stored separately (project_frames table) — fetch on demand
+    // only when the project actually has one cached.
+    if (p.has_frame && typeof applyFrameJson === "function") {
+      try {
+        const fr = await api(`/api/projects/${id}/frame`);
+        if (fr.ok && fr.json && fr.json.frame) {
+          applyFrameJson(fr.json.frame);
+        }
+      } catch (e) { console.warn("Cached frame failed to load:", e); }
     }
     projPanel.classList.remove("open");
     setCurrentProject(p.id, p.name);
@@ -6855,6 +7501,9 @@ onResize();
   function enterEditingMode(houseModeFromSave) {
     if (typeof houseTypePicked !== "undefined") {
       try { houseTypePicked = true; } catch (e) { /* binding may be const-ish */ }
+    }
+    if (typeof iwTypePicked !== "undefined") {
+      try { iwTypePicked = true; } catch (e) { /* binding may be const-ish */ }
     }
     const picker = document.getElementById("housePicker");
     if (picker) picker.style.display = "none";

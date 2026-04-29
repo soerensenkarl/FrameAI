@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Woodstock Operations · FrameAI</title>
+  <link rel="stylesheet" href="/static/admin.css">
+</head>
+<body>
+
+<aside class="dash-side">
+  <div class="dash-brand">
+    <span class="dash-brand-mark">W</span>
+    <div class="dash-brand-text">
+      <div class="dash-brand-name">Woodstock</div>
+      <div class="dash-brand-sub">Operations</div>
+    </div>
+  </div>
+
+  <nav class="dash-nav">
+    <button class="dash-nav-item active" data-nav="library" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>
+      </svg>
+      Library
+    </button>
+    <button class="dash-nav-item" data-nav="stakeholders" type="button" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="9" cy="8" r="3.5"/>
+        <path d="M3 20a6 6 0 0 1 12 0"/>
+        <circle cx="17" cy="9" r="2.7"/>
+        <path d="M15 20a5 5 0 0 1 7 0"/>
+      </svg>
+      Stakeholders
+      <span class="dash-nav-soon">soon</span>
+    </button>
+    <button class="dash-nav-item" data-nav="settings" type="button" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+      Settings
+      <span class="dash-nav-soon">soon</span>
+    </button>
+  </nav>
+
+  <a class="dash-side-foot" href="/">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>
+    </svg>
+    Back to FrameAI
+  </a>
+</aside>
+
+<main class="dash-main">
+  <header class="dash-header">
+    <div class="dash-header-left">
+      <h1 class="dash-page-title">Library</h1>
+      <span class="dash-page-count" id="dashPageCount">—</span>
+    </div>
+    <div class="dash-search">
+      <svg viewBox="0 0 24 24" class="dash-search-icon" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>
+      </svg>
+      <input id="dashSearch" type="text" placeholder="Search by name, address, or owner…" autocomplete="off">
+    </div>
+    <div class="dash-actions">
+      <select id="dashSort" class="dash-sort">
+        <option value="updated">Recently updated</option>
+        <option value="created">Recently created</option>
+        <option value="name">Name (A→Z)</option>
+        <option value="status">Status</option>
+      </select>
+      <button class="dash-btn-ghost" id="dashSignOut" type="button">Sign out</button>
+    </div>
+  </header>
+
+  <nav class="dash-filters" id="dashFilters" aria-label="Status filter"></nav>
+
+  <section class="dash-grid" id="dashGrid">
+    <div class="dash-empty">Loading projects…</div>
+  </section>
+</main>
+
+<canvas id="dashThumbRenderer" width="560" height="380" style="display:none"></canvas>
+
+<div class="dash-gate" id="dashGate" style="display:none">
+  <form class="dash-gate-card" id="dashLoginForm" autocomplete="on">
+    <div class="dash-brand-mark dash-gate-mark">W</div>
+    <div class="dash-gate-title">Woodstock Operations</div>
+    <div class="dash-gate-sub" id="dashGateText">Sign in to continue.</div>
+    <input id="dashLoginEmail" type="email" placeholder="Email" autocomplete="email" required maxlength="200">
+    <input id="dashLoginPw" type="password" placeholder="Password" autocomplete="current-password" required maxlength="200">
+    <div class="dash-gate-error" id="dashGateError"></div>
+    <button class="dash-gate-btn" id="dashLoginBtn" type="submit">Sign in</button>
+    <a class="dash-link dash-gate-back" href="/">← Back to FrameAI</a>
+  </form>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="/static/admin.js"></script>
+</body>
+</html>

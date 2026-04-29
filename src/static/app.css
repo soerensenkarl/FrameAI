@@ -1256,6 +1256,123 @@
   }
   .quote-submit {
     width: 100%; margin-top: 4px;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+
+  /* ── Quote send → success animation ──
+     Three states on .quote-modal: default (form), .submitting, .sent.
+     Form fields fade out for both .submitting and .sent; the status panel
+     fades in. Spinner shows while submitting, checkmark on sent. */
+  .quote-modal .quote-grid,
+  .quote-modal .quote-error,
+  .quote-modal .quote-submit {
+    transition: opacity 0.22s ease;
+  }
+  .quote-modal.submitting .quote-grid,
+  .quote-modal.submitting .quote-error,
+  .quote-modal.submitting .quote-submit,
+  .quote-modal.sent .quote-grid,
+  .quote-modal.sent .quote-error,
+  .quote-modal.sent .quote-submit {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .quote-modal .quote-title,
+  .quote-modal .quote-sub {
+    transition: opacity 0.22s ease;
+  }
+  .quote-modal.sent .quote-title,
+  .quote-modal.sent .quote-sub {
+    opacity: 0;
+  }
+
+  .quote-status {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+    padding: 24px;
+  }
+  .quote-modal.submitting .quote-status,
+  .quote-modal.sent .quote-status { opacity: 1; }
+  .quote-status-spinner {
+    width: 44px; height: 44px;
+    border: 3px solid rgba(255, 255, 255, 0.08);
+    border-top-color: #F9BC06;
+    border-radius: 50%;
+    animation: qSpin 0.8s linear infinite;
+    display: none;
+  }
+  .quote-modal.submitting .quote-status-spinner { display: block; }
+  .quote-status-check {
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    background: #F9BC06;
+    color: #0a0a0a;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 32px rgba(249, 188, 6, 0.55),
+                0 0 64px rgba(249, 188, 6, 0.25);
+  }
+  .quote-modal.sent .quote-status-check {
+    display: flex;
+    animation: qCheckPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .quote-status-check svg {
+    width: 30px; height: 30px;
+  }
+  .quote-modal.sent .quote-status-check svg path {
+    stroke-dasharray: 32;
+    stroke-dashoffset: 32;
+    animation: qCheckDraw 0.45s ease-out 0.18s forwards;
+  }
+  .quote-status-text {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.78);
+    letter-spacing: 0.02em;
+    text-align: center;
+  }
+  @keyframes qSpin    { to { transform: rotate(360deg); } }
+  @keyframes qCheckDraw { to { stroke-dashoffset: 0; } }
+  @keyframes qCheckPop {
+    0%   { transform: scale(0.0); opacity: 0; }
+    60%  { transform: scale(1.18); opacity: 1; }
+    100% { transform: scale(1); }
+  }
+
+  /* Modal exit — gentle scale-down + fade. Triggered with .leaving. */
+  .quote-modal.leaving {
+    transform: translate(-50%, -50%) scale(0.92);
+    opacity: 0;
+    transition: transform 0.4s cubic-bezier(0.34, 0.0, 0.64, 1),
+                opacity 0.4s ease;
+  }
+  .quote-modal-backdrop.leaving {
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+
+  /* Page exit veil — fades the FrameAI page to dark before navigating to
+     the project dashboard so the transition feels like one continuous beat. */
+  .page-veil {
+    position: fixed;
+    inset: 0;
+    background: #07070a;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1100;
+    transition: opacity 0.45s ease;
+  }
+  .page-veil.active {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   /* ── Project list status badge ── */

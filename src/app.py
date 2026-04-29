@@ -136,51 +136,104 @@ def _safe_dirname(name):
     return s or "untitled"
 
 
-def _resolve_project_dir(user_label, project_name):
-    """Return absolute path to projects/<user_label>/<project_name>/, or None
-    if either label is empty/invalid. Creates the directory.
+def _resolve_project_dir(user_id, project_id):
+    """Return absolute path to projects/<user_id>/<project_id>/, creating it.
 
-    `user_label` is the per-user folder name — typically the client's
-    display_name (full name) and falls back to email-local-part when empty.
-    Sanitization happens here, callers pass raw strings.
+    IDs are ints (or values that stringify to digits). Returns None when
+    either is missing/invalid. The folder is named by id so user/project
+    renames don't break the disk mirror.
     """
-    user = _safe_dirname(user_label)
-    name = _safe_dirname(project_name)
-    if user == "untitled" and not user_label:
+    try:
+        uid = int(user_id)
+        pid = int(project_id)
+    except (TypeError, ValueError):
         return None
-    if name == "untitled" and not project_name:
+    if uid <= 0 or pid <= 0:
         return None
-    path = os.path.join(PROJECTS_DIR, user, name)
+    path = os.path.join(PROJECTS_DIR, str(uid), str(pid))
     os.makedirs(path, exist_ok=True)
     return os.path.abspath(path)
 
 
-def write_project_mirror(project_dir, design_data, frame_data=None):
-    """Persist a project's snapshot to projects/<user>/<name>/.
+def project_scratch_dir(project_id):
+    """Per-project scratch under OUTPUT_DIR for /solve-frame artifacts.
+    Falls back to OUTPUT_DIR/_draft/ for unsaved (no project_id) sessions
+    so generations still have a writable target before save creates the row.
+    """
+    if project_id:
+        try:
+            pid = int(project_id)
+            if pid > 0:
+                d = os.path.join(OUTPUT_DIR, str(pid))
+                os.makedirs(d, exist_ok=True)
+                return d
+        except (TypeError, ValueError):
+            pass
+    d = os.path.join(OUTPUT_DIR, "_draft")
+    os.makedirs(d, exist_ok=True)
+    return d
 
-    Writes design.json always, frame.json when frame_data is given, and copies
-    the latest design.3dm / frame.3dm / frame_mesh.3dm from OUTPUT_DIR (the
-    generate-time scratch). Called from the project save endpoints; the .3dm
-    copy is skipped silently when the scratch is empty (user saved before
-    generating).
+
+def write_project_mirror(project_dir, design_data, quote_data=None,
+                          meta=None, user_info=None, scratch_dir=None):
+    """Persist a project's snapshot to projects/<user_id>/<project_id>/ for
+    human browsing.
+
+    Writes (all best-effort; never blocks the SQLite save):
+      - meta.json    — id, name, status, owner email/name; the quick "what's
+                       in this folder" reference.
+      - design.json  — design parameters only (no quote, no frame mesh).
+      - quote.json   — when quote_data is given (extracted from quote_json).
+      - user.json    — one level up, when user_info is given (per-user profile).
+      - design.3dm / frame.3dm / frame_mesh.3dm — copied from the per-project
+                       scratch (defaults to OUTPUT_DIR root when unspecified).
+
+    The frame mesh JSON is NOT mirrored — the frame.3dm is the browseable
+    form; the JSON is only useful at runtime.
     """
     if not project_dir:
         return
     import json as _json
     import shutil
-    try:
-        with open(os.path.join(project_dir, "design.json"), "w", encoding="utf-8") as f:
-            _json.dump(design_data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-    if frame_data is not None:
+    from datetime import datetime
+
+    def _add_iso(d, *keys):
+        out = dict(d) if isinstance(d, dict) else {}
+        for k in keys:
+            v = out.get(k)
+            if isinstance(v, (int, float)):
+                try:
+                    out[k + "_iso"] = datetime.fromtimestamp(v).isoformat(timespec="seconds")
+                except Exception:
+                    pass
+        return out
+
+    def _dump(path, payload):
         try:
-            with open(os.path.join(project_dir, "frame.json"), "w", encoding="utf-8") as f:
-                _json.dump(frame_data, f, ensure_ascii=False, indent=2)
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump(payload, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
+
+    if meta:
+        m = _add_iso(meta, "created_at", "updated_at")
+        _dump(os.path.join(project_dir, "meta.json"), m)
+
+    _dump(os.path.join(project_dir, "design.json"), design_data)
+
+    if quote_data:
+        _dump(os.path.join(project_dir, "quote.json"),
+              _add_iso(quote_data, "submitted_at"))
+
+    if user_info:
+        parent = os.path.dirname(project_dir)
+        if parent:
+            _dump(os.path.join(parent, "user.json"),
+                  _add_iso(user_info, "created_at"))
+
+    src_dir = scratch_dir or OUTPUT_DIR
     for fname in ("design.3dm", "frame.3dm", "frame_mesh.3dm"):
-        src = os.path.join(OUTPUT_DIR, fname)
+        src = os.path.join(src_dir, fname)
         if os.path.isfile(src):
             try:
                 shutil.copy2(src, os.path.join(project_dir, fname))
@@ -233,6 +286,8 @@ app.permanent_session_lifetime = timedelta(days=30)
 
 import accounts
 accounts.init_app(app)
+import admin
+admin.init_app(app)
 
 
 # ── helpers ──
@@ -530,6 +585,13 @@ def index():
     return send_file(os.path.join(app.static_folder, "index.html"))
 
 
+@app.route("/p/<int:pid>")
+def project_dashboard(pid):
+    """Per-project dashboard. Auth + access checks happen client-side via
+    /api/projects/<id>; this just serves the page shell."""
+    return send_file(os.path.join(app.static_folder, "project_dashboard.html"))
+
+
 @app.route("/api/timber-prices", methods=["GET"])
 def timber_prices():
     """Indkøbspriser table (DKK per linear meter, keyed by 'WxD').
@@ -573,33 +635,29 @@ def _solve_inputs(specs):
 
 
 def _save_design_artifacts(wall_breps, door_breps, window_breps, roof_breps,
-                           breps_out, joined_mesh, project_dir=None):
+                           breps_out, joined_mesh, scratch_dir=None):
     """Save design.3dm (inputs, layered), frame.3dm (output Breps), and
-    frame_mesh.3dm (display mesh) into OUTPUT_DIR.
+    frame_mesh.3dm (display mesh) into the per-project scratch directory.
 
-    If `project_dir` is given, also mirror design.3dm + frame.3dm there so
-    each saved project keeps its own snapshot. Returns the three OUTPUT_DIR
-    file paths (any may be None if the source was empty).
+    `scratch_dir` defaults to OUTPUT_DIR (the legacy shared scratch). The
+    save endpoints copy from scratch into the project's disk mirror, so
+    /solve-frame doesn't touch the projects/ tree directly anymore.
     """
+    out = scratch_dir or OUTPUT_DIR
     layer_groups = [
         ("Walls",   (180, 140,  90), wall_breps),
         ("Windows", ( 80, 170, 220), window_breps),
         ("Doors",   (230, 150,  60), door_breps),
         ("Roof",    (200,  70,  60), roof_breps),
     ]
-    design_path = _save_layered_breps_3dm(layer_groups, "design.3dm")
-    frame_brep_path = _save_breps_3dm(breps_out, "frame.3dm") if breps_out else None
+    design_path = _save_layered_breps_3dm(layer_groups, "design.3dm", out_dir=out)
+    frame_brep_path = _save_breps_3dm(breps_out, "frame.3dm", out_dir=out) if breps_out else None
 
     frame_mesh_path = None
     if joined_mesh.Vertices.Count > 0:
         model = rio.File3dm()
         model.Objects.AddMesh(joined_mesh)
-        frame_mesh_path = _write_3dm(model, "frame_mesh.3dm")
-
-    if project_dir:
-        _save_layered_breps_3dm(layer_groups, "design.3dm", out_dir=project_dir)
-        if breps_out:
-            _save_breps_3dm(breps_out, "frame.3dm", out_dir=project_dir)
+        frame_mesh_path = _write_3dm(model, "frame_mesh.3dm", out_dir=out)
 
     return design_path, frame_brep_path, frame_mesh_path
 
@@ -716,30 +774,15 @@ def _solve_and_respond(specs):
 
     breps_out = [b for b in (_to_brep(g) for g in brep_geoms) if b is not None]
 
-    # If the request carries a project descriptor and the user is signed in,
-    # mirror the .3dm artifacts into projects/<display_name>/<project_name>/.
-    # display_name is the canonical user-folder label; we ignore any `user`
-    # field in the spec body and trust the session instead.
-    project_dir = None
+    # Per-project scratch under OUTPUT_DIR/<project_id>/ — falls back to
+    # OUTPUT_DIR/_draft/ when the design isn't tied to a saved project yet.
+    # The save endpoint later copies from this directory into the disk mirror.
     project_spec = specs.get("project") if isinstance(specs.get("project"), dict) else None
-    if project_spec and project_spec.get("name"):
-        from flask import session as _session
-        uid = _session.get("uid")
-        if uid is not None:
-            try:
-                from accounts import _db as _accounts_db, _user_folder_label
-                user_row = _accounts_db().execute(
-                    "SELECT email, display_name FROM users WHERE id = ?", (uid,),
-                ).fetchone()
-                if user_row is not None:
-                    project_dir = _resolve_project_dir(
-                        _user_folder_label(user_row), project_spec.get("name"),
-                    )
-            except Exception:
-                project_dir = None
+    spec_pid = (project_spec or {}).get("id") if project_spec else None
+    scratch = project_scratch_dir(spec_pid)
     design_saved, frame_brep_saved, frame_mesh_saved = _save_design_artifacts(
         wall_breps, door_breps, window_breps, roof_breps, breps_out, joined,
-        project_dir=project_dir,
+        scratch_dir=scratch,
     )
 
     verts, normals, tangents, tris = _members_to_triangles(mesh_geoms, breps_out)

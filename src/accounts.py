@@ -14,6 +14,8 @@ from functools import wraps
 from flask import g, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from notifications import notify as _notify
+
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "data")
 DB_PATH = os.path.abspath(os.path.join(DATA_DIR, "frameai.db"))
@@ -29,35 +31,134 @@ def _db():
     return conn
 
 
-def _user_folder_label(user_row):
-    """Folder name for a user under projects/. Prefers display_name; falls
-    back to the email's local-part when display_name is empty."""
-    name = (user_row["display_name"] or "").strip() if user_row else ""
-    if name:
-        return name
-    email = (user_row["email"] or "") if user_row else ""
-    return email.split("@", 1)[0] if email else "user"
+def _log_event(db, project_id, actor_user_id, kind, payload=None):
+    """Append a row to project_events. Best-effort; never raises."""
+    try:
+        db.execute(
+            "INSERT INTO project_events (project_id, actor_user_id, kind, payload, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (project_id, actor_user_id, kind,
+             json.dumps(payload or {}), time.time()),
+        )
+        db.commit()
+    except Exception:
+        pass
 
 
-def _mirror_project_to_disk(db, uid, project_name, project_data):
-    """Best-effort mirror of a saved project into projects/<display_name>/<name>/.
+def _split_data(raw_data):
+    """Pull the optional `_quote` and `_frame` sub-objects out of a save body.
 
-    Writes design.json, frame.json (if data._frame is set), and copies the
-    latest design.3dm / frame.3dm / frame_mesh.3dm from OUTPUT_DIR. Failure
-    here must never break the SQLite save, so the whole thing is wrapped.
+    Returns (design_dict, quote_dict_or_None, frame_dict_or_None). The
+    returned design_dict is a shallow copy with `_quote` / `_frame` removed,
+    so the project's `data` column stores design parameters only.
+    """
+    if not isinstance(raw_data, dict):
+        return raw_data, None, None
+    quote = raw_data.get("_quote")
+    frame = raw_data.get("_frame")
+    design = {k: v for k, v in raw_data.items() if k not in ("_quote", "_frame")}
+    return design, (quote if isinstance(quote, dict) else None), (frame if isinstance(frame, dict) else None)
+
+
+def _store_project_frame(db, project_id, frame_data):
+    """Upsert the frame snapshot for a project. No-op when frame_data falsy."""
+    if not frame_data:
+        return
+    try:
+        db.execute(
+            "INSERT INTO project_frames (project_id, frame_json, generated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(project_id) DO UPDATE SET frame_json = excluded.frame_json, "
+            "generated_at = excluded.generated_at",
+            (project_id, json.dumps(frame_data), time.time()),
+        )
+        db.commit()
+    except Exception:
+        pass
+
+
+def _read_project_frame(db, project_id):
+    """Return parsed frame_json for a project, or None."""
+    row = db.execute(
+        "SELECT frame_json FROM project_frames WHERE project_id = ?", (project_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return json.loads(row["frame_json"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _pin_version(db, project_id, label, actor_user_id):
+    """Snapshot the current design + frame + quote into project_versions.
+    Best-effort; never raises."""
+    try:
+        proj = db.execute(
+            "SELECT data, quote_json FROM projects WHERE id = ?", (project_id,),
+        ).fetchone()
+        if proj is None:
+            return
+        frame_row = db.execute(
+            "SELECT frame_json FROM project_frames WHERE project_id = ?", (project_id,),
+        ).fetchone()
+        db.execute(
+            "INSERT INTO project_versions (project_id, label, design_json, frame_json, "
+            "quote_json, created_at, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (project_id, label, proj["data"],
+             frame_row["frame_json"] if frame_row else None,
+             proj["quote_json"], time.time(), actor_user_id),
+        )
+        db.commit()
+    except Exception:
+        pass
+
+
+def _mirror_project_to_disk(db, uid, pid, project_name, design_data, quote_data=None):
+    """Best-effort mirror of a saved project into projects/<user_id>/<project_id>/.
+
+    Writes meta.json + design.json + quote.json + user.json + .3dm files
+    (the .3dm files are copied from the per-project scratch folder under
+    OUTPUT_DIR). Failure never blocks the SQLite save.
     """
     try:
         user_row = db.execute(
-            "SELECT email, display_name FROM users WHERE id = ?", (uid,),
+            "SELECT id, email, display_name, created_at FROM users WHERE id = ?", (uid,),
         ).fetchone()
         if not user_row:
             return
-        from app import _resolve_project_dir, write_project_mirror
-        project_dir = _resolve_project_dir(_user_folder_label(user_row), project_name)
+        proj_row = db.execute(
+            "SELECT id, name, status, created_at, updated_at FROM projects WHERE id = ?", (pid,),
+        ).fetchone()
+        if not proj_row:
+            return
+        from app import _resolve_project_dir, write_project_mirror, project_scratch_dir
+        project_dir = _resolve_project_dir(uid, pid)
         if not project_dir:
             return
-        frame_payload = project_data.get("_frame") if isinstance(project_data, dict) else None
-        write_project_mirror(project_dir, project_data, frame_payload)
+        meta = {
+            "id": proj_row["id"],
+            "name": proj_row["name"],
+            "status": proj_row["status"],
+            "owner": {
+                "id": user_row["id"],
+                "email": user_row["email"],
+                "display_name": user_row["display_name"] or "",
+            },
+            "created_at": proj_row["created_at"],
+            "updated_at": proj_row["updated_at"],
+        }
+        user_info = {
+            "id": user_row["id"],
+            "email": user_row["email"],
+            "display_name": user_row["display_name"] or "",
+            "created_at": user_row["created_at"],
+        }
+        scratch = project_scratch_dir(pid)
+        write_project_mirror(
+            project_dir, design_data,
+            quote_data=quote_data, meta=meta, user_info=user_info,
+            scratch_dir=scratch,
+        )
     except Exception:
         pass
 
@@ -73,19 +174,46 @@ def init_app(app):
                 email TEXT UNIQUE NOT NULL COLLATE NOCASE,
                 password_hash TEXT NOT NULL,
                 display_name TEXT NOT NULL DEFAULT '',
+                is_admin INTEGER NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL
             );
             CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY,
                 user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
                 name TEXT NOT NULL,
-                kind TEXT NOT NULL DEFAULT 'saved',
+                status TEXT NOT NULL DEFAULT 'draft',
                 data TEXT NOT NULL,
+                quote_json TEXT,
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL,
                 UNIQUE(user_id, name)
             );
             CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id, updated_at DESC);
+            CREATE TABLE IF NOT EXISTS project_events (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}',
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_events_project ON project_events(project_id, created_at DESC);
+            CREATE TABLE IF NOT EXISTS project_frames (
+                project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+                frame_json TEXT NOT NULL,
+                generated_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS project_versions (
+                id INTEGER PRIMARY KEY,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                label TEXT NOT NULL,
+                design_json TEXT NOT NULL,
+                frame_json TEXT,
+                quote_json TEXT,
+                created_at REAL NOT NULL,
+                created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_versions_project ON project_versions(project_id, created_at DESC);
         """)
         conn.commit()
     finally:
@@ -105,7 +233,7 @@ def _current_user():
     if not uid:
         return None
     row = _db().execute(
-        "SELECT id, email, display_name FROM users WHERE id = ?", (uid,),
+        "SELECT id, email, display_name, is_admin FROM users WHERE id = ?", (uid,),
     ).fetchone()
     if row is None:
         session.clear()
@@ -115,6 +243,11 @@ def _current_user():
 
 def _user_payload(row):
     """JSON-friendly representation of a user row for /api/auth responses."""
+    is_admin = False
+    try:
+        is_admin = bool(row["is_admin"]) if "is_admin" in row.keys() else False
+    except (IndexError, KeyError):
+        is_admin = False
     return {
         "id": row["id"],
         "email": row["email"],
@@ -122,6 +255,7 @@ def _user_payload(row):
         # Keep `name` filled for legacy frontend lookups that haven't switched
         # to email yet — falls back to email-local-part if no display name.
         "name": row["display_name"] or (row["email"].split("@", 1)[0] if row["email"] else ""),
+        "is_admin": is_admin,
     }
 
 
@@ -176,8 +310,14 @@ def _register_routes(app):
             session["uid"] = uid
             session.permanent = True
             new_row = db.execute(
-                "SELECT id, email, display_name FROM users WHERE id = ?", (uid,),
+                "SELECT id, email, display_name, is_admin FROM users WHERE id = ?", (uid,),
             ).fetchone()
+            _notify(
+                f"[FrameAI] New signup: {email}",
+                f"A new user just created an account.\n\n"
+                f"Email: {email}\n"
+                f"Display name: {display_name or '(not set)'}\n",
+            )
             return jsonify({"user": _user_payload(new_row), "created": True})
 
         if not check_password_hash(row["password_hash"], pw):
@@ -186,7 +326,7 @@ def _register_routes(app):
         session["uid"] = row["id"]
         session.permanent = True
         full = db.execute(
-            "SELECT id, email, display_name FROM users WHERE id = ?", (row["id"],),
+            "SELECT id, email, display_name, is_admin FROM users WHERE id = ?", (row["id"],),
         ).fetchone()
         return jsonify({"user": _user_payload(full), "created": False})
 
@@ -195,13 +335,94 @@ def _register_routes(app):
         session.clear()
         return jsonify({"ok": True})
 
+    @app.route("/api/auth/me", methods=["PATCH"])
+    @login_required
+    def auth_update_me():
+        """Update the signed-in user's profile. Body keys (any subset):
+          - display_name : new full name
+          - email        : new email (must be unique)
+          - password     : new password (requires current_password)
+          - current_password : verify the existing password (required for
+                               email or password changes)
+
+        On display_name / email change we also rename the per-user folder
+        under projects/ so the disk mirror stays aligned.
+        """
+        body = request.get_json(silent=True) or {}
+        uid = session["uid"]
+        db = _db()
+        row = db.execute(
+            "SELECT id, email, password_hash, display_name, is_admin FROM users WHERE id = ?",
+            (uid,),
+        ).fetchone()
+        if row is None:
+            session.clear()
+            return jsonify({"error": "user gone"}), 404
+
+        new_display = body.get("display_name", None)
+        new_email   = body.get("email", None)
+        new_pw      = body.get("password", None)
+        cur_pw      = body.get("current_password", "") or ""
+
+        # Anything that touches credentials needs the existing password.
+        if (new_email is not None and new_email.strip().lower() != row["email"]) \
+           or (new_pw is not None and new_pw != ""):
+            if not check_password_hash(row["password_hash"], cur_pw):
+                return jsonify({"error": "current password is wrong"}), 401
+
+        sets, args = [], []
+
+        if new_display is not None:
+            d = new_display.strip()
+            if len(d) > 120:
+                return jsonify({"error": "display name too long"}), 400
+            sets.append("display_name = ?")
+            args.append(d)
+
+        if new_email is not None:
+            e = new_email.strip().lower()
+            if e and e != row["email"]:
+                if "@" not in e or "." not in e.split("@", 1)[-1]:
+                    return jsonify({"error": "invalid email"}), 400
+                if len(e) > 200:
+                    return jsonify({"error": "email too long"}), 400
+                sets.append("email = ?")
+                args.append(e)
+
+        if new_pw:
+            if len(new_pw) > 200:
+                return jsonify({"error": "password too long"}), 400
+            sets.append("password_hash = ?")
+            args.append(generate_password_hash(new_pw))
+
+        if not sets:
+            return jsonify({"ok": True, "user": _user_payload(row)})
+
+        args.append(uid)
+        try:
+            db.execute(
+                f"UPDATE users SET {', '.join(sets)} WHERE id = ?",
+                args,
+            )
+            db.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "that email is already taken"}), 409
+
+        # Disk folders are now keyed by user_id (immutable) so there's no
+        # rename to do here — display_name and email changes don't touch
+        # the projects/<uid>/ tree.
+        post = db.execute(
+            "SELECT id, email, display_name, is_admin FROM users WHERE id = ?", (uid,),
+        ).fetchone()
+        return jsonify({"ok": True, "user": _user_payload(post)})
+
     # ── projects ──
     @app.route("/api/projects", methods=["GET"])
     @login_required
     def projects_list():
         uid = session["uid"]
         rows = _db().execute(
-            "SELECT id, name, kind, created_at, updated_at FROM projects "
+            "SELECT id, name, status, created_at, updated_at FROM projects "
             "WHERE user_id = ? ORDER BY updated_at DESC",
             (uid,),
         ).fetchall()
@@ -211,27 +432,224 @@ def _register_routes(app):
     @login_required
     def projects_get(pid):
         uid = session["uid"]
-        row = _db().execute(
-            "SELECT id, name, kind, data, created_at, updated_at FROM projects "
-            "WHERE id = ? AND user_id = ?",
-            (pid, uid),
+        db = _db()
+        # Admins can view any project; everyone else only their own.
+        me = db.execute(
+            "SELECT is_admin FROM users WHERE id = ?", (uid,),
         ).fetchone()
+        cols = ("p.id, p.user_id, p.name, p.status, p.data, p.quote_json, "
+                "p.created_at, p.updated_at, "
+                "u.email AS owner_email, u.display_name AS owner_display_name")
+        if me and me["is_admin"]:
+            row = db.execute(
+                f"SELECT {cols} FROM projects p LEFT JOIN users u ON u.id = p.user_id "
+                "WHERE p.id = ?",
+                (pid,),
+            ).fetchone()
+        else:
+            row = db.execute(
+                f"SELECT {cols} FROM projects p LEFT JOIN users u ON u.id = p.user_id "
+                "WHERE p.id = ? AND p.user_id = ?",
+                (pid, uid),
+            ).fetchone()
         if row is None:
             return jsonify({"error": "not found"}), 404
         try:
             data = json.loads(row["data"])
         except (TypeError, ValueError):
             data = None
+        try:
+            quote = json.loads(row["quote_json"]) if row["quote_json"] else None
+        except (TypeError, ValueError):
+            quote = None
+        has_frame_row = db.execute(
+            "SELECT 1 FROM project_frames WHERE project_id = ?", (pid,),
+        ).fetchone()
         return jsonify({
             "project": {
                 "id": row["id"],
+                "user_id": row["user_id"],
                 "name": row["name"],
-                "kind": row["kind"],
+                "status": row["status"],
                 "data": data,
+                "quote": quote,
+                "has_frame": bool(has_frame_row),
+                "owner_email": row["owner_email"],
+                "owner_display_name": row["owner_display_name"] or "",
+                "viewer_is_admin": bool(me and me["is_admin"]),
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
         })
+
+    @app.route("/api/projects/<int:pid>/frame", methods=["GET"])
+    @login_required
+    def projects_get_frame(pid):
+        """Return the cached frame mesh JSON for a project. Heavy payload —
+        loaded only when the editor or dashboard needs to render the frame."""
+        uid = session["uid"]
+        db = _db()
+        me = db.execute("SELECT is_admin FROM users WHERE id = ?", (uid,)).fetchone()
+        is_admin = bool(me and me["is_admin"])
+        proj = db.execute(
+            "SELECT user_id FROM projects WHERE id = ?", (pid,),
+        ).fetchone()
+        if proj is None:
+            return jsonify({"error": "not found"}), 404
+        if not is_admin and proj["user_id"] != uid:
+            return jsonify({"error": "forbidden"}), 403
+        frame = _read_project_frame(db, pid)
+        return jsonify({"frame": frame})
+
+    @app.route("/api/projects/<int:pid>/versions", methods=["GET"])
+    @login_required
+    def projects_list_versions(pid):
+        """List pinned design versions for a project (metadata only)."""
+        uid = session["uid"]
+        db = _db()
+        me = db.execute("SELECT is_admin FROM users WHERE id = ?", (uid,)).fetchone()
+        is_admin = bool(me and me["is_admin"])
+        proj = db.execute("SELECT user_id FROM projects WHERE id = ?", (pid,)).fetchone()
+        if proj is None:
+            return jsonify({"error": "not found"}), 404
+        if not is_admin and proj["user_id"] != uid:
+            return jsonify({"error": "forbidden"}), 403
+        rows = db.execute(
+            "SELECT v.id, v.label, v.created_at, "
+            "       u.email AS actor_email, u.display_name AS actor_display_name "
+            "FROM project_versions v LEFT JOIN users u ON u.id = v.created_by_user_id "
+            "WHERE v.project_id = ? ORDER BY v.created_at DESC",
+            (pid,),
+        ).fetchall()
+        return jsonify({"versions": [
+            {
+                "id": r["id"], "label": r["label"], "created_at": r["created_at"],
+                "actor_email": r["actor_email"],
+                "actor_display_name": r["actor_display_name"] or "",
+            } for r in rows
+        ]})
+
+    @app.route("/api/projects/<int:pid>/versions/<int:vid>", methods=["GET"])
+    @login_required
+    def projects_get_version(pid, vid):
+        uid = session["uid"]
+        db = _db()
+        me = db.execute("SELECT is_admin FROM users WHERE id = ?", (uid,)).fetchone()
+        is_admin = bool(me and me["is_admin"])
+        proj = db.execute("SELECT user_id FROM projects WHERE id = ?", (pid,)).fetchone()
+        if proj is None:
+            return jsonify({"error": "not found"}), 404
+        if not is_admin and proj["user_id"] != uid:
+            return jsonify({"error": "forbidden"}), 403
+        row = db.execute(
+            "SELECT id, label, design_json, frame_json, quote_json, created_at "
+            "FROM project_versions WHERE id = ? AND project_id = ?",
+            (vid, pid),
+        ).fetchone()
+        if row is None:
+            return jsonify({"error": "not found"}), 404
+        def _try_json(s):
+            try: return json.loads(s) if s else None
+            except (TypeError, ValueError): return None
+        return jsonify({
+            "version": {
+                "id": row["id"],
+                "label": row["label"],
+                "design": _try_json(row["design_json"]),
+                "frame": _try_json(row["frame_json"]),
+                "quote": _try_json(row["quote_json"]),
+                "created_at": row["created_at"],
+            }
+        })
+
+    @app.route("/api/projects/<int:pid>/events", methods=["GET"])
+    @login_required
+    def projects_events(pid):
+        uid = session["uid"]
+        db = _db()
+        me = db.execute("SELECT is_admin FROM users WHERE id = ?", (uid,)).fetchone()
+        is_admin = bool(me and me["is_admin"])
+        proj = db.execute(
+            "SELECT user_id FROM projects WHERE id = ?", (pid,),
+        ).fetchone()
+        if proj is None:
+            return jsonify({"error": "not found"}), 404
+        if not is_admin and proj["user_id"] != uid:
+            return jsonify({"error": "forbidden"}), 403
+        rows = db.execute(
+            "SELECT e.id, e.kind, e.payload, e.created_at, "
+            "       u.email AS actor_email, u.display_name AS actor_display_name "
+            "FROM project_events e LEFT JOIN users u ON u.id = e.actor_user_id "
+            "WHERE e.project_id = ? ORDER BY e.created_at DESC",
+            (pid,),
+        ).fetchall()
+        events = []
+        for r in rows:
+            try:
+                payload = json.loads(r["payload"])
+            except (TypeError, ValueError):
+                payload = {}
+            events.append({
+                "id": r["id"],
+                "kind": r["kind"],
+                "payload": payload,
+                "created_at": r["created_at"],
+                "actor_email": r["actor_email"],
+                "actor_display_name": r["actor_display_name"] or "",
+            })
+        return jsonify({"events": events})
+
+    @app.route("/api/projects/<int:pid>/status", methods=["PATCH"])
+    @login_required
+    def projects_set_status(pid):
+        """Admin-only: move a project through its lifecycle."""
+        uid = session["uid"]
+        db = _db()
+        me = db.execute("SELECT is_admin FROM users WHERE id = ?", (uid,)).fetchone()
+        if not (me and me["is_admin"]):
+            return jsonify({"error": "admin only"}), 403
+        body = request.get_json(silent=True) or {}
+        new_status = (body.get("status") or "").strip()
+        VALID = {"draft", "requested", "reviewed", "quoted", "contracted",
+                 "in_production", "delivered", "installed", "archived", "declined"}
+        if new_status not in VALID:
+            return jsonify({"error": "invalid status"}), 400
+        proj = db.execute(
+            "SELECT id, status FROM projects WHERE id = ?", (pid,),
+        ).fetchone()
+        if proj is None:
+            return jsonify({"error": "not found"}), 404
+        if proj["status"] == new_status:
+            return jsonify({"ok": True, "status": new_status})
+        db.execute(
+            "UPDATE projects SET status = ?, updated_at = ? WHERE id = ?",
+            (new_status, time.time(), pid),
+        )
+        db.commit()
+        _log_event(db, pid, uid, "status_changed",
+                   {"from": proj["status"], "to": new_status})
+        # Pin a snapshot at every lifecycle transition so we always have an
+        # "as-of-this-stage" record (as-quoted, as-contracted, ...).
+        _pin_version(db, pid, f"as-{new_status}", uid)
+        return jsonify({"ok": True, "status": new_status})
+
+    @app.route("/api/projects/<int:pid>/versions", methods=["POST"])
+    @login_required
+    def projects_pin_version(pid):
+        """Manual version pin. Accepts an optional `label` in the body."""
+        uid = session["uid"]
+        db = _db()
+        me = db.execute("SELECT is_admin FROM users WHERE id = ?", (uid,)).fetchone()
+        is_admin = bool(me and me["is_admin"])
+        proj = db.execute("SELECT user_id FROM projects WHERE id = ?", (pid,)).fetchone()
+        if proj is None:
+            return jsonify({"error": "not found"}), 404
+        if not is_admin and proj["user_id"] != uid:
+            return jsonify({"error": "forbidden"}), 403
+        body = request.get_json(silent=True) or {}
+        label = (body.get("label") or "manual").strip()[:120] or "manual"
+        _pin_version(db, pid, label, uid)
+        return jsonify({"ok": True})
 
     @app.route("/api/projects", methods=["POST"])
     @login_required
@@ -246,8 +664,13 @@ def _register_routes(app):
             return jsonify({"error": "data required"}), 400
         if len(name) > 120:
             return jsonify({"error": "name too long"}), 400
+
+        # Split the incoming blob: design parameters → data column,
+        # _quote → quote_json column, _frame → project_frames table.
+        design, quote, frame = _split_data(data)
         try:
-            data_json = json.dumps(data)
+            design_json = json.dumps(design)
+            quote_json = json.dumps(quote) if quote else None
         except (TypeError, ValueError) as e:
             return jsonify({"error": f"data not JSON-serializable: {e}"}), 400
 
@@ -255,15 +678,25 @@ def _register_routes(app):
         db = _db()
         try:
             cur = db.execute(
-                "INSERT INTO projects (user_id, name, kind, data, created_at, updated_at) "
-                "VALUES (?, ?, 'saved', ?, ?, ?)",
-                (uid, name, data_json, now, now),
+                "INSERT INTO projects (user_id, name, status, data, quote_json, "
+                "created_at, updated_at) VALUES (?, ?, 'draft', ?, ?, ?, ?)",
+                (uid, name, design_json, quote_json, now, now),
             )
             db.commit()
         except sqlite3.IntegrityError:
             return jsonify({"error": "you already have a project with that name"}), 409
-        _mirror_project_to_disk(db, uid, name, data)
-        return jsonify({"project": {"id": cur.lastrowid, "name": name, "kind": "saved",
+        pid = cur.lastrowid
+        _store_project_frame(db, pid, frame)
+        _log_event(db, pid, uid, "created", {"status": "draft", "name": name})
+        _mirror_project_to_disk(db, uid, pid, name, design, quote)
+        u = db.execute("SELECT email, display_name FROM users WHERE id = ?", (uid,)).fetchone()
+        _notify(
+            f"[FrameAI] Project saved: {name}",
+            f"Project: {name}\n"
+            f"Saved by: {(u['display_name'] if u and u['display_name'] else '(no name)')} "
+            f"<{(u['email'] if u else '?')}>\n",
+        )
+        return jsonify({"project": {"id": pid, "name": name, "status": "draft",
                                      "created_at": now, "updated_at": now}})
 
     @app.route("/api/projects/<int:pid>", methods=["PUT"])
@@ -279,6 +712,9 @@ def _register_routes(app):
             return jsonify({"error": "not found"}), 404
 
         sets, args = [], []
+        new_frame = None
+        new_quote = None
+        new_quote_set = False
         if "name" in body:
             name = (body.get("name") or "").strip()
             if not name:
@@ -288,12 +724,23 @@ def _register_routes(app):
             sets.append("name = ?")
             args.append(name)
         if "data" in body:
+            design, quote, frame = _split_data(body["data"])
             try:
-                data_json = json.dumps(body["data"])
+                design_json = json.dumps(design)
             except (TypeError, ValueError) as e:
                 return jsonify({"error": f"data not JSON-serializable: {e}"}), 400
             sets.append("data = ?")
-            args.append(data_json)
+            args.append(design_json)
+            new_frame = frame
+            if quote is not None:
+                new_quote = quote
+                new_quote_set = True
+        if new_quote_set:
+            try:
+                sets.append("quote_json = ?")
+                args.append(json.dumps(new_quote) if new_quote else None)
+            except (TypeError, ValueError) as e:
+                return jsonify({"error": f"quote not JSON-serializable: {e}"}), 400
         if not sets:
             return jsonify({"error": "nothing to update"}), 400
         sets.append("updated_at = ?")
@@ -304,18 +751,24 @@ def _register_routes(app):
             db.commit()
         except sqlite3.IntegrityError:
             return jsonify({"error": "you already have a project with that name"}), 409
-        # Mirror to disk: re-read the post-update name + data so we capture both
-        # rename-only and data-only updates.
+        if new_frame:
+            _store_project_frame(db, pid, new_frame)
+        # Mirror to disk: re-read the post-update name + data so we capture
+        # rename-only updates too.
         post = db.execute(
-            "SELECT name, data FROM projects WHERE id = ? AND user_id = ?", (pid, uid),
+            "SELECT name, data, quote_json FROM projects WHERE id = ? AND user_id = ?", (pid, uid),
         ).fetchone()
         if post is not None:
             try:
                 post_data = json.loads(post["data"])
             except (TypeError, ValueError):
                 post_data = None
+            try:
+                post_quote = json.loads(post["quote_json"]) if post["quote_json"] else None
+            except (TypeError, ValueError):
+                post_quote = None
             if post_data is not None:
-                _mirror_project_to_disk(db, uid, post["name"], post_data)
+                _mirror_project_to_disk(db, uid, pid, post["name"], post_data, post_quote)
         return jsonify({"ok": True, "updated_at": args[-3]})
 
     @app.route("/api/projects/<int:pid>", methods=["DELETE"])
@@ -386,6 +839,12 @@ def _register_routes(app):
             )
             db.commit()
             uid = cur.lastrowid
+            _notify(
+                f"[FrameAI] New signup: {email}",
+                f"A new user just created an account via the quote form.\n\n"
+                f"Email: {email}\n"
+                f"Display name: {full_name}\n",
+            )
 
         # Resolve a unique project name = address (suffix _2/_3/... on collision).
         base_name = address[:120]
@@ -399,10 +858,10 @@ def _register_routes(app):
             n += 1
         project_name = candidate
 
-        # Embed the quote info in data so it lives alongside the design.
-        if not isinstance(data, dict):
-            data = {"_raw": data}
-        data["_quote"] = {
+        # Pull design / frame out of the incoming blob; persist the quote
+        # info in its own column.
+        design, _existing_quote, frame = _split_data(data if isinstance(data, dict) else {})
+        quote_obj = {
             "full_name": full_name,
             "email": email,
             "phone": phone,
@@ -412,31 +871,50 @@ def _register_routes(app):
             "submitted_at": time.time(),
         }
         try:
-            data_json = json.dumps(data)
+            design_json = json.dumps(design)
+            quote_json = json.dumps(quote_obj)
         except (TypeError, ValueError) as e:
             return jsonify({"error": f"data not JSON-serializable: {e}"}), 400
 
         now = time.time()
         cur = db.execute(
-            "INSERT INTO projects (user_id, name, kind, data, created_at, updated_at) "
-            "VALUES (?, ?, 'quote', ?, ?, ?)",
-            (uid, project_name, data_json, now, now),
+            "INSERT INTO projects (user_id, name, status, data, quote_json, "
+            "created_at, updated_at) VALUES (?, ?, 'requested', ?, ?, ?, ?)",
+            (uid, project_name, design_json, quote_json, now, now),
         )
         db.commit()
+        pid = cur.lastrowid
+        _store_project_frame(db, pid, frame)
+        _log_event(db, pid, uid, "created", {"status": "requested", "name": project_name})
+        _log_event(db, pid, uid, "quote_submitted", {
+            "address": address, "byggetilladelse": byggetilladelse,
+        })
 
         # Auto sign-in the (possibly new) user.
         session.clear()
         session["uid"] = uid
         session.permanent = True
 
-        _mirror_project_to_disk(db, uid, project_name, data)
+        _mirror_project_to_disk(db, uid, pid, project_name, design, quote_obj)
 
         user_row = db.execute(
-            "SELECT id, email, display_name FROM users WHERE id = ?", (uid,),
+            "SELECT id, email, display_name, is_admin FROM users WHERE id = ?", (uid,),
         ).fetchone()
+        bygge_label = {"yes": "Yes", "no": "No", "waiting": "Waiting for answer", "": "(not specified)"}.get(byggetilladelse, byggetilladelse)
+        _notify(
+            f"[FrameAI] Quote request: {address}",
+            "A new quote request just came in.\n\n"
+            f"Full name: {full_name}\n"
+            f"Email: {email}\n"
+            f"Phone: {phone or '(not given)'}\n"
+            f"Address: {address}\n"
+            f"Byggetilladelse: {bygge_label}\n"
+            f"Message:\n{message or '(none)'}\n\n"
+            f"Project saved as: {project_name}\n",
+        )
         return jsonify({
             "project": {
-                "id": cur.lastrowid, "name": project_name, "kind": "quote",
+                "id": cur.lastrowid, "name": project_name, "status": "requested",
                 "created_at": now, "updated_at": now,
             },
             "user": _user_payload(user_row),

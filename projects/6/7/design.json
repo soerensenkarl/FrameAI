@@ -1,0 +1,81 @@
+{
+  "houseMode": "box",
+  "c1": {
+    "x": -4000,
+    "y": 2800,
+    "z": 0
+  },
+  "c2": {
+    "x": -1600,
+    "y": 6000,
+    "z": 0
+  },
+  "signX": 1,
+  "signY": 1,
+  "interiorWalls": [
+    {
+      "x0": -3905,
+      "y0": 4600,
+      "x1": -2500,
+      "y1": 4600
+    }
+  ],
+  "iwToRidge": true,
+  "openings": [
+    {
+      "type": "door",
+      "wallIdx": 0,
+      "posAlong": 1200,
+      "width": 900,
+      "height": 2100,
+      "sill": 0
+    },
+    {
+      "type": "window",
+      "wallIdx": 3,
+      "posAlong": 788.2153304358162,
+      "width": 900,
+      "height": 1100,
+      "sill": 800
+    },
+    {
+      "type": "window",
+      "wallIdx": 3,
+      "posAlong": 2267.4530213183953,
+      "width": 900,
+      "height": 1100,
+      "sill": 800
+    },
+    {
+      "type": "window",
+      "wallIdx": 2,
+      "posAlong": 850.2454915543067,
+      "width": 900,
+      "height": 1100,
+      "sill": 800
+    },
+    {
+      "type": "window",
+      "wallIdx": 2,
+      "posAlong": 2362.398002278027,
+      "width": 900,
+      "height": 1100,
+      "sill": 800
+    }
+  ],
+  "footprintWalls": [],
+  "roofType": "gable",
+  "flatSlopeH": [
+    0,
+    0
+  ],
+  "customRidgeH": 1119,
+  "eaveOH": 0,
+  "gableOH": 0,
+  "inH": "2200",
+  "inW": "2400",
+  "inD": "3200",
+  "inT": "95",
+  "inTI": "120",
+  "inTR": "120"
+}

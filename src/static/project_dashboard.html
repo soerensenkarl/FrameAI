@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FrameAI · Project</title>
+  <link rel="stylesheet" href="/static/project_dashboard.css">
+</head>
+<body>
+
+<header class="pd-header">
+  <div class="pd-header-left">
+    <a class="pd-link" href="/">← FrameAI</a>
+  </div>
+  <div class="pd-header-center">
+    <h1 class="pd-title">
+      <span id="pdName">…</span>
+      <span class="pd-id" id="pdIdWrap">#<span id="pdId"></span></span>
+    </h1>
+    <span class="pd-status" id="pdStatus">…</span>
+  </div>
+  <div class="pd-header-right">
+    <button class="pd-btn pd-btn-ghost" id="pdMembersBtn" type="button" title="Stakeholders">Members</button>
+    <button class="pd-btn pd-btn-primary" id="pdEditBtn" type="button">Update Design</button>
+    <button class="pd-btn pd-btn-ghost" id="pdSignOut" type="button">Sign out</button>
+  </div>
+</header>
+
+<main class="pd-main">
+  <!-- Left rail: lifecycle + connections -->
+  <aside class="pd-side pd-side-left">
+    <div class="pd-section-title">Lifecycle</div>
+    <ol class="pd-lifecycle" id="pdLifecycle"></ol>
+    <div class="pd-section-title pd-mt">Connections</div>
+    <ul class="pd-connections" id="pdConnections"></ul>
+  </aside>
+
+  <!-- Centre: rotating 3D house -->
+  <section class="pd-stage">
+    <div class="pd-stage-glow"></div>
+    <div id="pdStage3D" class="pd-stage-canvas">
+      <div class="pd-radial" id="pdRadial" aria-hidden="true">
+        <svg class="pd-radial-ring" viewBox="-260 -260 520 520" aria-hidden="true">
+          <circle r="240" />
+          <circle r="240" class="pd-radial-ring-glow" />
+        </svg>
+        <button class="pd-radial-hub" id="pdRadialHub" type="button" aria-label="Open project menu">
+          <span class="pd-radial-hub-core"></span>
+          <span class="pd-radial-hub-ripple"></span>
+          <span class="pd-radial-hub-ripple pd-radial-hub-ripple-2"></span>
+        </button>
+        <button class="pd-radial-item" data-action="update" style="--angle: 270deg" type="button">
+          <span class="pd-radial-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14.06 4.94l5 5L8.5 20.5l-5.5 1 1-5.5L14.06 4.94z"/>
+              <path d="M13 6l5 5"/>
+            </svg>
+          </span>
+          <span class="pd-radial-tip">Update Design</span>
+        </button>
+        <button class="pd-radial-item" data-action="quote" style="--angle: 330deg" type="button">
+          <span class="pd-radial-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 3h9l4 4v14H6z"/>
+              <path d="M14 3v4h5"/>
+              <path d="M9 13h7M9 17h7M9 9h3"/>
+            </svg>
+          </span>
+          <span class="pd-radial-tip">Quote</span>
+        </button>
+        <button class="pd-radial-item" data-action="activity" style="--angle: 30deg" type="button">
+          <span class="pd-radial-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M12 7v5l3.5 2"/>
+            </svg>
+          </span>
+          <span class="pd-radial-tip">Activity</span>
+        </button>
+        <button class="pd-radial-item" data-action="files" style="--angle: 90deg" type="button">
+          <span class="pd-radial-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+            </svg>
+          </span>
+          <span class="pd-radial-tip">Files</span>
+        </button>
+        <button class="pd-radial-item" data-action="comments" style="--angle: 150deg" type="button">
+          <span class="pd-radial-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12a8 8 0 0 1-12.9 6.3L3 20l1.7-5.1A8 8 0 1 1 21 12z"/>
+            </svg>
+          </span>
+          <span class="pd-radial-tip">Comments</span>
+        </button>
+        <button class="pd-radial-item" data-action="members" style="--angle: 210deg" type="button">
+          <span class="pd-radial-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="9" cy="8" r="3.5"/>
+              <path d="M3 20a6 6 0 0 1 12 0"/>
+              <circle cx="17" cy="9" r="2.7"/>
+              <path d="M15 20a5 5 0 0 1 7 0"/>
+            </svg>
+          </span>
+          <span class="pd-radial-tip">Stakeholders</span>
+        </button>
+      </div>
+    </div>
+    <div class="pd-stage-empty" id="pdStageEmpty" style="display:none">
+      <div class="pd-stage-empty-icon">⌂</div>
+      <div class="pd-stage-empty-text">Frame not generated yet</div>
+      <div class="pd-stage-empty-sub">Click <em>Update Design</em> to refine and generate.</div>
+    </div>
+    <div class="pd-stage-caption" id="pdStageCaption">Generated timber frame</div>
+  </section>
+
+  <!-- Right rail: project details + stakeholders -->
+  <aside class="pd-side pd-side-right">
+    <div class="pd-section-title">Project details</div>
+    <dl class="pd-details" id="pdDetails"></dl>
+
+    <div class="pd-section-title pd-mt">Stakeholders</div>
+    <ul class="pd-stakeholders" id="pdStakeholders"></ul>
+
+    <div class="pd-section-title pd-mt">Last activity</div>
+    <div class="pd-activity-summary" id="pdLastActivity"></div>
+  </aside>
+</main>
+
+<!-- Stat strip — quick at-a-glance numbers across the bottom of the stage -->
+<div class="pd-statbar">
+  <div class="pd-stat"><span class="pd-stat-label">Width</span><span class="pd-stat-value" id="statWidth">—</span></div>
+  <div class="pd-stat"><span class="pd-stat-label">Depth</span><span class="pd-stat-value" id="statDepth">—</span></div>
+  <div class="pd-stat"><span class="pd-stat-label">Height</span><span class="pd-stat-value" id="statHeight">—</span></div>
+  <div class="pd-stat"><span class="pd-stat-label">Roof</span><span class="pd-stat-value" id="statRoof">—</span></div>
+  <div class="pd-stat"><span class="pd-stat-label">Floor area</span><span class="pd-stat-value" id="statArea">—</span></div>
+  <div class="pd-stat pd-stat-accent"><span class="pd-stat-label">Frame parts</span><span class="pd-stat-value" id="statParts">—</span></div>
+  <div class="pd-stat pd-stat-accent"><span class="pd-stat-label">Estimate</span><span class="pd-stat-value" id="statPrice">—</span></div>
+</div>
+
+<!-- Bottom tab strip — placeholder routes for future features -->
+<nav class="pd-tabs">
+  <button class="pd-tab active" data-tab="overview" type="button">
+    <span class="pd-tab-dot"></span> Overview
+  </button>
+  <button class="pd-tab" data-tab="quote" type="button">Quote</button>
+  <button class="pd-tab" data-tab="activity" type="button">Activity</button>
+  <button class="pd-tab" data-tab="files" type="button">Files</button>
+  <button class="pd-tab" data-tab="comments" type="button">Comments</button>
+  <button class="pd-tab" data-tab="contract" type="button">Contract</button>
+  <span class="pd-tabs-spacer"></span>
+  <button class="pd-tab-secondary" id="pdMore" type="button">More ▾</button>
+</nav>
+
+<!-- Tab panels (only Overview wired in v1) -->
+<section class="pd-tabpanel" id="tabpanel-quote" hidden>
+  <div class="pd-card">
+    <h3 class="pd-card-title">Quote details</h3>
+    <dl class="pd-details" id="pdQuoteFields"></dl>
+    <p class="pd-msg-label">Custom message</p>
+    <pre class="pd-msg" id="pdQuoteMsg"></pre>
+  </div>
+</section>
+<section class="pd-tabpanel" id="tabpanel-activity" hidden>
+  <div class="pd-card">
+    <h3 class="pd-card-title">Activity</h3>
+    <ul class="pd-events" id="pdEvents"></ul>
+  </div>
+</section>
+<section class="pd-tabpanel" id="tabpanel-files" hidden>
+  <div class="pd-card">
+    <h3 class="pd-card-title">Files <span class="pd-soon">coming soon</span></h3>
+    <p class="pd-card-sub">Contracts, fabrication drawings, and site photos will live here.</p>
+  </div>
+</section>
+<section class="pd-tabpanel" id="tabpanel-comments" hidden>
+  <div class="pd-card">
+    <h3 class="pd-card-title">Comments <span class="pd-soon">coming soon</span></h3>
+    <p class="pd-card-sub">Stakeholder discussion thread.</p>
+  </div>
+</section>
+<section class="pd-tabpanel" id="tabpanel-contract" hidden>
+  <div class="pd-card">
+    <h3 class="pd-card-title">Contract <span class="pd-soon">coming soon</span></h3>
+    <p class="pd-card-sub">Pricing breakdown, signed contract, payment schedule.</p>
+  </div>
+</section>
+
+<!-- Admin-only status changer (revealed by JS when viewer is admin) -->
+<div class="pd-admin-bar" id="pdAdminBar" style="display:none">
+  <span class="pd-admin-label">Admin actions</span>
+  <select id="pdStatusSelect">
+    <option value="draft">Draft</option>
+    <option value="requested">Requested</option>
+    <option value="reviewed">Reviewed</option>
+    <option value="quoted">Quoted</option>
+    <option value="contracted">Contracted</option>
+    <option value="in_production">In Production</option>
+    <option value="delivered">Delivered</option>
+    <option value="installed">Installed</option>
+    <option value="archived">Archived</option>
+    <option value="declined">Declined</option>
+  </select>
+  <button class="pd-btn pd-btn-primary pd-btn-small" id="pdStatusApply" type="button">Set status</button>
+</div>
+
+<!-- Gate shown if not authorised / not signed in -->
+<div class="pd-gate" id="pdGate" style="display:none">
+  <div class="pd-gate-text" id="pdGateText">Loading…</div>
+  <a class="pd-link" href="/">← Back to FrameAI</a>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="/static/project_dashboard.js"></script>
+</body>
+</html>
