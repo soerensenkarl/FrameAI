@@ -4398,15 +4398,15 @@ function ensureIWPreview() {
   // cross wall in one half so the user sees a T-junction (gives both a
   // long wall and a short wall — useful when comparing Loft vs To-Roof).
   if (d >= w) {
-    const dx = ix0 + w * 0.35;
-    iwPreviewWalls.push({ x0: dx, y0: iy0, x1: dx, y1: iy1 });                                  // full-height divider
-    iwPreviewWalls.push({ x0: ix0, y0: iy0 + d * 0.35, x1: dx, y1: iy0 + d * 0.35 });           // small room split #1
-    iwPreviewWalls.push({ x0: ix0, y0: iy0 + d * 0.7,  x1: dx, y1: iy0 + d * 0.7 });            // small room split #2
+    const dx = ix0 + w * 0.65;
+    iwPreviewWalls.push({ x0: dx,  y0: iy0, x1: dx,  y1: iy1 });                                // full-height divider
+    iwPreviewWalls.push({ x0: ix0, y0: iy0 + d * 0.35, x1: ix1, y1: iy0 + d * 0.35 });          // full-width cross wall
+    iwPreviewWalls.push({ x0: dx,  y0: iy0 + d * 0.7,  x1: ix1, y1: iy0 + d * 0.7 });           // small room split
   } else {
-    const dy = iy0 + d * 0.35;
-    iwPreviewWalls.push({ x0: ix0, y0: dy, x1: ix1, y1: dy });                                  // full-width divider
-    iwPreviewWalls.push({ x0: ix0 + w * 0.35, y0: iy0, x1: ix0 + w * 0.35, y1: dy });           // small room split #1
-    iwPreviewWalls.push({ x0: ix0 + w * 0.7,  y0: iy0, x1: ix0 + w * 0.7,  y1: dy });           // small room split #2
+    const dy = iy0 + d * 0.65;
+    iwPreviewWalls.push({ x0: ix0, y0: dy,  x1: ix1, y1: dy });                                 // full-width divider
+    iwPreviewWalls.push({ x0: ix0 + w * 0.35, y0: iy0, x1: ix0 + w * 0.35, y1: iy1 });          // full-height cross wall
+    iwPreviewWalls.push({ x0: ix0 + w * 0.7,  y0: dy,  x1: ix0 + w * 0.7,  y1: iy1 });          // small room split
   }
   for (const w of iwPreviewWalls) interiorWalls.push(w);
   rebuildInteriorWalls();
@@ -4437,6 +4437,13 @@ function pickIWType(toRidge) {
   pushHistory();
   hint.style.display = "";
   enterSet();
+  // Defensive: hideArrows()/hideDims() were called when the picker opened.
+  // setStep(0) in enterSet should restore them via positionArrows/updateDims,
+  // but call them explicitly here so the user lands on Exterior Walls with
+  // arrows + dim labels regardless of any state-restoration order quirks.
+  rebuildScene();
+  positionArrows();
+  updateDims();
 }
 const iwTilesContainer = $("iwPicker").querySelector(".house-picker-tiles");
 $("iwTileLoft").addEventListener("mouseenter", () => previewIWType(false));
@@ -4693,6 +4700,9 @@ btnNext.addEventListener("click", () => goToStep(currentStep + 1));
       data._frame = window._lastFrameJson;
     }
     submitBtn.disabled = true;
+    // Cross-fade the form to a spinner: status panel fades in, fields fade out.
+    modal.classList.add("submitting");
+    $("quoteStatusText").textContent = "Sending request…";
     try {
       const res = await fetch("/api/quote-request", {
         method: "POST",
@@ -4708,17 +4718,58 @@ btnNext.addEventListener("click", () => goToStep(currentStep + 1));
       let body = {};
       try { body = await res.json(); } catch { /* ignore */ }
       if (!res.ok) {
+        modal.classList.remove("submitting");
         errEl.textContent = body.error || ("Request failed (" + res.status + ").");
         return;
       }
+      // Success — swap spinner for animated checkmark, then transition out.
+      modal.classList.remove("submitting");
+      modal.classList.add("sent");
+      $("quoteStatusText").textContent = body.project && body.project.id
+        ? "Sent — opening your project"
+        : "Sent";
+
+      if (body.project && body.project.id) {
+        // Hold the success state briefly so the checkmark animation reads,
+        // then collapse the modal and fade the whole page to dark before
+        // navigating. The dashboard fades back in on the next page.
+        await sleep(720);
+        modal.classList.add("leaving");
+        backdrop.classList.add("leaving");
+        const veil = ensurePageVeil();
+        // Force a layout flush so the transition starts cleanly.
+        veil.offsetHeight;  // eslint-disable-line no-unused-expressions
+        veil.classList.add("active");
+        await sleep(420);
+        location.href = "/p/" + body.project.id;
+        return;  // navigation in flight; don't re-enable the button
+      }
+
+      // Fallback: no project id — fall back to the worker speech bubble.
+      await sleep(720);
       close();
+      modal.classList.remove("sent");
       if (typeof workerSay === "function") {
         workerSay("Thanks — quote request sent. We'll be in touch.");
       }
       if (window.refreshAuthFromServer) await window.refreshAuthFromServer(body.project);
+    } catch (err) {
+      modal.classList.remove("submitting", "sent");
+      errEl.textContent = "Request failed: " + (err.message || err);
     } finally {
       submitBtn.disabled = false;
     }
+  }
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  function ensurePageVeil() {
+    let v = document.getElementById("pageVeil");
+    if (!v) {
+      v = document.createElement("div");
+      v.id = "pageVeil";
+      v.className = "page-veil";
+      document.body.appendChild(v);
+    }
+    return v;
   }
 
   $("btnBuy").addEventListener("click", open);

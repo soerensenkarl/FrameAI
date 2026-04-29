@@ -258,7 +258,7 @@ let _thumbScene = null;
 let _thumbCamera = null;
 let _woodMat = null;
 
-function initThumbRenderer() {
+async function initThumbRenderer() {
   if (_thumbRenderer) return;
   const canvas = $("dashThumbRenderer");
   _thumbRenderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -275,15 +275,27 @@ function initThumbRenderer() {
   _thumbCamera = new THREE.PerspectiveCamera(35, 560 / 380, 100, 200000);
   _thumbCamera.up.set(0, 0, 1);
 
-  _woodMat = makeWoodMaterial();
+  // Wait for the wood texture to fully decode before starting any renders.
+  // Without this, the first card or two would render with a black diffuse
+  // because the GPU samples the texture before its pixels arrive.
+  const tex = await new Promise((resolve, reject) => {
+    new THREE.TextureLoader().load(
+      '/static/assets/pine.jpg',
+      (t) => {
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.anisotropy = 4;
+        resolve(t);
+      },
+      undefined,
+      reject,
+    );
+  });
+  _woodMat = makeWoodMaterial(tex);
 }
 
-function makeWoodMaterial() {
+function makeWoodMaterial(tex) {
   // Same shader as project_dashboard / FrameAI editor, kept in sync.
-  const tex = new THREE.TextureLoader().load('/static/assets/pine.jpg');
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
   const mat = new THREE.MeshStandardMaterial({
     color: 0xffffff, roughness: 0.7, metalness: 0.0, side: THREE.DoubleSide,
   });
@@ -341,7 +353,7 @@ function makeWoodMaterial() {
 }
 
 async function renderThumbnails() {
-  initThumbRenderer();
+  await initThumbRenderer();
   // Sequential — keeps memory + GPU pressure low.
   for (const p of projects) {
     if (!p.has_frame) continue;

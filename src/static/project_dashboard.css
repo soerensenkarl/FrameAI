@@ -34,6 +34,13 @@ body {
   display: grid;
   grid-template-rows: auto 1fr auto auto;
   height: 100vh;
+  /* Pair with the FrameAI page-veil exit so the transition feels
+     continuous: the page starts dimmed and fades up over ~0.5s. */
+  animation: pdPageIn 0.55s ease 0s 1 forwards;
+}
+@keyframes pdPageIn {
+  from { opacity: 0; transform: scale(0.985); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 /* ── Header ────────────────────────────────────────────────────────── */
@@ -233,13 +240,10 @@ body {
   pointer-events: none;
   z-index: 5;
   --pd-radius: 240px;
-  --pd-item-size: 56px;
+  --pd-item-size: 76px;
 }
-.pd-stage-canvas:hover .pd-radial {
-  pointer-events: auto;
-}
-.pd-radial[data-open="true"] { pointer-events: auto; }
 
+/* Outer ring + items only show in the "full" state. */
 .pd-radial-ring {
   position: absolute;
   top: 50%; left: 50%;
@@ -252,49 +256,78 @@ body {
   opacity: 0;
   transform: rotate(-12deg) scale(0.85);
   transition: opacity 0.4s ease, transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
 }
 .pd-radial-ring-glow {
   stroke: rgba(249, 188, 6, 0.65);
   stroke-width: 0;
   filter: blur(4px);
 }
-.pd-radial[data-open="true"] .pd-radial-ring {
+.pd-radial[data-open="full"] .pd-radial-ring {
   opacity: 1;
   transform: rotate(0) scale(1);
 }
-.pd-radial[data-open="true"] .pd-radial-ring-glow { stroke-width: 0.8; }
+.pd-radial[data-open="full"] .pd-radial-ring-glow { stroke-width: 0.8; }
 
+/* The pulsing hub — the only thing visible in the "hub" state. */
 .pd-radial-hub {
   position: absolute;
   top: 50%; left: 50%;
-  width: 36px; height: 36px;
-  margin: -18px 0 0 -18px;
+  width: 64px; height: 64px;
+  margin: -32px 0 0 -32px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.32s ease, transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.pd-radial[data-open="hub"] .pd-radial-hub,
+.pd-radial[data-open="full"] .pd-radial-hub {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.pd-radial-hub-core {
+  position: relative;
+  width: 14px; height: 14px;
   border-radius: 50%;
   background: radial-gradient(circle at 50% 50%,
-    rgba(249, 188, 6, 0.35) 0%,
-    rgba(249, 188, 6, 0.12) 45%,
-    transparent 75%);
-  display: flex; align-items: center; justify-content: center;
-  opacity: 0;
-  transition: opacity 0.3s ease;
+    rgba(255, 215, 105, 1) 0%,
+    rgba(249, 188, 6, 0.85) 35%,
+    rgba(249, 188, 6, 0.0) 80%);
+  box-shadow:
+    0 0 14px rgba(249, 188, 6, 0.85),
+    0 0 36px rgba(249, 188, 6, 0.45);
+  z-index: 2;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
 }
-.pd-radial[data-open="true"] .pd-radial-hub { opacity: 1; }
-.pd-radial-hub svg {
-  width: 36px; height: 36px;
-  stroke: var(--pd-accent);
-  fill: var(--pd-accent);
+.pd-radial-hub:hover .pd-radial-hub-core,
+.pd-radial[data-open="full"] .pd-radial-hub-core {
+  transform: scale(1.25);
+  box-shadow:
+    0 0 20px rgba(249, 188, 6, 1),
+    0 0 50px rgba(249, 188, 6, 0.6);
 }
-.pd-radial-hub-pulse {
-  fill: none;
-  stroke: var(--pd-accent);
-  stroke-width: 0.8;
-  opacity: 0.6;
-  transform-origin: 12px 12px;
-  animation: pdHubPulse 2.4s ease-out infinite;
+.pd-radial-hub-ripple {
+  position: absolute;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 1px solid rgba(249, 188, 6, 0.55);
+  pointer-events: none;
+  animation: pdHubRipple 2.4s ease-out infinite;
 }
-@keyframes pdHubPulse {
-  0%   { transform: scale(0.6); opacity: 0.7; }
-  100% { transform: scale(2.4); opacity: 0; }
+.pd-radial-hub-ripple-2 {
+  animation-delay: 1.2s;
+}
+@keyframes pdHubRipple {
+  0%   { transform: scale(0.55); opacity: 0.85; }
+  80%  { opacity: 0.05; }
+  100% { transform: scale(2.6); opacity: 0; }
 }
 
 .pd-radial-item {
@@ -327,7 +360,7 @@ body {
     background 0.18s ease,
     box-shadow 0.18s ease;
 }
-.pd-radial[data-open="true"] .pd-radial-item {
+.pd-radial[data-open="full"] .pd-radial-item {
   transform: rotate(var(--angle))
              translate(var(--pd-radius))
              rotate(calc(-1 * var(--angle)))
@@ -335,12 +368,12 @@ body {
   opacity: 1;
 }
 /* Stagger items so they sweep open clockwise from the top. */
-.pd-radial[data-open="true"] .pd-radial-item[style*="270deg"] { transition-delay: 0.00s, 0.00s, 0s, 0s, 0s, 0s; }
-.pd-radial[data-open="true"] .pd-radial-item[style*="330deg"] { transition-delay: 0.04s, 0.04s, 0s, 0s, 0s, 0s; }
-.pd-radial[data-open="true"] .pd-radial-item[style*="30deg"]  { transition-delay: 0.08s, 0.08s, 0s, 0s, 0s, 0s; }
-.pd-radial[data-open="true"] .pd-radial-item[style*="90deg"]  { transition-delay: 0.12s, 0.12s, 0s, 0s, 0s, 0s; }
-.pd-radial[data-open="true"] .pd-radial-item[style*="150deg"] { transition-delay: 0.16s, 0.16s, 0s, 0s, 0s, 0s; }
-.pd-radial[data-open="true"] .pd-radial-item[style*="210deg"] { transition-delay: 0.20s, 0.20s, 0s, 0s, 0s, 0s; }
+.pd-radial[data-open="full"] .pd-radial-item[style*="270deg"] { transition-delay: 0.00s, 0.00s, 0s, 0s, 0s, 0s; }
+.pd-radial[data-open="full"] .pd-radial-item[style*="330deg"] { transition-delay: 0.04s, 0.04s, 0s, 0s, 0s, 0s; }
+.pd-radial[data-open="full"] .pd-radial-item[style*="30deg"]  { transition-delay: 0.08s, 0.08s, 0s, 0s, 0s, 0s; }
+.pd-radial[data-open="full"] .pd-radial-item[style*="90deg"]  { transition-delay: 0.12s, 0.12s, 0s, 0s, 0s, 0s; }
+.pd-radial[data-open="full"] .pd-radial-item[style*="150deg"] { transition-delay: 0.16s, 0.16s, 0s, 0s, 0s, 0s; }
+.pd-radial[data-open="full"] .pd-radial-item[style*="210deg"] { transition-delay: 0.20s, 0.20s, 0s, 0s, 0s, 0s; }
 
 .pd-radial-item:hover {
   color: var(--pd-fg);
@@ -351,7 +384,7 @@ body {
 }
 .pd-radial-icon { display: flex; }
 .pd-radial-icon svg {
-  width: 22px; height: 22px;
+  width: 30px; height: 30px;
   stroke: currentColor;
 }
 .pd-radial-tip {

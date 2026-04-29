@@ -590,18 +590,62 @@ function initStage3D() {
   dom.addEventListener("pointerup", endDrag);
   dom.addEventListener("pointercancel", endDrag);
 
-  // Radial menu — fans out while the cursor is over the stage; collapses
-  // during drag so it doesn't fight the rotation, then reopens on release.
+  // Two-stage radial: hovering the stage shows just the pulsing hub;
+  // moving the cursor inside the menu's circular footprint (anywhere within
+  // the items' radius) keeps the full menu open. Drag suppresses the menu.
   const radial = $("pdRadial");
+  const items  = radial.querySelectorAll(".pd-radial-item");
+  // Stay-open zone: items live at radius 240; with 76px buttons the outer
+  // edge sits at 240 + 38 = 278. Add ~14px of breathing room.
+  const MENU_OUTER_RADIUS = 292;
   let pointerInStage = false;
-  function syncRadial() {
-    const open = pointerInStage && !isDragging;
-    radial.dataset.open = open ? "true" : "false";
-    radial.setAttribute("aria-hidden", open ? "false" : "true");
+  let pointerInMenu  = false;
+  let _lastState = "false";
+
+  function setState(s) {
+    if (_lastState === s) return;
+    _lastState = s;
+    radial.dataset.open = s;                            // "false" | "hub" | "full"
+    radial.setAttribute("aria-hidden", s === "false" ? "true" : "false");
   }
-  container.addEventListener("pointerenter", () => { pointerInStage = true; syncRadial(); });
-  container.addEventListener("pointerleave", () => { pointerInStage = false; syncRadial(); });
-  // Wrap the existing drag callbacks so the menu state tracks dragging.
+  function syncRadial() {
+    if (isDragging || !pointerInStage) { setState("false"); return; }
+    setState(pointerInMenu ? "full" : "hub");
+  }
+  function updatePointerInMenu(clientX, clientY) {
+    const r = container.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const inside = Math.hypot(clientX - cx, clientY - cy) <= MENU_OUTER_RADIUS;
+    if (inside !== pointerInMenu) {
+      pointerInMenu = inside;
+      syncRadial();
+    }
+  }
+
+  container.addEventListener("pointerenter", (e) => {
+    pointerInStage = true;
+    updatePointerInMenu(e.clientX, e.clientY);
+    syncRadial();
+  });
+  container.addEventListener("pointerleave", () => {
+    pointerInStage = false;
+    pointerInMenu = false;
+    syncRadial();
+  });
+  container.addEventListener("pointermove", (e) => {
+    if (!pointerInStage || isDragging) return;
+    updatePointerInMenu(e.clientX, e.clientY);
+  });
+
+  items.forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      handleRadialAction(btn.dataset.action);
+    });
+  });
+
+  // Drag wraps the existing callbacks so the menu hides during rotation.
   const _origEndDrag = endDrag;
   endDrag = function () {
     _origEndDrag();
@@ -610,13 +654,6 @@ function initStage3D() {
   dom.addEventListener("pointerdown", () => { syncRadial(); }, true);
   dom.addEventListener("pointerup", () => { syncRadial(); });
   dom.addEventListener("pointercancel", () => { syncRadial(); });
-
-  radial.querySelectorAll(".pd-radial-item").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      handleRadialAction(btn.dataset.action);
-    });
-  });
 
   function loop() {
     if (!isDragging) {

@@ -1,0 +1,181 @@
+{
+  "houseMode": "box",
+  "c1": {
+    "x": -4000,
+    "y": -4300,
+    "z": 0
+  },
+  "c2": {
+    "x": 4000,
+    "y": 6000,
+    "z": 0
+  },
+  "signX": 1,
+  "signY": 1,
+  "interiorWalls": [
+    {
+      "x0": -3805,
+      "y0": 2600,
+      "x1": 3805,
+      "y1": 2600
+    },
+    {
+      "x0": -3805,
+      "y0": -1000,
+      "x1": -1200,
+      "y1": -1000
+    },
+    {
+      "x0": 700,
+      "y0": -1000,
+      "x1": 700,
+      "y1": 2600
+    },
+    {
+      "x0": 3805,
+      "y0": 800,
+      "x1": 700,
+      "y1": 800
+    },
+    {
+      "x0": -1200,
+      "y0": 2600,
+      "x1": -1200,
+      "y1": 5805
+    },
+    {
+      "x0": 700,
+      "y0": -1000,
+      "x1": 3805,
+      "y1": -1000
+    },
+    {
+      "x0": -1200,
+      "y0": -1000,
+      "x1": -1200,
+      "y1": 2600
+    }
+  ],
+  "iwToRidge": true,
+  "openings": [
+    {
+      "type": "door",
+      "wallIdx": 4,
+      "posAlong": 3519.9272467941446,
+      "width": 900,
+      "height": 2100,
+      "sill": 0
+    },
+    {
+      "type": "window",
+      "wallIdx": 3,
+      "posAlong": 4125.135019328962,
+      "width": 900,
+      "height": 1300,
+      "sill": 800
+    },
+    {
+      "type": "window",
+      "wallIdx": 3,
+      "posAlong": 5808.54122853871,
+      "width": 900,
+      "height": 1300,
+      "sill": 800
+    },
+    {
+      "type": "window",
+      "wallIdx": 3,
+      "posAlong": 8326.10083303017,
+      "width": 900,
+      "height": 1300,
+      "sill": 800
+    },
+    {
+      "type": "door",
+      "wallIdx": 6,
+      "posAlong": 2674.474257399952,
+      "width": 900,
+      "height": 2100,
+      "sill": 0
+    },
+    {
+      "type": "door",
+      "wallIdx": 6,
+      "posAlong": 961.0260154538373,
+      "width": 900,
+      "height": 2100,
+      "sill": 0
+    },
+    {
+      "type": "door",
+      "wallIdx": 5,
+      "posAlong": 1354.7346480498436,
+      "width": 900,
+      "height": 2100,
+      "sill": 0
+    },
+    {
+      "type": "window",
+      "wallIdx": 2,
+      "posAlong": 5621.666115574737,
+      "width": 900,
+      "height": 1300,
+      "sill": 800
+    },
+    {
+      "type": "window",
+      "wallIdx": 2,
+      "posAlong": 4293.209635844111,
+      "width": 900,
+      "height": 1300,
+      "sill": 800
+    },
+    {
+      "type": "window",
+      "wallIdx": 2,
+      "posAlong": 8523.185689829126,
+      "width": 900,
+      "height": 1300,
+      "sill": 800
+    },
+    {
+      "type": "window",
+      "wallIdx": 2,
+      "posAlong": 1555.693197794475,
+      "width": 900,
+      "height": 1300,
+      "sill": 800
+    },
+    {
+      "type": "window",
+      "wallIdx": 1,
+      "posAlong": 3846.406364752681,
+      "width": 900,
+      "height": 1300,
+      "sill": 800
+    },
+    {
+      "type": "door",
+      "wallIdx": 8,
+      "posAlong": 1009.8561819739075,
+      "width": 900,
+      "height": 2100,
+      "sill": 0
+    }
+  ],
+  "footprintWalls": [],
+  "roofType": "gable",
+  "flatSlopeH": [
+    0,
+    0
+  ],
+  "customRidgeH": 1223,
+  "eaveOH": 0,
+  "gableOH": 0,
+  "inH": "2500",
+  "inW": "8000",
+  "inD": "10300",
+  "inT": "195",
+  "inTI": "120",
+  "inTR": "295"
+}

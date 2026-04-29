@@ -1,0 +1,14 @@
+{
+  "id": 6,
+  "name": "long house",
+  "status": "draft",
+  "owner": {
+    "id": 1,
+    "email": "kjs@woodstock-robotics.com",
+    "display_name": "Admin"
+  },
+  "created_at": 1777470435.2795339,
+  "updated_at": 1777470435.2795339,
+  "created_at_iso": "2026-04-29T15:47:15",
+  "updated_at_iso": "2026-04-29T15:47:15"
+}
