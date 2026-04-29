@@ -151,6 +151,39 @@ def _resolve_project_dir(project):
     os.makedirs(path, exist_ok=True)
     return os.path.abspath(path)
 
+
+def write_project_mirror(project_dir, design_data, frame_data=None):
+    """Persist a project's snapshot to projects/<user>/<name>/.
+
+    Writes design.json always, frame.json when frame_data is given, and copies
+    the latest design.3dm / frame.3dm / frame_mesh.3dm from OUTPUT_DIR (the
+    generate-time scratch). Called from the project save endpoints; the .3dm
+    copy is skipped silently when the scratch is empty (user saved before
+    generating).
+    """
+    if not project_dir:
+        return
+    import json as _json
+    import shutil
+    try:
+        with open(os.path.join(project_dir, "design.json"), "w", encoding="utf-8") as f:
+            _json.dump(design_data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    if frame_data is not None:
+        try:
+            with open(os.path.join(project_dir, "frame.json"), "w", encoding="utf-8") as f:
+                _json.dump(frame_data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    for fname in ("design.3dm", "frame.3dm", "frame_mesh.3dm"):
+        src = os.path.join(OUTPUT_DIR, fname)
+        if os.path.isfile(src):
+            try:
+                shutil.copy2(src, os.path.join(project_dir, fname))
+            except Exception:
+                pass
+
 # Indkøbspriser per linear meter (DKK), keyed by canonical "WxD" (W >= D).
 # Sections not in the table fall back to a volumetric estimate so one
 # surprise never silently prices a frame at zero.

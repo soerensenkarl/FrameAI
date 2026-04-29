@@ -1463,7 +1463,7 @@ const stepVisited = [false, false, false, false, false, false];  // track first 
 // Intro hints shown centered on first visit to each tab
 const stepIntroHints = [
   "Click to place your house",
-  "Pick a roof style for your house",
+  "Adjust roof",
   "Click inside to draw interior walls \u2022 Click a wall to edit",
   "Drag windows and doors onto walls \u2022 click to edit",
   "Generate the timber frame",
