@@ -136,16 +136,19 @@ def _safe_dirname(name):
     return s or "untitled"
 
 
-def _resolve_project_dir(project):
-    """Return absolute path to projects/<user>/<name>/ for a project descriptor,
-    or None if the descriptor is missing/invalid. Creates the directory."""
-    if not isinstance(project, dict):
+def _resolve_project_dir(user_label, project_name):
+    """Return absolute path to projects/<user_label>/<project_name>/, or None
+    if either label is empty/invalid. Creates the directory.
+
+    `user_label` is the per-user folder name — typically the client's
+    display_name (full name) and falls back to email-local-part when empty.
+    Sanitization happens here, callers pass raw strings.
+    """
+    user = _safe_dirname(user_label)
+    name = _safe_dirname(project_name)
+    if user == "untitled" and not user_label:
         return None
-    user = _safe_dirname(project.get("user"))
-    name = _safe_dirname(project.get("name"))
-    if user == "untitled" and not project.get("user"):
-        return None
-    if name == "untitled" and not project.get("name"):
+    if name == "untitled" and not project_name:
         return None
     path = os.path.join(PROJECTS_DIR, user, name)
     os.makedirs(path, exist_ok=True)
@@ -713,7 +716,27 @@ def _solve_and_respond(specs):
 
     breps_out = [b for b in (_to_brep(g) for g in brep_geoms) if b is not None]
 
-    project_dir = _resolve_project_dir(specs.get("project"))
+    # If the request carries a project descriptor and the user is signed in,
+    # mirror the .3dm artifacts into projects/<display_name>/<project_name>/.
+    # display_name is the canonical user-folder label; we ignore any `user`
+    # field in the spec body and trust the session instead.
+    project_dir = None
+    project_spec = specs.get("project") if isinstance(specs.get("project"), dict) else None
+    if project_spec and project_spec.get("name"):
+        from flask import session as _session
+        uid = _session.get("uid")
+        if uid is not None:
+            try:
+                from accounts import _db as _accounts_db, _user_folder_label
+                user_row = _accounts_db().execute(
+                    "SELECT email, display_name FROM users WHERE id = ?", (uid,),
+                ).fetchone()
+                if user_row is not None:
+                    project_dir = _resolve_project_dir(
+                        _user_folder_label(user_row), project_spec.get("name"),
+                    )
+            except Exception:
+                project_dir = None
     design_saved, frame_brep_saved, frame_mesh_saved = _save_design_artifacts(
         wall_breps, door_breps, window_breps, roof_breps, breps_out, joined,
         project_dir=project_dir,

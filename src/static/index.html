@@ -14,8 +14,8 @@
   <div class="login-card glass">
     <button class="login-close" id="loginClose" title="Close (Esc)" aria-label="Close">×</button>
     <div class="login-title" id="loginTitle">Welcome to FrameAI</div>
-    <div class="login-sub" id="loginSub">New here? Just pick a name and password.</div>
-    <input type="text" id="loginName" placeholder="Name" autocomplete="username" maxlength="60">
+    <div class="login-sub" id="loginSub">New here? Just enter your email and pick a password.</div>
+    <input type="email" id="loginName" placeholder="Email" autocomplete="email" maxlength="200">
     <input type="password" id="loginPw" placeholder="Password" autocomplete="current-password" maxlength="200">
     <div class="login-error" id="loginError"></div>
     <button id="loginBtn">Continue</button>
@@ -101,7 +101,7 @@
       <span class="step-arrow">&#9656;</span>
       <div class="step" id="step4"><span class="step-num">5</span> Generate</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step5"><span class="step-num">6</span> Buy</div>
+      <div class="step" id="step5"><span class="step-num">6</span> Request Quote</div>
     </div>
   </div>
   <button class="btn-next" id="btnNext" style="display:none">Openings →</button>
@@ -182,7 +182,7 @@
 
 <div class="panel glass" id="roofPanel">
   <span class="panel-title">Roof</span>
-  <div class="f"><label data-tip="Cross-section width of the roof timber rafters">Thickness</label> <div class="fr"><select id="inTR"><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option></select><span class="u">mm</span></div></div>
+  <div class="f"><label data-tip="Cross-section width of the roof timber rafters">Thickness</label> <div class="fr"><select id="inTR"><option value="120">120</option><option value="145">145</option><option value="195">195</option><option value="245">245</option><option value="295" selected>295</option></select><span class="u">mm</span></div></div>
   <div class="f" id="roofIwToRidgeRow" style="gap:8px; display:none">
     <label style="flex:1" data-tip="Extends all interior walls up through the roof space to the ridge beam. Useful for open-plan lofts or rooms under the roof.">Interior walls to ridge</label>
     <input type="checkbox" id="inIwToRidgeRoof" class="ios-toggle">
@@ -211,7 +211,7 @@
     <div class="info-price-row"><span class="info-label">Total</span><span class="info-value" id="infoPriceTotal">—</span></div>
   </div>
 
-  <button class="btn-buy" id="btnBuy">Buy Frame</button>
+  <button class="btn-buy" id="btnBuy">Request Quote</button>
 </div>
 
 <!-- Free-form wall inspector (shown when a wall is selected in step 0 free mode) -->
@@ -397,5 +397,35 @@
 
 <!-- ── Tooltip div ── -->
 <div id="ui-tooltip"></div>
+
+<!-- Request Quote modal -->
+<div class="quote-modal-backdrop" id="quoteModalBackdrop" style="display:none"></div>
+<div class="quote-modal glass" id="quoteModal" style="display:none">
+  <button class="quote-close" id="quoteClose" aria-label="Close">×</button>
+  <h2 class="quote-title">Request Quote</h2>
+  <p class="quote-sub" id="quoteSub">Tell us about your build and we'll get back with a tailored quote.</p>
+  <div class="quote-grid">
+    <label class="qf">Full name<input type="text" id="qFullName" maxlength="120" autocomplete="name"></label>
+    <label class="qf">Email<input type="email" id="qEmail" maxlength="200" autocomplete="email"></label>
+    <label class="qf">Phone<input type="tel" id="qPhone" maxlength="40" autocomplete="tel"></label>
+    <label class="qf">Project address<input type="text" id="qAddress" maxlength="200" autocomplete="street-address"></label>
+    <label class="qf">Byggetilladelse
+      <select id="qBygge">
+        <option value="">— select —</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+        <option value="waiting">Waiting for answer</option>
+      </select>
+    </label>
+    <label class="qf qf-pw" id="qPasswordRow">Choose a password
+      <input type="password" id="qPassword" maxlength="200" autocomplete="new-password">
+    </label>
+    <label class="qf qf-msg">Custom message
+      <textarea id="qMessage" rows="3" maxlength="2000" placeholder="Anything we should know?"></textarea>
+    </label>
+  </div>
+  <div class="quote-error" id="quoteError"></div>
+  <button class="btn-buy quote-submit" id="quoteSubmit">Send request</button>
+</div>
 </body>
 </html>

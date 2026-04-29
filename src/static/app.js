@@ -942,8 +942,11 @@ function showRoofDims() {
     }
   }
 
-  // Slope angle indicator at the low-edge corner — only if there's a slope.
-  if (slopeRad > 1e-4) {
+  // Slope angle indicator at the low-edge corner. For flat roofs we keep the
+  // viz visible even at 0° (collapses to a single horizontal leg + "0.0°"
+  // label) so users can double-click to type a starting slope.
+  const showSlopeViz = roofType === 'flat' || slopeRad > 1e-4;
+  if (showSlopeViz) {
     const legLen = 1500;
     const anchor = new THREE.Vector3(anchorX, anchorY, eaveZ);
     // For ridge-along-X (gable) or flat with slope along Y: legs live in YZ
@@ -961,29 +964,39 @@ function showRoofDims() {
     const ptAt = (dh, dv) => anchor.clone().addScaledVector(horizAxis, dh).addScaledVector(upAxis, dv);
 
     const horizEnd = ptAt(legLen, 0);
-    const slopeEnd = ptAt(legLen * Math.cos(slopeRad), legLen * Math.sin(slopeRad));
+    const isFlatZero = slopeRad <= 1e-4;
+    if (isFlatZero) {
+      // Single horizontal leg only — no second leg, no arc.
+      const legGeo = new THREE.BufferGeometry().setFromPoints([anchor, horizEnd]);
+      const legLine = new THREE.Line(legGeo, dimLineMatAccent);
+      legLine.renderOrder = 999;
+      dimGroup.add(legLine);
+    } else {
+      const slopeEnd = ptAt(legLen * Math.cos(slopeRad), legLen * Math.sin(slopeRad));
+      const legPts = [anchor, horizEnd, anchor, slopeEnd];
+      const legGeo = new THREE.BufferGeometry().setFromPoints(legPts);
+      const legLine = new THREE.LineSegments(legGeo, dimLineMatAccent);
+      legLine.renderOrder = 999;
+      dimGroup.add(legLine);
 
-    const legPts = [anchor, horizEnd, anchor, slopeEnd];
-    const legGeo = new THREE.BufferGeometry().setFromPoints(legPts);
-    const legLine = new THREE.LineSegments(legGeo, dimLineMatAccent);
-    legLine.renderOrder = 999;
-    dimGroup.add(legLine);
-
-    const arcR = legLen * 0.4;
-    const arcSteps = 24;
-    const arcPts = [];
-    for (let i = 0; i <= arcSteps; i++) {
-      const a = slopeRad * (i / arcSteps);
-      arcPts.push(ptAt(arcR * Math.cos(a), arcR * Math.sin(a)));
+      const arcR = legLen * 0.4;
+      const arcSteps = 24;
+      const arcPts = [];
+      for (let i = 0; i <= arcSteps; i++) {
+        const a = slopeRad * (i / arcSteps);
+        arcPts.push(ptAt(arcR * Math.cos(a), arcR * Math.sin(a)));
+      }
+      const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPts);
+      const arcLine = new THREE.Line(arcGeo, dimLineMatAccent);
+      arcLine.renderOrder = 999;
+      dimGroup.add(arcLine);
     }
-    const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPts);
-    const arcLine = new THREE.Line(arcGeo, dimLineMatAccent);
-    arcLine.renderOrder = 999;
-    dimGroup.add(arcLine);
 
     const labelR = legLen * 0.7;
-    const labelA = slopeRad * 0.45;
-    const labelPos = ptAt(labelR * Math.cos(labelA), labelR * Math.sin(labelA));
+    const labelA = isFlatZero ? 0 : slopeRad * 0.45;
+    // Lift the 0° label off the leg so the dark pill doesn't sit on the line.
+    const labelLift = isFlatZero ? 250 : 0;
+    const labelPos = ptAt(labelR * Math.cos(labelA), labelR * Math.sin(labelA) + labelLift);
     const slopeSpr = makeTextSprite(slopeDeg.toFixed(1) + "°", accent, labelSize, labelBg);
     slopeSpr.position.copy(labelPos);
     slopeSpr.userData.dimAxis = "slope";
@@ -1452,7 +1465,7 @@ $("btnSendComment").addEventListener("click", async () => {
 
 const stepEls = [$("step0"), $("step1"), $("step2"), $("step3"), $("step4"), $("step5")];
 const infoPanel = $("infoPanel");
-const NEXT_LABELS = ["Roof \u2192", "Walls \u2192", "Openings \u2192", "Generate \u2192", "Buy \u2192"];
+const NEXT_LABELS = ["Roof \u2192", "Walls \u2192", "Openings \u2192", "Generate \u2192", "Request Quote \u2192"];
 
 let currentStep = 0;
 let activeTool = null;       // "window" | "door" | null
@@ -3180,6 +3193,8 @@ function selectIW(idx) {
     );
     $("btnDeleteIW").style.display = "block";
     positionIWInspector();
+    showIWPerpDims(iw);
+    positionIWSlideHandle(iw);
     // Selecting a wall drops out of draw mode — clear any lingering snap UI
     // so the selection feels clean even before the next pointermove.
     hideDot();
@@ -3222,6 +3237,238 @@ function deselectIW() {
   hideFFDim();
   // Re-arm the draw tool while we're still on the IW step.
   if (currentStep === 2) renderer.domElement.style.cursor = "crosshair";
+  hideIWPerpDims();
+  hideIWSlideHandle();
+}
+
+// ─── IW perpendicular dim lines + slide gimbal ───────────────────────────
+// Interior walls are axis-aligned (orthogonal). For a horizontal wall (along X)
+// the perpendicular axis is Y; for a vertical wall (along Y) it's X. We use
+// these to draw dim lines to the nearest parallel walls and to constrain the
+// drag gimbal's motion.
+function getIWAxes(iw) {
+  const isH = Math.abs(iw.x1 - iw.x0) >= Math.abs(iw.y1 - iw.y0);
+  const along   = isH ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const outward = isH ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  const mid = new THREE.Vector3((iw.x0 + iw.x1) / 2, (iw.y0 + iw.y1) / 2, 0);
+  return { isH, along, outward, mid };
+}
+
+// For an axis-aligned wall, return the nearest parallel surface on each side
+// along the perpendicular axis. Considers exterior inner faces and other
+// parallel interior walls. Requires range overlap so the neighbor actually
+// flanks this wall, not one that's offset past either end.
+function findNearestParallelWalls(iw) {
+  const { isH, mid } = getIWAxes(iw);
+  const b = getInnerBounds();
+  if (!b) return { isH, mid, myCoord: 0, pos: null, neg: null };
+
+  const myCoord = isH ? mid.y : mid.x;
+  const myA0 = isH ? Math.min(iw.x0, iw.x1) : Math.min(iw.y0, iw.y1);
+  const myA1 = isH ? Math.max(iw.x0, iw.x1) : Math.max(iw.y0, iw.y1);
+
+  const candidates = [];
+  if (isH) {
+    candidates.push({ coord: b.iy0, a0: b.ix0, a1: b.ix1, isExt: true });
+    candidates.push({ coord: b.iy1, a0: b.ix0, a1: b.ix1, isExt: true });
+  } else {
+    candidates.push({ coord: b.ix0, a0: b.iy0, a1: b.iy1, isExt: true });
+    candidates.push({ coord: b.ix1, a0: b.iy0, a1: b.iy1, isExt: true });
+  }
+  for (const other of interiorWalls) {
+    if (other === iw) continue;
+    const otherIsH = Math.abs(other.x1 - other.x0) >= Math.abs(other.y1 - other.y0);
+    if (otherIsH !== isH) continue;
+    const oCoord = isH ? (other.y0 + other.y1) / 2 : (other.x0 + other.x1) / 2;
+    const oA0 = isH ? Math.min(other.x0, other.x1) : Math.min(other.y0, other.y1);
+    const oA1 = isH ? Math.max(other.x0, other.x1) : Math.max(other.y0, other.y1);
+    candidates.push({ coord: oCoord, a0: oA0, a1: oA1, isExt: false });
+  }
+
+  let pos = null, neg = null;
+  for (const c of candidates) {
+    if (Math.max(myA0, c.a0) >= Math.min(myA1, c.a1)) continue;
+    if (c.coord > myCoord) {
+      if (!pos || c.coord < pos.coord) pos = c;
+    } else if (c.coord < myCoord) {
+      if (!neg || c.coord > neg.coord) neg = c;
+    }
+  }
+  return { isH, mid, myCoord, pos, neg };
+}
+
+let iwPerpDimGroup = null;
+function hideIWPerpDims() {
+  if (iwPerpDimGroup) { scene.remove(iwPerpDimGroup); iwPerpDimGroup = null; }
+}
+function showIWPerpDims(iw) {
+  hideIWPerpDims();
+  const data = findNearestParallelWalls(iw);
+  if (!data) return;
+  const { isH, mid, myCoord, pos, neg } = data;
+  const z = 3;
+  iwPerpDimGroup = new THREE.Group();
+
+  function addDim(coord) {
+    if (coord === null || coord === undefined) return;
+    const dist = Math.abs(coord - myCoord);
+    if (dist < 10) return;
+    const start = isH ? new THREE.Vector3(mid.x, myCoord, z) : new THREE.Vector3(myCoord, mid.y, z);
+    const end   = isH ? new THREE.Vector3(mid.x, coord,   z) : new THREE.Vector3(coord,   mid.y, z);
+    // Tick marks at both ends, perpendicular to the dim line direction.
+    const tick = 150;
+    const tx = isH ? tick : 0;
+    const ty = isH ? 0    : tick;
+    const pts = [
+      new THREE.Vector3(start.x - tx, start.y - ty, z), new THREE.Vector3(start.x + tx, start.y + ty, z),
+      start, end,
+      new THREE.Vector3(end.x - tx,   end.y - ty,   z), new THREE.Vector3(end.x + tx,   end.y + ty,   z),
+    ];
+    const line = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      dimLineMatAccent
+    );
+    line.renderOrder = 999;
+    iwPerpDimGroup.add(line);
+
+    const sprite = makeTextSprite((dist / 1000).toFixed(2) + " m", "#F9BC06", 44, "rgba(40,40,40,0.82)");
+    const labelOff = 250;
+    const lx = (start.x + end.x) / 2 + (isH ? labelOff : 0);
+    const ly = (start.y + end.y) / 2 + (isH ? 0 : labelOff);
+    sprite.position.set(lx, ly, z);
+    iwPerpDimGroup.add(sprite);
+  }
+
+  if (pos) addDim(pos.coord);
+  if (neg) addDim(neg.coord);
+  scene.add(iwPerpDimGroup);
+}
+
+// Slide gimbal: 2 arrows pointing along the wall's outward axis, anchored at
+// floor level on the wall midpoint. Drag to move the wall sideways.
+const iwSlideHandle = (() => {
+  const matHit = new THREE.MeshBasicMaterial({
+    transparent: true, opacity: 0,
+    depthWrite: false, depthTest: false, side: THREE.DoubleSide,
+  });
+  const group = new THREE.Group();
+  group.visible = false;
+
+  const SUB_SCALE = 0.5;
+  const ARROW_BASE_OFFSET = 60;
+  function makeIWArrow(rotZ, sign) {
+    const sub = new THREE.Group();
+    sub.scale.setScalar(SUB_SCALE);
+    const arrow = makeArrowMesh();
+    arrow.position.y = ARROW_BASE_OFFSET + 140;
+    arrow.userData.iwSign = sign;
+    sub.add(arrow);
+    const hit = new THREE.Mesh(new THREE.PlaneGeometry(180 + 40, 420 + 40), matHit);
+    hit.position.y = arrow.position.y + 70;
+    hit.userData.iwSign = sign;
+    hit.renderOrder = 997;
+    sub.add(hit);
+    sub.rotation.z = rotZ;
+    sub.userData.iwSign = sign;
+    sub.userData.gimbalArrow = arrow;
+    return sub;
+  }
+  // Local +Y points along the wall's outward axis (set via group.rotation.z).
+  group.add(makeIWArrow(0,        1));   // +outward
+  group.add(makeIWArrow(Math.PI, -1));   // -outward
+  scene.add(group);
+  return group;
+})();
+let draggingIW = null;  // { iw, axes, plane, startHit, startCoord, neighbors }
+
+// Cardinal-direction nearest-wall finder. Given a point on the floor, returns
+// the coordinate of the nearest wall surface in each of the four directions
+// (+X, -X, +Y, -Y), considering interior walls and exterior inner faces.
+// Used by the hover dim viz so the user sees distance-to-walls live as they
+// move the snap tower around.
+function findCardinalNeighbors(px, py) {
+  const b = getInnerBounds();
+  if (!b) return { posX: null, negX: null, posY: null, negY: null };
+
+  // Start with the four exterior inner faces; an interior wall in range will
+  // override them (closer wins).
+  let posX = b.ix1, negX = b.ix0, posY = b.iy1, negY = b.iy0;
+
+  for (const w of interiorWalls) {
+    const isH = Math.abs(w.x1 - w.x0) >= Math.abs(w.y1 - w.y0);
+    if (isH) {
+      const wy = (w.y0 + w.y1) / 2;
+      const wx0 = Math.min(w.x0, w.x1), wx1 = Math.max(w.x0, w.x1);
+      if (px < wx0 || px > wx1) continue;   // doesn't span the cursor's X
+      if (wy > py && wy < posY) posY = wy;
+      if (wy < py && wy > negY) negY = wy;
+    } else {
+      const wx = (w.x0 + w.x1) / 2;
+      const wy0 = Math.min(w.y0, w.y1), wy1 = Math.max(w.y0, w.y1);
+      if (py < wy0 || py > wy1) continue;
+      if (wx > px && wx < posX) posX = wx;
+      if (wx < px && wx > negX) negX = wx;
+    }
+  }
+  return { posX, negX, posY, negY };
+}
+
+let iwHoverDimGroup = null;
+function hideIWHoverDims() {
+  if (iwHoverDimGroup) { scene.remove(iwHoverDimGroup); iwHoverDimGroup = null; }
+}
+function showIWHoverDims(point) {
+  hideIWHoverDims();
+  const { posX, negX, posY, negY } = findCardinalNeighbors(point.x, point.y);
+  const z = 3;
+  iwHoverDimGroup = new THREE.Group();
+  const tick = 100;
+
+  function addDim(start, end, isHorizontal) {
+    const dist = Math.hypot(end.x - start.x, end.y - start.y);
+    if (dist < 10) return;
+    const tx = isHorizontal ? 0 : tick;
+    const ty = isHorizontal ? tick : 0;
+    const pts = [
+      new THREE.Vector3(start.x - tx, start.y - ty, z), new THREE.Vector3(start.x + tx, start.y + ty, z),
+      new THREE.Vector3(start.x, start.y, z), new THREE.Vector3(end.x, end.y, z),
+      new THREE.Vector3(end.x - tx, end.y - ty, z), new THREE.Vector3(end.x + tx, end.y + ty, z),
+    ];
+    const line = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      dimLineMatAccent
+    );
+    line.renderOrder = 999;
+    iwHoverDimGroup.add(line);
+    const sprite = makeTextSprite((dist / 1000).toFixed(2) + " m", "#F9BC06", 36, "rgba(40,40,40,0.82)");
+    const labelOff = 200;
+    sprite.position.set(
+      (start.x + end.x) / 2 + (isHorizontal ? 0 : labelOff),
+      (start.y + end.y) / 2 + (isHorizontal ? labelOff : 0),
+      z
+    );
+    iwHoverDimGroup.add(sprite);
+  }
+
+  // +X: cursor → nearest right-side wall (line is horizontal)
+  if (posX !== null) addDim({ x: point.x, y: point.y }, { x: posX, y: point.y }, true);
+  if (negX !== null) addDim({ x: point.x, y: point.y }, { x: negX, y: point.y }, true);
+  if (posY !== null) addDim({ x: point.x, y: point.y }, { x: point.x, y: posY }, false);
+  if (negY !== null) addDim({ x: point.x, y: point.y }, { x: point.x, y: negY }, false);
+
+  scene.add(iwHoverDimGroup);
+}
+
+function positionIWSlideHandle(iw) {
+  const { isH, mid } = getIWAxes(iw);
+  iwSlideHandle.position.set(mid.x, mid.y, 50);
+  // Default arrow local +Y is world +Y. For a horizontal wall outward IS +Y → rot=0.
+  // For a vertical wall outward is +X → rotate -π/2 around Z so local +Y → world +X.
+  iwSlideHandle.rotation.set(0, 0, isH ? 0 : -Math.PI / 2);
+  iwSlideHandle.visible = true;
+}
+function hideIWSlideHandle() {
+  iwSlideHandle.visible = false;
 }
 
 function deleteSelectedIW() {
@@ -3310,7 +3557,7 @@ function snapIWPoint(pt) {
   if (b && isFinite(b.ix0) && b.ix1 > b.ix0 && b.iy1 > b.iy0) {
     endpoints.push([b.ix0, b.iy0], [b.ix1, b.iy0], [b.ix1, b.iy1], [b.ix0, b.iy1]);
   }
-  let bestEp = null, bestEpD = FF_ENDPOINT_SNAP;
+  let bestEp = null, bestEpD = 250;
   for (const [ex, ey] of endpoints) {
     const d = Math.hypot(pt.x - ex, pt.y - ey);
     if (d < bestEpD) { bestEpD = d; bestEp = [ex, ey]; }
@@ -3323,7 +3570,7 @@ function snapIWPoint(pt) {
     return v;
   }
 
-  const threshold = 250; // snap distance to wall faces
+  const threshold = 150; // snap distance to wall faces
   let x = pt.x, y = pt.y;
   let snappedX = false, snappedY = false;
 
@@ -3419,6 +3666,7 @@ function cancelIWDraw() {
   if (iwGhostMesh) { scene.remove(iwGhostMesh); iwGhostMesh = null; }
   hideFFDim();
   hideFaceIndicator();
+  hideIWHoverDims();
 }
 
 // Hover-to-tip state for interior walls (mirrors the free-form wall behavior)
@@ -3700,13 +3948,6 @@ function deleteSelectedFF() {
 /* ────────────────── step navigation ────────────────── */
 function goToStep(n) {
   if (n < 0 || n > 5) return;
-  // The Buy step isn't implemented — trying to navigate there (top-bar Buy
-  // tab or the "Buy →" next button) triggers the construction-guy deflection
-  // sequence instead of actually advancing.
-  if (n === 5) {
-    workerSay("Can't do that yet — still under construction");
-    return;
-  }
   // Changing tabs also exits the measure tool — the measurement belongs to
   // the scene state the user was just looking at.
   if (measureActive) setMeasureActive(false);
@@ -4180,9 +4421,108 @@ window.addEventListener("keydown", (e) => {
   else if ((e.ctrlKey || e.metaKey) && (k === "y" || (k === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
 });
 btnNext.addEventListener("click", () => goToStep(currentStep + 1));
-$("btnBuy").addEventListener("click", () => {
-  workerSay("Can't do that yet — still under construction");
-});
+// Request Quote modal — opens on btnBuy click.
+(function () {
+  const modal = $("quoteModal");
+  const backdrop = $("quoteModalBackdrop");
+  const fullName = $("qFullName");
+  const email = $("qEmail");
+  const phone = $("qPhone");
+  const address = $("qAddress");
+  const bygge = $("qBygge");
+  const password = $("qPassword");
+  const passwordRow = $("qPasswordRow");
+  const message = $("qMessage");
+  const errEl = $("quoteError");
+  const submitBtn = $("quoteSubmit");
+  const subEl = $("quoteSub");
+
+  function open() {
+    const auth = window.getAuthState ? window.getAuthState() : null;
+    const u = auth && auth.user;
+    if (u) {
+      fullName.value = u.display_name || fullName.value || "";
+      email.value = u.email || "";
+      passwordRow.style.display = "none";
+      subEl.textContent = "Confirm your details and tell us about the build.";
+    } else {
+      passwordRow.style.display = "";
+      subEl.textContent = "Tell us about your build and we'll get back with a tailored quote.";
+    }
+    errEl.textContent = "";
+    backdrop.style.display = "";
+    modal.style.display = "";
+    setTimeout(() => {
+      if (!fullName.value) fullName.focus();
+      else if (!email.value) email.focus();
+      else address.focus();
+    }, 30);
+  }
+  function close() {
+    backdrop.style.display = "none";
+    modal.style.display = "none";
+  }
+
+  async function submit() {
+    const auth = window.getAuthState ? window.getAuthState() : null;
+    const signedIn = !!(auth && auth.user);
+    const fn = (fullName.value || "").trim();
+    const em = (email.value || "").trim().toLowerCase();
+    const ph = (phone.value || "").trim();
+    const ad = (address.value || "").trim();
+    const by = bygge.value;
+    const msg = (message.value || "").trim();
+    errEl.textContent = "";
+    if (!fn || !em || !ad) {
+      errEl.textContent = "Full name, email, and project address are required.";
+      return;
+    }
+    if (!signedIn && !password.value) {
+      errEl.textContent = "Choose a password so we can save your project.";
+      return;
+    }
+    let data = (typeof captureState === "function") ? captureState() : null;
+    if (!data) data = {};
+    if (typeof frameStale !== "undefined" && !frameStale && window._lastFrameJson) {
+      data._frame = window._lastFrameJson;
+    }
+    submitBtn.disabled = true;
+    try {
+      const res = await fetch("/api/quote-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          full_name: fn, email: em,
+          password: signedIn ? "" : password.value,
+          phone: ph, address: ad,
+          byggetilladelse: by, message: msg,
+          data,
+        }),
+      });
+      let body = {};
+      try { body = await res.json(); } catch { /* ignore */ }
+      if (!res.ok) {
+        errEl.textContent = body.error || ("Request failed (" + res.status + ").");
+        return;
+      }
+      close();
+      if (typeof workerSay === "function") {
+        workerSay("Thanks — quote request sent. We'll be in touch.");
+      }
+      if (window.refreshAuthFromServer) await window.refreshAuthFromServer(body.project);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  }
+
+  $("btnBuy").addEventListener("click", open);
+  $("quoteClose").addEventListener("click", close);
+  submitBtn.addEventListener("click", submit);
+  backdrop.addEventListener("click", close);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal.style.display !== "none") close();
+  });
+})();
 
 // Rebuild the frame mesh + cached stats from a /generate-frame response.
 // Pure data → scene; does NOT change the active step or open the info panel.
@@ -4327,10 +4667,11 @@ async function generateFrame() {
   // /solve-frame, which turns it into Breps and runs Grasshopper.
   const specs = computeGeometrySpecs(reqBody);
   // Identify the saved project so the backend can also mirror design.3dm +
-  // frame.3dm into projects/<user>/<name>/. Skipped for unsaved sessions.
+  // frame.3dm into projects/<display_name>/<name>/. The backend looks up
+  // the user folder from the session — we just send the project name.
   const auth = window.getAuthState?.();
   if (auth?.user && auth.projectId && auth.projectName) {
-    specs.project = { user: auth.user.name, name: auth.projectName };
+    specs.project = { name: auth.projectName };
   }
 
   try {
@@ -4371,7 +4712,7 @@ function hitArrow(e) {
 // pans via OrbitControls because that listens to pointer events, not
 // contextmenu. No in-app feature binds to right-click anymore.
 renderer.domElement.addEventListener("contextmenu", (e) => e.preventDefault());
-renderer.domElement.addEventListener("pointerleave", () => { hideFFHoverHint(); hideIWHoverHint(); });
+renderer.domElement.addEventListener("pointerleave", () => { hideFFHoverHint(); hideIWHoverHint(); hideIWHoverDims(); });
 renderer.domElement.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;   // right = OrbitControls pan, middle = dolly
   if (!houseTypePicked) return;
@@ -4406,6 +4747,40 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   // ── Free-form footprint step: record mouse down position (handled on pointerup) ──
   if (currentStep === 0 && houseMode === 'free') {
     ffPointerDown = { x: e.clientX, y: e.clientY };
+  }
+
+  // ── Interior Walls step: gimbal-arrow drag start (intercepts the pointerup
+  // selection logic). Falls through to record iwPointerDown only if no arrow
+  // was hit, so a normal click-to-select still works.
+  if (currentStep === 2 && selectedIW >= 0 && iwSlideHandle.visible) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const hits = rc.intersectObject(iwSlideHandle, true);
+    if (hits.length) {
+      let sign = 0, node = hits[0].object;
+      while (node && node !== iwSlideHandle) {
+        if (node.userData && node.userData.iwSign) { sign = node.userData.iwSign; break; }
+        node = node.parent;
+      }
+      if (sign !== 0) {
+        const iw = interiorWalls[selectedIW];
+        const axes = getIWAxes(iw);
+        const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+        const startHit = new THREE.Vector3();
+        if (rc.ray.intersectPlane(plane, startHit)) {
+          const startCoord = axes.isH ? axes.mid.y : axes.mid.x;
+          draggingIW = {
+            iw, axes, plane, startHit, startCoord,
+            neighbors: findNearestParallelWalls(iw),
+          };
+          orbit.enabled = false;
+          renderer.domElement.style.cursor = "grabbing";
+          return;
+        }
+      }
+    }
   }
 
   // ── Interior Walls step: record mouse down position (handled on pointerup) ──
@@ -4717,6 +5092,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       hideSnapBars();
       hideFaceIndicator();
       hideIWHoverHint();
+      hideIWHoverDims();
       return;
     }
     const pt = groundHit(e);
@@ -4728,6 +5104,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
         showSnapBars(end);
         updateFaceIndicator(end);
         hideIWHoverHint();
+        showIWHoverDims(end);
       } else {
         const snapped = snapIWPoint(new THREE.Vector3(pt.x, pt.y, 0));
         // Cursor over a wall always means "edit" — no draw indicators, even
@@ -4742,6 +5119,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
           hideDot();
           hideSnapBars();
           hideFaceIndicator();
+          hideIWHoverDims();
           if (hovered !== iwHoverIdx) {
             hideIWHoverHint();
             iwHoverIdx = hovered;
@@ -4755,6 +5133,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
           showSnapBars(snapped);
           updateFaceIndicator(snapped);
           hideIWHoverHint();
+          showIWHoverDims(snapped);
         }
       }
     }
@@ -4785,8 +5164,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       const hRaw = hitPt.z - h - roofT;
       const degRaw = Math.atan2(hRaw, span) * 180 / Math.PI;
       const degSnap = clamp(Math.round(degRaw), 0, 45);
-      const hSnap = span * Math.tan(degSnap * Math.PI / 180);
-      flatSlopeH[draggingSlopeEdge] = clamp(hSnap, 0, LIM.FLAT_SLOPE_MAX);
+      flatSlopeH[draggingSlopeEdge] = clamp(span * Math.tan(degSnap * Math.PI / 180), 0, LIM.FLAT_SLOPE_MAX);
       markFrameStale();
       rebuildScene();
     }
@@ -4818,7 +5196,6 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       else if (draggingRoofOH.side === 1) v = hitPt.y - (y1 - tOff) - off;
       else if (draggingRoofOH.side === 2) v = (x0 + tOff) - hitPt.x - off;
       else                                v = hitPt.x - (x1 - tOff) - off;
-      // 20 mm step (2 cm) — overhangs are read in cm-precision in real frames.
       const snapped = clamp(Math.round(v / 20) * 20, 0, OH_MAX);
       if (draggingRoofOH.role === "eave") eaveOH = snapped;
       else                                gableOH = snapped;
@@ -4840,7 +5217,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     vertPlane.constant = -vertPlane.normal.dot(centerPos);
     const hitPt = new THREE.Vector3();
     if (rc.ray.intersectPlane(vertPlane, hitPt)) {
-      const newH = clamp(Math.round((hitPt.z - 350) / 10) * 10, LIM.H_MIN, LIM.H_MAX);  // subtract the arrow's 350mm offset
+      const newH = clamp(Math.round((hitPt.z - 350) / 100) * 100, LIM.H_MIN, LIM.H_MAX);  // subtract the arrow's 350mm offset
       inH.value = Math.round(newH);
       markFrameStale();
       rebuildScene();
@@ -4872,11 +5249,9 @@ renderer.domElement.addEventListener("pointermove", (e) => {
       const w = x1 - x0, d = y1 - y0;
       const halfSpan = w >= d ? d / 2 : w / 2;
       const rhRaw = (hitPt.z - h - roofT) * halfSpan / (halfSpan - t);
-      // Snap to the nearest 1° slope increment.
       const degRaw = Math.atan2(rhRaw, halfSpan) * 180 / Math.PI;
       const degSnap = Math.max(1, Math.min(45, Math.round(degRaw)));
-      const rhSnap = halfSpan * Math.tan(degSnap * Math.PI / 180);
-      customRidgeH = Math.max(200, Math.round(rhSnap));
+      customRidgeH = Math.max(200, Math.round(halfSpan * Math.tan(degSnap * Math.PI / 180)));
       markFrameStale();
       rebuildScene();
     }
@@ -4901,6 +5276,43 @@ renderer.domElement.addEventListener("pointermove", (e) => {
   }
 
   // Opening gimbal dragging — raycast onto the wall plane, derive
+  // Interior wall slide-gimbal drag — moves the wall perpendicular to its
+  // own axis, clamped between the parallel neighbors captured at drag start.
+  if (draggingIW) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+    ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+    rc.setFromCamera(ndc, cam);
+    const cur = new THREE.Vector3();
+    if (!rc.ray.intersectPlane(draggingIW.plane, cur)) return;
+    const { axes, startHit, startCoord, iw, neighbors } = draggingIW;
+    const delta = axes.isH ? (cur.y - startHit.y) : (cur.x - startHit.x);
+    let newCoord = Math.round((startCoord + delta) / 100) * 100;
+    const t = +inTI.value;
+    const buf = t / 2 + 100;
+    let lo = -Infinity, hi = Infinity;
+    if (neighbors && neighbors.neg) lo = neighbors.neg.coord + buf;
+    if (neighbors && neighbors.pos) hi = neighbors.pos.coord - buf;
+    if (lo > hi) return;  // no room to move (shouldn't happen if start was valid)
+    newCoord = Math.max(lo, Math.min(hi, newCoord));
+    if (axes.isH) { iw.y0 = iw.y1 = newCoord; }
+    else          { iw.x0 = iw.x1 = newCoord; }
+    markFrameStale();
+    rebuildInteriorWalls();
+    // Refresh selection visuals against the moved wall.
+    const len = Math.hypot(iw.x1 - iw.x0, iw.y1 - iw.y0);
+    showFFDim(
+      new THREE.Vector3(iw.x0, iw.y0, 0),
+      new THREE.Vector3(iw.x1, iw.y1, 0),
+      len,
+      { gap: 750, lineMat: dimLineMatAccent, labelColor: "#F9BC06" }
+    );
+    showIWPerpDims(iw);
+    positionIWSlideHandle(iw);
+    positionIWInspector();
+    return;
+  }
+
   // (along, vertical) deltas, then constrain to the dragged axis.
   //   role "along"    → posAlong only (snap + collision for single)
   //   role "vertical" → sill only (windows; clamped to wall height)
@@ -5024,7 +5436,7 @@ renderer.domElement.addEventListener("pointermove", (e) => {
     const pt = groundHit(e);
     if (!pt) return;
     const rawPos = dragging.axis === "x" ? pt.x : pt.y;
-    const sv = Math.round((dragging.edgeStart + (rawPos - dragging.mouseStart)) / 10) * 10;
+    const sv = Math.round((dragging.edgeStart + (rawPos - dragging.mouseStart)) / 100) * 100;
     const x0 = Math.min(c1.x, c2.x), x1 = Math.max(c1.x, c2.x);
     const y0 = Math.min(c1.y, c2.y), y1 = Math.max(c1.y, c2.y);
 
@@ -5123,6 +5535,14 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     step0DragEnded = true;
   }
   if (step0DragEnded && currentStep === 0) { pushHistory(); maybeFitExtents(true); }
+  if (draggingIW) {
+    draggingIW = null;
+    iwPointerDown = null;   // suppress the click-to-deselect that would otherwise fire
+    orbit.enabled = true;
+    renderer.domElement.style.cursor = "";
+    pushHistory();
+    return;
+  }
   if (draggingSlide >= 0) {
     draggingSlide = -1;
     gizmoDrag = null;
@@ -5285,8 +5705,14 @@ renderer.domElement.addEventListener("dblclick", (e) => {
     const _x0 = Math.min(c1.x, c2.x), _x1 = Math.max(c1.x, c2.x);
     const _y0 = Math.min(c1.y, c2.y), _y1 = Math.max(c1.y, c2.y);
     const _w = _x1 - _x0, _d = _y1 - _y0;
-    const _hs = (_w >= _d) ? _d / 2 : _w / 2;
-    curVal = Math.atan2(getRidgeH(), _hs) * 180 / Math.PI;
+    if (roofType === 'flat') {
+      const span = (_w >= _d) ? _d : _w;
+      const f = flatSlopeH[0], b = flatSlopeH[1];
+      curVal = Math.atan2(Math.max(f, b) - Math.min(f, b), span) * 180 / Math.PI;
+    } else {
+      const _hs = (_w >= _d) ? _d / 2 : _w / 2;
+      curVal = Math.atan2(getRidgeH(), _hs) * 180 / Math.PI;
+    }
     displayStr = curVal.toFixed(1);
   }
 
@@ -5376,6 +5802,23 @@ function applyDimEdit() {
     const _y0 = Math.min(c1.y, c2.y), _y1 = Math.max(c1.y, c2.y);
     const _w = _x1 - _x0, _d = _y1 - _y0;
     const _h = +inH.value, _t = +inT.value, _rT = +inTR.value;
+
+    // Flat roof slope: edit the high edge of flatSlopeH so the angle = raw°,
+    // keeping the low edge as the baseline so the tilt direction is preserved.
+    if (axis === "slope" && roofType === 'flat') {
+      const span = (_w >= _d) ? _d : _w;
+      const deg = clamp(raw, 0, LIM.SLOPE_MAX_DEG);
+      const targetRise = clamp(span * Math.tan(deg * Math.PI / 180), 0, LIM.FLAT_SLOPE_MAX);
+      const f = flatSlopeH[0], b = flatSlopeH[1];
+      const lowEdge = Math.min(f, b);
+      const highIdx = (f >= b) ? 0 : 1;
+      flatSlopeH[1 - highIdx] = lowEdge;
+      flatSlopeH[highIdx] = lowEdge + targetRise;
+      markFrameStale();
+      rebuildScene();
+      return;
+    }
+
     const _hs = (_w >= _d) ? _d / 2 : _w / 2;
     let newRH;
     if (axis === "slope") {
@@ -6174,12 +6617,22 @@ onResize();
   }
 
   // Expose a read-only snapshot for code outside this IIFE (e.g. generateFrame
-  // injecting `project: {user, name}` into the /solve-frame body).
+  // injecting `project: {name}` into the /solve-frame body, or the quote
+  // modal pre-filling user info).
   window.getAuthState = () => ({
     user: currentUser,
     projectId: currentProjectId,
     projectName: currentProjectName,
   });
+  // Quote-request flow auto-signs the user in server-side; this lets it
+  // tell the rest of the UI to re-pull /api/auth/me + project list.
+  window.refreshAuthFromServer = async function (project) {
+    const r = await api("/api/auth/me");
+    if (r.ok && r.json.user) currentUser = r.json.user;
+    if (project && project.id) setCurrentProject(project.id, project.name);
+    refreshPill();
+    if (currentUser) loadProjectList();
+  };
 
   function markDirty() {
     if (!currentUser) return;
@@ -6221,14 +6674,14 @@ onResize();
   }
 
   async function doLogin() {
-    const name = (loginName.value || "").trim();
+    const email = (loginName.value || "").trim().toLowerCase();
     const pw = loginPw.value || "";
-    if (!name || !pw) { loginErr.textContent = "Name and password required."; return; }
+    if (!email || !pw) { loginErr.textContent = "Email and password required."; return; }
     loginBtn.disabled = true;
     loginErr.textContent = "";
     const r = await api("/api/auth/sign-in", {
       method: "POST",
-      body: JSON.stringify({ name, password: pw }),
+      body: JSON.stringify({ email, password: pw }),
     });
     loginBtn.disabled = false;
     if (!r.ok) {
@@ -6337,6 +6790,12 @@ onResize();
       const nm = document.createElement("div");
       nm.className = "pname";
       nm.textContent = p.name;
+      if (p.kind) {
+        const badge = document.createElement("span");
+        badge.className = "pkind pkind-" + p.kind;
+        badge.textContent = (p.kind === "quote") ? "requested" : "draft";
+        nm.appendChild(badge);
+      }
       const dt = document.createElement("div");
       dt.className = "pdate";
       dt.textContent = fmtDate(p.updated_at);
