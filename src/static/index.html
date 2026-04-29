@@ -93,11 +93,11 @@
     <div class="steps">
       <div class="step active" id="step0"><span class="step-num">1</span> Exterior Walls</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step1"><span class="step-num">2</span> Interior Walls</div>
+      <div class="step" id="step1"><span class="step-num">2</span> Roof</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step2"><span class="step-num">3</span> Openings</div>
+      <div class="step" id="step2"><span class="step-num">3</span> Interior Walls</div>
       <span class="step-arrow">&#9656;</span>
-      <div class="step" id="step3"><span class="step-num">4</span> Roof</div>
+      <div class="step" id="step3"><span class="step-num">4</span> Openings</div>
       <span class="step-arrow">&#9656;</span>
       <div class="step" id="step4"><span class="step-num">5</span> Generate</div>
       <span class="step-arrow">&#9656;</span>
@@ -131,20 +131,20 @@
 <div class="leftbar glass" id="leftBar">
   <div class="leftbar-step" id="leftBarStep">
     <!-- Step 2: openings (drag onto walls) -->
-    <div class="tool-item" data-tool="window" data-step-for="2" data-tip="Drag onto a wall to place a window opening">
+    <div class="tool-item" data-tool="window" data-step-for="3" data-tip="Drag onto a wall to place a window opening">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="8" width="30" height="24" rx="2"/><line x1="20" y1="8" x2="20" y2="32"/><line x1="5" y1="20" x2="35" y2="20"/></svg>
       Window
     </div>
-    <div class="tool-item" data-tool="door" data-step-for="2" data-tip="Drag onto a wall to place a door opening">
+    <div class="tool-item" data-tool="door" data-step-for="3" data-tip="Drag onto a wall to place a door opening">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="8" y="4" width="24" height="32" rx="2"/><circle cx="27" cy="22" r="2" fill="currentColor" stroke="none"/></svg>
       Door
     </div>
     <!-- Step 3: roof tiles -->
-    <div class="roof-option" data-roof="flat" data-step-for="3" data-tip="Flat roof — horizontal top structure with no slope">
+    <div class="roof-option" data-roof="flat" data-step-for="1" data-tip="Flat roof — horizontal top structure with no slope">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="16" width="28" height="18" rx="1"/><line x1="4" y1="16" x2="36" y2="16" stroke-width="2.2"/></svg>
       Flat
     </div>
-    <div class="roof-option" data-roof="gable" data-step-for="3" data-tip="Gable roof — pitched with a central ridge beam running the length of the house">
+    <div class="roof-option" data-roof="gable" data-step-for="1" data-tip="Gable roof — pitched with a central ridge beam running the length of the house">
       <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6,34 6,20 20,6 34,20 34,34"/></svg>
       Gable
     </div>
@@ -251,21 +251,49 @@
 
 <!-- House type picker (shown at start) -->
 <div class="house-picker" id="housePicker">
-  <button type="button" class="house-tile" id="tileBox">
-    <svg viewBox="0 0 64 64">
-      <path d="M11,40 L39,30 L54,38 L54,25 L26,35 L11,27 Z M39,30 L39,17 M11,27 L39,17 L54,25"/>
-      <path stroke-dasharray="2 2" d="M11,40 L26,48 L54,38 M26,48 L26,35"/>
-    </svg>
-    <span class="label">Box House</span>
-  </button>
-  <button type="button" class="house-tile locked" id="tileFree" title="Free Form is not yet available in this preview">
-    <svg viewBox="0 0 64 64">
-      <!-- L-shaped footprint polyline -->
-      <path d="M12 12 L38 12 L38 34 L52 34 L52 52 L12 52 Z"/>
-    </svg>
-    <span class="label">Free Form</span>
-    <span class="coming-soon-stamp">Coming Soon</span>
-  </button>
+  <h2 class="house-picker-heading">Choose building envelope:</h2>
+  <div class="house-picker-tiles">
+    <button type="button" class="house-tile" id="tileBox">
+      <svg viewBox="0 0 64 64">
+        <path d="M11,40 L39,30 L54,38 L54,25 L26,35 L11,27 Z M39,30 L39,17 M11,27 L39,17 L54,25"/>
+        <path stroke-dasharray="2 2" d="M11,40 L26,48 L54,38 M26,48 L26,35"/>
+      </svg>
+      <span class="label">Box House</span>
+    </button>
+    <button type="button" class="house-tile locked" id="tileFree" title="Free Form is not yet available in this preview">
+      <svg viewBox="0 0 64 64">
+        <!-- L-shaped footprint polyline -->
+        <path d="M12 12 L38 12 L38 34 L52 34 L52 52 L12 52 Z"/>
+      </svg>
+      <span class="label">Free Form</span>
+      <span class="coming-soon-stamp">Coming Soon</span>
+    </button>
+  </div>
+</div>
+
+<!-- Frosted-glass backdrop shown behind the envelope and roof pickers; blurs
+     and dims the 3D scene (or initial empty grid) so the user's eye lands
+     on the picker tiles. Hidden once a roof shape is chosen. -->
+<div class="picker-backdrop" id="pickerBackdrop"></div>
+
+<!-- Roof shape picker (shown after the user picks a building envelope) -->
+<div class="house-picker" id="roofPicker" style="display:none">
+  <h2 class="house-picker-heading">Choose roof shape:</h2>
+  <div class="house-picker-tiles">
+    <button type="button" class="house-tile" id="rpTileGable">
+      <svg viewBox="0 0 64 64">
+        <polygon points="10,52 10,30 32,10 54,30 54,52"/>
+      </svg>
+      <span class="label">Gable Roof</span>
+    </button>
+    <button type="button" class="house-tile" id="rpTileFlat">
+      <svg viewBox="0 0 64 64">
+        <rect x="10" y="30" width="44" height="22" rx="1"/>
+        <line x1="6" y1="30" x2="58" y2="30" stroke-width="2.5"/>
+      </svg>
+      <span class="label">Flat Roof</span>
+    </button>
+  </div>
 </div>
 
 <!-- Hint bar -->

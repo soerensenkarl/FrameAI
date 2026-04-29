@@ -703,8 +703,29 @@
     left: 50%;
     transform: translate(-50%, -50%);
     display: flex;
-    gap: 20px;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
     z-index: 11;
+  }
+  .picker-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9;  /* above the 3D canvas, below the UI chrome (toolbar/panels/leftbar at z-10) */
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .house-picker-heading {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: rgba(251, 250, 249, 0.85);
+  }
+  .house-picker-tiles {
+    display: flex;
+    gap: 20px;
   }
   .house-tile {
     width: 200px;
@@ -865,7 +886,7 @@
   .leftbar-persist .tool-item svg { width: 28px; height: 28px; }
   /* Step-scoped buttons hidden by default; the matching step makes them visible. */
   .leftbar-step > [data-step-for] { display: none; }
-  .leftbar[data-current-step="2"] .leftbar-step > [data-step-for="2"] { display: flex; }
+  .leftbar[data-current-step="1"] .leftbar-step > [data-step-for="1"] { display: flex; }
   .leftbar[data-current-step="3"] .leftbar-step > [data-step-for="3"] { display: flex; }
 
   /* Interior Walls panel is variables/info → force right side, match .panel width */
