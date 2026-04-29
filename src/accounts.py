@@ -29,6 +29,31 @@ def _db():
     return conn
 
 
+def _mirror_project_to_disk(db, uid, project_name, project_data):
+    """Best-effort mirror of a saved project into projects/<user>/<name>/.
+
+    Writes design.json, frame.json (if data._frame is set), and copies the
+    latest design.3dm / frame.3dm / frame_mesh.3dm from OUTPUT_DIR. Failure
+    here must never break the SQLite save, so the whole thing is wrapped.
+    """
+    try:
+        user_row = db.execute(
+            "SELECT name FROM users WHERE id = ?", (uid,),
+        ).fetchone()
+        if not user_row:
+            return
+        from app import _resolve_project_dir, write_project_mirror
+        project_dir = _resolve_project_dir({
+            "user": user_row["name"], "name": project_name,
+        })
+        if not project_dir:
+            return
+        frame_payload = project_data.get("_frame") if isinstance(project_data, dict) else None
+        write_project_mirror(project_dir, project_data, frame_payload)
+    except Exception:
+        pass
+
+
 def init_app(app):
     """Create the DB file + schema, wire teardown, and register routes."""
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -200,6 +225,7 @@ def _register_routes(app):
             db.commit()
         except sqlite3.IntegrityError:
             return jsonify({"error": "you already have a project with that name"}), 409
+        _mirror_project_to_disk(db, uid, name, data)
         return jsonify({"project": {"id": cur.lastrowid, "name": name,
                                      "created_at": now, "updated_at": now}})
 
@@ -241,6 +267,18 @@ def _register_routes(app):
             db.commit()
         except sqlite3.IntegrityError:
             return jsonify({"error": "you already have a project with that name"}), 409
+        # Mirror to disk: re-read the post-update name + data so we capture both
+        # rename-only and data-only updates.
+        post = db.execute(
+            "SELECT name, data FROM projects WHERE id = ? AND user_id = ?", (pid, uid),
+        ).fetchone()
+        if post is not None:
+            try:
+                post_data = json.loads(post["data"])
+            except (TypeError, ValueError):
+                post_data = None
+            if post_data is not None:
+                _mirror_project_to_disk(db, uid, post["name"], post_data)
         return jsonify({"ok": True, "updated_at": args[-3]})
 
     @app.route("/api/projects/<int:pid>", methods=["DELETE"])
