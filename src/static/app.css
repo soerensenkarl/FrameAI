@@ -1189,6 +1189,90 @@
     text-align: center;
   }
 
+  /* ── Request Quote modal ── */
+  .quote-modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 999;
+  }
+  .quote-modal {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 520px; max-width: 92vw; max-height: 92vh; overflow: auto;
+    z-index: 1000;
+    padding: 28px 30px 24px;
+    display: flex; flex-direction: column; gap: 14px;
+    border-radius: 14px;
+  }
+  .quote-close {
+    position: absolute;
+    top: 10px; right: 12px;
+    background: transparent; border: none;
+    color: rgba(255,255,255,0.4);
+    font-size: 22px; line-height: 1;
+    width: 28px; height: 28px;
+    cursor: pointer; border-radius: 6px;
+    font-family: inherit; padding: 0;
+  }
+  .quote-close:hover { color: #fafafa; background: rgba(255,255,255,0.06); }
+  .quote-title {
+    margin: 0 0 2px; font-size: 20px; font-weight: 600;
+    color: #fafafa; letter-spacing: 0.01em;
+  }
+  .quote-sub {
+    margin: 0; font-size: 12px; color: rgba(255,255,255,0.45);
+  }
+  .quote-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 14px;
+  }
+  .qf {
+    display: flex; flex-direction: column; gap: 4px;
+    font-size: 11px; color: rgba(255,255,255,0.55);
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .qf-pw, .qf-msg { grid-column: 1 / -1; }
+  .qf input, .qf select, .qf textarea {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 8px;
+    color: #fafafa;
+    padding: 9px 11px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+    text-transform: none; letter-spacing: 0;
+  }
+  .qf input:focus, .qf select:focus, .qf textarea:focus {
+    border-color: rgba(249,188,6,0.6);
+  }
+  .qf textarea { resize: vertical; min-height: 64px; }
+  .quote-error {
+    font-size: 12px; color: #ff7a6b; min-height: 14px;
+  }
+  .quote-submit {
+    width: 100%; margin-top: 4px;
+  }
+
+  /* ── Project list status badge ── */
+  .pkind {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+    font-weight: 500;
+  }
+  .pkind-saved { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+  .pkind-quote { background: rgba(249,188,6,0.18); color: #F9BC06; }
+
   /* ── Top-right cluster (save + user pill) ── */
   .topright {
     position: fixed;
