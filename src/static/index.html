@@ -251,21 +251,24 @@
 
 <!-- House type picker (shown at start) -->
 <div class="house-picker" id="housePicker">
-  <button type="button" class="house-tile" id="tileBox">
-    <svg viewBox="0 0 64 64">
-      <path d="M11,40 L39,30 L54,38 L54,25 L26,35 L11,27 Z M39,30 L39,17 M11,27 L39,17 L54,25"/>
-      <path stroke-dasharray="2 2" d="M11,40 L26,48 L54,38 M26,48 L26,35"/>
-    </svg>
-    <span class="label">Box House</span>
-  </button>
-  <button type="button" class="house-tile locked" id="tileFree" title="Free Form is not yet available in this preview">
-    <svg viewBox="0 0 64 64">
-      <!-- L-shaped footprint polyline -->
-      <path d="M12 12 L38 12 L38 34 L52 34 L52 52 L12 52 Z"/>
-    </svg>
-    <span class="label">Free Form</span>
-    <span class="coming-soon-stamp">Coming Soon</span>
-  </button>
+  <h2 class="house-picker-heading">Choose building envelope:</h2>
+  <div class="house-picker-tiles">
+    <button type="button" class="house-tile" id="tileBox">
+      <svg viewBox="0 0 64 64">
+        <path d="M11,40 L39,30 L54,38 L54,25 L26,35 L11,27 Z M39,30 L39,17 M11,27 L39,17 L54,25"/>
+        <path stroke-dasharray="2 2" d="M11,40 L26,48 L54,38 M26,48 L26,35"/>
+      </svg>
+      <span class="label">Box House</span>
+    </button>
+    <button type="button" class="house-tile locked" id="tileFree" title="Free Form is not yet available in this preview">
+      <svg viewBox="0 0 64 64">
+        <!-- L-shaped footprint polyline -->
+        <path d="M12 12 L38 12 L38 34 L52 34 L52 52 L12 52 Z"/>
+      </svg>
+      <span class="label">Free Form</span>
+      <span class="coming-soon-stamp">Coming Soon</span>
+    </button>
+  </div>
 </div>
 
 <!-- Hint bar -->

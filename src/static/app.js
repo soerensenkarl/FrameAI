@@ -3920,8 +3920,24 @@ $("tileBox").addEventListener("click", () => {
   houseMode = 'box';
   houseTypePicked = true;
   housePicker.style.display = "none";
+  // Standard Danish parcelhus envelope: 8 × 12 m footprint, 2.5 m wall height.
+  c1 = new THREE.Vector3(-4000, -6000, 0);
+  c2 = new THREE.Vector3( 4000,  6000, 0);
+  signX = 1; signY = 1;
+  inW.value = 8000;
+  inD.value = 12000;
+  inH.value = 2500;
   hint.style.display = "";
-  $("exampleLink").style.display = "";
+  placeRoom();
+  enterSet();
+  // Pull the camera back a couple of notches so the whole envelope sits in
+  // frame on first paint — the default startup distance is sized for the
+  // small empty grid, not a 12m-long house.
+  const cxCam = (c1.x + c2.x) / 2;
+  const cyCam = (c1.y + c2.y) / 2;
+  cam.position.set(cxCam + 18000, cyCam - 14000, 14000);
+  orbit.update();
+  $("exampleLink").style.display = "none";
 });
 $("tileFree").addEventListener("click", (e) => {
   if (e.currentTarget.classList.contains("locked")) { e.preventDefault(); return; }

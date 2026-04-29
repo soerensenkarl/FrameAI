@@ -703,8 +703,21 @@
     left: 50%;
     transform: translate(-50%, -50%);
     display: flex;
-    gap: 20px;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
     z-index: 11;
+  }
+  .house-picker-heading {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: rgba(251, 250, 249, 0.85);
+  }
+  .house-picker-tiles {
+    display: flex;
+    gap: 20px;
   }
   .house-tile {
     width: 200px;
