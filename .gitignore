@@ -6,5 +6,7 @@ __pycache__/
 .pytest_cache/
 feedback/
 data/
+projects/
+output/
 .claude/
 claude-memory.lnk

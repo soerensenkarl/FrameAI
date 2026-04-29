@@ -18,6 +18,17 @@ echo === Fetching latest from origin ===
 git fetch origin
 echo.
 
+REM --- Belt-and-braces: discard any uncommitted modifications to the
+REM     runtime data folders before merging. These paths are .gitignore'd
+REM     so this is a no-op once the rule has been applied; the call
+REM     absorbs the legacy case where projects/ files were tracked before
+REM     gitignore caught up. SQLite is the source of truth — disk JSONs
+REM     regenerate on the next save / quote / status change.
+echo === Clearing any tracked runtime modifications ===
+git checkout -- projects/ 2>nul
+git checkout -- output/ 2>nul
+echo.
+
 echo === Commits that will land on master ===
 git log --oneline HEAD..feature
 echo.
@@ -33,9 +44,11 @@ if "%NC%"=="0" (
 git merge feature --no-ff -m "Merge feature into master"
 if errorlevel 1 (
   echo.
-  echo Merge had conflicts. Resolve them in C:\FrameAI then commit, or run:
-  echo   git merge --abort
-  echo to cancel. Nothing has been pushed or restarted.
+  echo Merge failed. Most common cause: tracked files modified locally.
+  echo  - Check what is dirty:    git status
+  echo  - Discard runtime data:   git checkout -- projects/ output/
+  echo  - Cancel this merge:      git merge --abort
+  echo Nothing has been pushed or restarted.
   popd & pause & exit /b 1
 )
 
