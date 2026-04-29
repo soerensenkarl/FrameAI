@@ -4254,8 +4254,9 @@ async function generateFrame() {
   const specs = computeGeometrySpecs(reqBody);
   // Identify the saved project so the backend can also mirror design.3dm +
   // frame.3dm into projects/<user>/<name>/. Skipped for unsaved sessions.
-  if (currentProjectId && currentProjectName && currentUser) {
-    specs.project = { user: currentUser.name, name: currentProjectName };
+  const auth = window.getAuthState?.();
+  if (auth?.user && auth.projectId && auth.projectName) {
+    specs.project = { user: auth.user.name, name: auth.projectName };
   }
 
   try {
@@ -6092,6 +6093,14 @@ onResize();
     if (projNameIn) projNameIn.value = name || "";
     refreshPill();
   }
+
+  // Expose a read-only snapshot for code outside this IIFE (e.g. generateFrame
+  // injecting `project: {user, name}` into the /solve-frame body).
+  window.getAuthState = () => ({
+    user: currentUser,
+    projectId: currentProjectId,
+    projectName: currentProjectName,
+  });
 
   function markDirty() {
     if (!currentUser) return;

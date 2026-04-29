@@ -523,18 +523,10 @@ def _solve_inputs(specs):
 
     Returns (outputs, wall_breps, door_breps, window_breps, roof_breps).
     """
-    wall_specs   = specs["walls"]
-    wall_breps   = _breps_from_specs(wall_specs)
+    wall_breps   = _breps_from_specs(specs["walls"])
     door_breps   = _breps_from_specs(specs["doors"])
     window_breps = _breps_from_specs(specs["windows"])
     roof_breps   = _breps_from_specs(specs["roof"])
-    # Notch the roof where the eave (long) walls pass through, so the rafters
-    # land on a clean cut. Skip the gable pentagons — the user wants those
-    # walls intact and protruding to the apex.
-    eave_wall_breps = _breps_from_specs(
-        [s for s in wall_specs if s.get("role") != "gable"]
-    )
-    roof_breps = _subtract_breps(roof_breps, eave_wall_breps)
     outputs = solve_definition("generator_3.0.gh", {
         "WallBreps":   wall_breps,
         "DoorBreps":   door_breps,
