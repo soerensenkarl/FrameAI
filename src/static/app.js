@@ -1999,7 +1999,10 @@ function rebuildScene() {
   roomGroup = specsToRoom(bundle, { wallMat, edgeMat, floorMat });
   scene.add(roomGroup);
 
-  if (currentStep >= 1 && roofType !== "none") {
+  // Render the roof when we're at the Roof step OR when the roof picker is
+  // open (hover preview during step 0 — currentStep hasn't advanced yet).
+  const roofPickerOpen = $("roofPicker") && $("roofPicker").style.display !== "none";
+  if ((currentStep >= 1 || roofPickerOpen) && roofType !== "none") {
     roofGroup = specsToRoofGroup(bundle.roof, { roofMat, edgeMat: roofEdgeMat });
     roofGroup.position.z = 0;
     scene.add(roofGroup);
@@ -3746,7 +3749,7 @@ function goToStep(n) {
   // Small hints shown after intro dismisses (or on revisit)
   const stepSmallHints = [
     "Drag arrows or edit dimensions",
-    "Choose a roof type",
+    "Adjust roof",
     "Click to draw \u2022 Click to edit",
     "Drag to add \u2022 Click to inspect",
     "",
@@ -3835,7 +3838,7 @@ function goToStep(n) {
         showIntroThenSmall();
       } else {
         hint.classList.add("small");
-        hint.innerHTML = "Drag arrow to adjust slope";
+        hint.innerHTML = "Adjust roof";
       }
       break;
 
@@ -3956,7 +3959,8 @@ $("tileBox").addEventListener("click", () => {
   housePicker.style.display = "none";
   // Box may already be staged from hover preview - re-spawn to be safe.
   spawnDefaultBox();
-  // Ask for roof shape next - picker overlays the spawned box.
+  // Roof picker overlays the spawned box; keep the same frosted-glass
+  // backdrop as the envelope picker for visual continuity.
   $("pickerBackdrop").style.display = "";
   $("roofPicker").style.display = "";
 });
