@@ -180,6 +180,30 @@ def _register_routes(app, _db_fn):
             })
         return jsonify({"projects": out})
 
+    @app.route("/api/admin/projects/<int:pid>", methods=["DELETE"])
+    @admin_required
+    def admin_delete_project(pid):
+        """Hard delete a project across the platform. Cascades clear
+        project_events / project_frames / project_versions; the disk mirror
+        at projects/<user_id>/<project_id>/ is removed best-effort."""
+        db = _db_fn()
+        proj = db.execute(
+            "SELECT id, user_id, name FROM projects WHERE id = ?", (pid,),
+        ).fetchone()
+        if proj is None:
+            return jsonify({"error": "not found"}), 404
+        db.execute("DELETE FROM projects WHERE id = ?", (pid,))
+        db.commit()
+        try:
+            from app import PROJECTS_DIR
+            import shutil
+            disk = os.path.join(PROJECTS_DIR, str(proj["user_id"]), str(pid))
+            if os.path.isdir(disk):
+                shutil.rmtree(disk)
+        except Exception:
+            pass  # disk cleanup is best-effort; DB row is gone either way.
+        return jsonify({"ok": True})
+
     @app.route("/api/admin/projects/<int:pid>", methods=["GET"])
     @admin_required
     def admin_project_detail(pid):
