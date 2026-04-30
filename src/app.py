@@ -551,6 +551,66 @@ def _save_breps_3dm(breps, filename, out_dir=None):
     return _write_3dm(model, filename, out_dir=out_dir)
 
 
+def _add_geometry_to_model(model, geom):
+    """Best-effort add of common Rhino geometry types to a File3dm model."""
+    if geom is None:
+        return False
+    if isinstance(geom, rg.Brep):
+        model.Objects.AddBrep(geom)
+        return True
+    if isinstance(geom, rg.Extrusion):
+        model.Objects.AddBrep(geom.ToBrep())
+        return True
+    if isinstance(geom, rg.Mesh):
+        model.Objects.AddMesh(geom)
+        return True
+    if isinstance(geom, rg.Curve):
+        model.Objects.AddCurve(geom)
+        return True
+    if isinstance(geom, rg.Point):
+        model.Objects.AddPoint(geom.Location)
+        return True
+    if isinstance(geom, rg.Point3d):
+        model.Objects.AddPoint(geom)
+        return True
+
+    # Grasshopper/pythonnet sometimes hands back valid Rhino objects where
+    # isinstance is unreliable. Fall back to the .NET type name.
+    get_type = getattr(geom, "GetType", None)
+    name = get_type().Name if get_type else ""
+    if name == "Brep":
+        model.Objects.AddBrep(geom)
+        return True
+    if name == "Extrusion":
+        model.Objects.AddBrep(geom.ToBrep())
+        return True
+    if name == "Mesh":
+        model.Objects.AddMesh(geom)
+        return True
+    if "Curve" in name:
+        model.Objects.AddCurve(geom)
+        return True
+    if name == "Point":
+        model.Objects.AddPoint(geom.Location)
+        return True
+    if name == "Point3d":
+        model.Objects.AddPoint(geom)
+        return True
+    return False
+
+
+def _save_geometries_3dm(geometries, filename, out_dir=None):
+    """Save mixed Rhino geometry to a Rhino 7 .3dm file."""
+    model = rio.File3dm()
+    count = 0
+    for geom in geometries or []:
+        if _add_geometry_to_model(model, geom):
+            count += 1
+    if count == 0:
+        return None
+    return _write_3dm(model, filename, out_dir=out_dir)
+
+
 def _save_layered_breps_3dm(layer_groups, filename, out_dir=None):
     """Save Breps grouped onto named layers.
 
@@ -673,37 +733,6 @@ def _breps_from_specs(specs):
     return breps
 
 
-def _spec_key(spec):
-    """Stable key for exact duplicate opening specs.
-
-    Opening cutters are boxes today. Quantizing coordinates to microns avoids
-    harmless JSON float noise while still preserving distinct nearby openings.
-    """
-    if not isinstance(spec, dict):
-        return repr(spec)
-    kind = spec.get("kind")
-    if kind == "box":
-        def q(vals):
-            return tuple(round(float(v), 6) for v in vals)
-        return (kind, spec.get("wall_idx"), q(spec.get("x", ())),
-                q(spec.get("y", ())), q(spec.get("z", ())))
-    return repr(spec)
-
-
-def _dedupe_specs(specs, label):
-    """Remove exact duplicate specs before they become Rhino Breps."""
-    out = []
-    seen = set()
-    for spec in specs or []:
-        key = _spec_key(spec)
-        if key in seen:
-            _dbg(f"[solve] dropped duplicate {label} spec: {key}")
-            continue
-        seen.add(key)
-        out.append(spec)
-    return out
-
-
 # ── routes ──
 
 @app.route("/")
@@ -747,11 +776,9 @@ def _solve_inputs(specs):
 
     Returns (outputs, wall_breps, door_breps, window_breps, roof_breps).
     """
-    door_specs = _dedupe_specs(specs.get("doors", []), "door")
-    window_specs = _dedupe_specs(specs.get("windows", []), "window")
     wall_breps   = _breps_from_specs(specs["walls"])
-    door_breps   = _breps_from_specs(door_specs)
-    window_breps = _breps_from_specs(window_specs)
+    door_breps   = _breps_from_specs(specs["doors"])
+    window_breps = _breps_from_specs(specs["windows"])
     roof_breps   = _breps_from_specs(specs["roof"])
     # [DEBUG] Per-run header + counts of what we're handing to GH.
     import datetime as _dt
@@ -949,6 +976,23 @@ def _solve_and_respond(specs):
     # Per-project scratch under OUTPUT_DIR/<project_id>/ — falls back to
     # OUTPUT_DIR/_draft/ when the design isn't tied to a saved project yet.
     # The save endpoint later copies from this directory into the disk mirror.
+    # Debug export requested for inspecting the GH Context Bake named
+    # "WindowPane". Always writes to output/_draft/ so it is easy to find,
+    # independent of whether this solve is attached to a saved project.
+    window_pane = None
+    for key, value in outputs.items():
+        if str(key).replace(" ", "").lower() == "windowpane":
+            window_pane = value
+            break
+    if window_pane:
+        try:
+            debug_dir = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
+            os.makedirs(debug_dir, exist_ok=True)
+            saved = _save_geometries_3dm(window_pane, "WindowPane.3dm", out_dir=debug_dir)
+            _dbg(f"[solve] WindowPane debug export: {saved or 'no supported geometry'}")
+        except Exception as e:
+            _dbg(f"[solve] WindowPane debug export failed: {e}")
+
     project_spec = specs.get("project") if isinstance(specs.get("project"), dict) else None
     spec_pid = (project_spec or {}).get("id") if project_spec else None
     scratch = project_scratch_dir(spec_pid)
