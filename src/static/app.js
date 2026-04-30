@@ -1175,6 +1175,86 @@ function setDesignOpacity(opacity) {
   });
 }
 
+// ── Scan-plane generation animation ──────────────────────────────────────────
+const _scanU = { u_scanZ: { value: 0 }, u_scanActive: { value: 0 } };
+
+function _patchScanGlow(mat) {
+  if (!mat || mat._scanPatched) return;
+  if (!(mat.isMeshStandardMaterial || mat.isMeshPhongMaterial)) return;
+  mat._scanPatched = true;
+  const prev = mat.onBeforeCompile || null;
+  mat.onBeforeCompile = (shader) => {
+    if (prev) prev(shader);
+    shader.uniforms.u_scanZ      = _scanU.u_scanZ;
+    shader.uniforms.u_scanActive = _scanU.u_scanActive;
+    shader.vertexShader = 'varying float vScanWorldZ;\n' +
+      shader.vertexShader.replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvScanWorldZ = (modelMatrix * vec4(position,1.0)).z;'
+      );
+    shader.fragmentShader =
+      'varying float vScanWorldZ;\nuniform float u_scanZ;\nuniform float u_scanActive;\n' +
+      shader.fragmentShader.replace(
+        '#include <dithering_fragment>',
+        `#include <dithering_fragment>
+if (u_scanActive > 0.5) {
+  float _dist = abs(vScanWorldZ - u_scanZ);
+  float _core = smoothstep(30.0, 0.0, _dist);
+  float _halo = smoothstep(80.0, 0.0, _dist) * 0.35;
+  float _shimmer = 1.0 + 0.4 * sin(u_scanZ * 0.08 + vScanWorldZ * 0.05);
+  float _g = (_core + _halo) * _shimmer;
+  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.976,0.737,0.024), min(_g, 1.0));
+  gl_FragColor.a   = max(gl_FragColor.a, _g * 0.8);
+}`
+      );
+  };
+  mat.needsUpdate = true;
+}
+
+let _scanMesh = null, _scanRaf = null;
+
+function startScanAnim() {
+  [roomGroup, openingsGroup, iwGroup, roofGroup].forEach(g => {
+    if (!g) return;
+    g.traverse(o => {
+      if (!o.isMesh) return;
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach(_patchScanGlow);
+    });
+  });
+
+  const box = new THREE.Box3();
+  [roomGroup, openingsGroup, iwGroup, roofGroup].forEach(g => { if (g) box.expandByObject(g); });
+  const topZ = box.isEmpty() ? 6000 : box.max.z + 300;
+
+  const geo = new THREE.PlaneGeometry(80000, 80000);
+  geo.rotateX(-Math.PI / 2);
+  _scanMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color: 0xF9BC06, transparent: true, opacity: 0.07,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  }));
+  _scanMesh.renderOrder = 10;
+  scene.add(_scanMesh);
+
+  _scanU.u_scanActive.value = 1;
+  const t0 = performance.now();
+  const PERIOD = 1800;
+
+  function tick(now) {
+    const t = ((now - t0) % PERIOD) / PERIOD;
+    const z = topZ * (1 - t);
+    _scanU.u_scanZ.value = z;
+    _scanMesh.position.z = z;
+    _scanRaf = requestAnimationFrame(tick);
+  }
+  _scanRaf = requestAnimationFrame(tick);
+}
+
+function stopScanAnim() {
+  if (_scanRaf) { cancelAnimationFrame(_scanRaf); _scanRaf = null; }
+  if (_scanMesh) { scene.remove(_scanMesh); _scanMesh.geometry.dispose(); _scanMesh.material.dispose(); _scanMesh = null; }
+  _scanU.u_scanActive.value = 0;
+}
+
 // Single source of truth for design/frame group visibility. The base rule is
 // "design groups live in steps 0–3, frame lives in 4–5"; dev overlay ORs the
 // design groups back on in frame steps so the user can see both at once.
@@ -4287,6 +4367,7 @@ function goToStep(n) {
         roofMat.depthWrite  = false;
         roofMat.needsUpdate = true;
         setDesignOpacity(0.5);
+        startScanAnim();
 
         if (firstVisit) {
           hint.classList.remove("small");
@@ -4757,17 +4838,16 @@ btnNext.addEventListener("click", () => goToStep(currentStep + 1));
         : "Sent";
 
       if (body.project && body.project.id) {
-        // Hold the success state briefly so the checkmark animation reads,
-        // then collapse the modal and fade the whole page to dark before
-        // navigating. The dashboard fades back in on the next page.
-        await sleep(720);
+        // Hold just long enough for the checkmark to draw (≈630ms), then
+        // fade out. Target: dashboard turntable visible ~1s after Send.
+        await sleep(420);
         modal.classList.add("leaving");
         backdrop.classList.add("leaving");
         const veil = ensurePageVeil();
         // Force a layout flush so the transition starts cleanly.
         veil.offsetHeight;  // eslint-disable-line no-unused-expressions
         veil.classList.add("active");
-        await sleep(420);
+        await sleep(280);
         location.href = "/p/" + body.project.id;
         return;  // navigation in flight; don't re-enable the button
       }
@@ -4951,6 +5031,7 @@ async function generateFrame() {
   roofMat.depthWrite  = false;
   roofMat.needsUpdate = true;
   setDesignOpacity(0.5);
+  if (!_scanRaf) startScanAnim();
 
   const overlay = $("loadingOverlay");
   overlay.classList.add("active");
@@ -4979,6 +5060,7 @@ async function generateFrame() {
   } catch (err) {
     alert("Request failed: " + err.message);
   } finally {
+    stopScanAnim();
     overlay.classList.remove("active");
     hint.style.display = "";
     hint.classList.add("small");

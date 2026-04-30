@@ -55,12 +55,18 @@ async function load() {
     showGate("Invalid project URL.");
     return;
   }
-  const me = await api("/api/auth/me");
+  // Fire all three round-trips in parallel — we already know the projectId
+  // from the URL, and the frame endpoint authenticates on its own. This
+  // saves ~2 RTTs on the cold path between quote-submit and turntable.
+  const [me, r, fr] = await Promise.all([
+    api("/api/auth/me"),
+    api(`/api/projects/${projectId}`),
+    api(`/api/projects/${projectId}/frame`),
+  ]);
   if (!me.ok || !me.json.user) {
     showGate("Sign in on the FrameAI page first, then come back.");
     return;
   }
-  const r = await api(`/api/projects/${projectId}`);
   if (r.status === 404) { showGate("Project not found."); return; }
   if (r.status === 401 || r.status === 403) {
     showGate("You don't have access to this project.");
@@ -69,13 +75,7 @@ async function load() {
   if (!r.ok) { showGate("Failed to load project."); return; }
   project = r.json.project;
   viewerIsAdmin = !!project.viewer_is_admin;
-
-  // Pull the frame once so every render path can use the same payload —
-  // stats, stat-bar, and 3D scene all read from it.
-  if (project.has_frame) {
-    const fr = await api(`/api/projects/${projectId}/frame`);
-    if (fr.ok && fr.json && fr.json.frame) projectFrame = fr.json.frame;
-  }
+  if (fr.ok && fr.json && fr.json.frame) projectFrame = fr.json.frame;
 
   renderHeader();
   renderLifecycle();
