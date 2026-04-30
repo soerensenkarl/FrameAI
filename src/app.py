@@ -673,6 +673,37 @@ def _breps_from_specs(specs):
     return breps
 
 
+def _spec_key(spec):
+    """Stable key for exact duplicate opening specs.
+
+    Opening cutters are boxes today. Quantizing coordinates to microns avoids
+    harmless JSON float noise while still preserving distinct nearby openings.
+    """
+    if not isinstance(spec, dict):
+        return repr(spec)
+    kind = spec.get("kind")
+    if kind == "box":
+        def q(vals):
+            return tuple(round(float(v), 6) for v in vals)
+        return (kind, spec.get("wall_idx"), q(spec.get("x", ())),
+                q(spec.get("y", ())), q(spec.get("z", ())))
+    return repr(spec)
+
+
+def _dedupe_specs(specs, label):
+    """Remove exact duplicate specs before they become Rhino Breps."""
+    out = []
+    seen = set()
+    for spec in specs or []:
+        key = _spec_key(spec)
+        if key in seen:
+            _dbg(f"[solve] dropped duplicate {label} spec: {key}")
+            continue
+        seen.add(key)
+        out.append(spec)
+    return out
+
+
 # ── routes ──
 
 @app.route("/")
@@ -716,9 +747,11 @@ def _solve_inputs(specs):
 
     Returns (outputs, wall_breps, door_breps, window_breps, roof_breps).
     """
+    door_specs = _dedupe_specs(specs.get("doors", []), "door")
+    window_specs = _dedupe_specs(specs.get("windows", []), "window")
     wall_breps   = _breps_from_specs(specs["walls"])
-    door_breps   = _breps_from_specs(specs["doors"])
-    window_breps = _breps_from_specs(specs["windows"])
+    door_breps   = _breps_from_specs(door_specs)
+    window_breps = _breps_from_specs(window_specs)
     roof_breps   = _breps_from_specs(specs["roof"])
     # [DEBUG] Per-run header + counts of what we're handing to GH.
     import datetime as _dt

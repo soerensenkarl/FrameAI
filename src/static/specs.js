@@ -570,6 +570,7 @@ export function computeGeometrySpecs(data) {
   const doorSpecs = [];
   const windowSpecs = [];
   for (const op of (data.openings ?? [])) {
+    if (op.type !== "door" && op.type !== "window") continue;
     const spec = openingSpec(x0, y0, x1, y1, t,
                              parseInt(op.wallIdx, 10), Number(op.posAlong), op.type,
                              interiorWalls, iwT,

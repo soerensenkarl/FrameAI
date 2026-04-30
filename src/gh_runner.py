@@ -38,6 +38,55 @@ _setter = _rdoc.GetType().GetMethod(
 _setter.Invoke(None, System.Array[System.Object]([_rdoc]))
 
 
+def _get_reflected_property(obj, name):
+    prop = obj.GetType().GetProperty(name)
+    if prop is None:
+        return None
+    try:
+        return prop.GetValue(obj)
+    except Exception:
+        return None
+
+
+def _set_reflected_property(obj, name, value):
+    prop = obj.GetType().GetProperty(name)
+    if prop is None or not prop.CanWrite:
+        return False
+    try:
+        prop.SetValue(obj, value)
+        return True
+    except Exception:
+        return False
+
+
+def _disable_context_geometry_pipelines(doc):
+    """Disable legacy layer Geometry Pipelines that duplicate API inputs.
+
+    The definition is solved from contextual Get Geometry inputs in this app.
+    If layer pipelines for Walls/Doors/Windows/Roof remain live, Grasshopper
+    can also pull stale geometry from the active Rhino document and merge it
+    with the request payload. Windows showed this as duplicated frame members.
+    """
+    context_layers = {"Walls", "Doors", "Windows", "Roof"}
+    disabled = []
+    for obj in doc.Objects:
+        name = getattr(obj, "Name", "") or ""
+        type_name = obj.GetType().Name
+        if name != "Geometry Pipeline" and "Pipeline" not in type_name:
+            continue
+        layer = _get_reflected_property(obj, "LayerFilter")
+        if str(layer) not in context_layers:
+            continue
+        disabled_obj = _set_reflected_property(obj, "Enabled", False)
+        if not disabled_obj:
+            disabled_obj = _set_reflected_property(obj, "Locked", True)
+        if disabled_obj:
+            disabled.append(str(layer))
+    if disabled:
+        _dbg("[gh_runner] Disabled context Geometry Pipeline layer(s): "
+             + ", ".join(sorted(disabled)))
+
+
 def solve_definition(gh_filename, inputs, data_nicknames=None):
     """Load a .gh file, feed named Brep inputs, solve, return outputs.
 
@@ -71,6 +120,7 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
 
     doc = io.Document
     doc.Enabled = True
+    _disable_context_geometry_pipelines(doc)
 
     # -- Find Get Geometry inputs and Context Bake outputs --
     input_params = {}  # NickName -> list of components
