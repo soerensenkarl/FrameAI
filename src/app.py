@@ -155,6 +155,10 @@ def _resolve_project_dir(user_id, project_id):
     return os.path.abspath(path)
 
 
+_DRAFT_SCRATCH_NAME = "_draft"
+_SCRATCH_FILES = ("design.3dm", "frame.3dm", "frame_mesh.3dm")
+
+
 def project_scratch_dir(project_id):
     """Per-project scratch under OUTPUT_DIR for /solve-frame artifacts.
     Falls back to OUTPUT_DIR/_draft/ for unsaved (no project_id) sessions
@@ -169,9 +173,89 @@ def project_scratch_dir(project_id):
                 return d
         except (TypeError, ValueError):
             pass
-    d = os.path.join(OUTPUT_DIR, "_draft")
+    d = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def promote_draft_to_project(project_id):
+    """Move .3dm artifacts from OUTPUT_DIR/_draft/ into OUTPUT_DIR/<pid>/.
+
+    Called at first-save of a brand-new project so anonymous-generate +
+    save-creates-project flows don't lose the freshly-rendered .3dm files.
+    Idempotent and best-effort; never raises.
+
+    For each artifact:
+      - If destination is missing → move from draft.
+      - If both exist → keep whichever is newer; remove the loser.
+      - If only destination exists → no-op.
+    """
+    if not project_id:
+        return
+    import shutil
+    try:
+        pid = int(project_id)
+        if pid <= 0:
+            return
+    except (TypeError, ValueError):
+        return
+    draft = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
+    if not os.path.isdir(draft):
+        return
+    target = os.path.join(OUTPUT_DIR, str(pid))
+    os.makedirs(target, exist_ok=True)
+    for fname in _SCRATCH_FILES:
+        src = os.path.join(draft, fname)
+        if not os.path.isfile(src):
+            continue
+        dst = os.path.join(target, fname)
+        try:
+            if os.path.isfile(dst):
+                if os.path.getmtime(src) > os.path.getmtime(dst):
+                    os.replace(src, dst)
+                else:
+                    os.remove(src)
+            else:
+                shutil.move(src, dst)
+        except Exception:
+            pass
+
+
+def cleanup_project_scratch(project_id):
+    """Remove OUTPUT_DIR/<pid>/ on project deletion. Best-effort, never raises."""
+    if not project_id:
+        return
+    try:
+        pid = int(project_id)
+        if pid <= 0:
+            return
+    except (TypeError, ValueError):
+        return
+    import shutil
+    scratch = os.path.join(OUTPUT_DIR, str(pid))
+    if os.path.isdir(scratch):
+        try:
+            shutil.rmtree(scratch)
+        except Exception:
+            pass
+
+
+def reset_draft_scratch():
+    """Empty OUTPUT_DIR/_draft/ (housekeeping at server start so stale
+    artifacts from a previous session can't accidentally promote into a new
+    project's first save). Best-effort."""
+    import shutil
+    draft = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
+    if os.path.isdir(draft):
+        try:
+            shutil.rmtree(draft)
+        except Exception:
+            pass
+    os.makedirs(draft, exist_ok=True)
+
+
+# Reset the draft scratch on each server start.
+reset_draft_scratch()
 
 
 def write_project_mirror(project_dir, design_data, quote_data=None,

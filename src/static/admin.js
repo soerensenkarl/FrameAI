@@ -220,6 +220,14 @@ function renderGrid() {
       <div class="dash-card-thumb">
         <span class="dash-card-status">${esc(STATUS_LABEL[p.status] || p.status)}</span>
         <span class="dash-card-id">#${p.id}</span>
+        <button class="dash-card-delete" type="button" aria-label="Delete project">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 6h18"/>
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+            <path d="M10 11v6M14 11v6"/>
+          </svg>
+        </button>
         ${cachedThumb
           ? `<img src="${cachedThumb}" alt="">`
           : (p.has_frame
@@ -232,8 +240,35 @@ function renderGrid() {
         <div class="dash-card-sub">${sub}</div>
       </div>
     `;
+    card.querySelector(".dash-card-delete").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      deleteProject(p);
+    });
     grid.appendChild(card);
   }
+}
+
+async function deleteProject(p) {
+  const owner = p.owner_display_name || p.owner_email || "?";
+  const ok = confirm(
+    `Delete "${p.name}" (#${p.id})?\n\nOwner: ${owner}\n` +
+    `This permanently removes the project, its frame, events, versions, ` +
+    `and on-disk files. This action cannot be undone.`
+  );
+  if (!ok) return;
+  const r = await api(`/api/admin/projects/${p.id}`, { method: "DELETE" });
+  if (!r.ok) {
+    alert((r.json && r.json.error) || "Delete failed.");
+    return;
+  }
+  // Drop from local state, refresh chip counts + grid in place.
+  projects = projects.filter(x => x.id !== p.id);
+  thumbCache.delete(p.id);
+  frameCache.delete(p.id);
+  $("dashPageCount").textContent = `${projects.length} project${projects.length === 1 ? "" : "s"}`;
+  renderFilters();
+  renderGrid();
 }
 
 function houseGlyph(roof) {

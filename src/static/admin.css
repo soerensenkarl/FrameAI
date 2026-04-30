@@ -385,7 +385,38 @@ body {
   padding: 3px 8px;
   border-radius: 999px;
   border: 1px solid var(--d-border);
+  transition: opacity 0.15s ease;
 }
+.dash-card:hover .dash-card-id { opacity: 0; pointer-events: none; }
+
+.dash-card-delete {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--d-border);
+  background: rgba(10, 10, 12, 0.85);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--d-fg-dim);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font: inherit;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.dash-card:hover .dash-card-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+.dash-card-delete:hover {
+  color: #ff8080;
+  border-color: rgba(255, 128, 128, 0.45);
+  background: rgba(60, 18, 18, 0.85);
+}
+.dash-card-delete svg { width: 14px; height: 14px; }
 
 .dash-card-meta { padding: 0 4px; }
 .dash-card-title {
