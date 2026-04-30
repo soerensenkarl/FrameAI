@@ -4293,10 +4293,8 @@ function goToStep(n) {
         if (firstVisit) {
           hint.classList.remove("small");
           hint.innerHTML = stepIntroHints[4];
-          setTimeout(() => { generateFrame(); }, 1500);
-        } else {
-          generateFrame();
         }
+        generateFrame();
       }
       break;
 
