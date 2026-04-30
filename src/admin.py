@@ -185,20 +185,41 @@ def _register_routes(app, _db_fn):
     def admin_delete_project(pid):
         """Hard delete a project across the platform. Cascades clear
         project_events / project_frames / project_versions; the disk mirror
-        at projects/<user_id>/<project_id>/ is removed best-effort."""
+        at projects/<client_name>/<address>/ is removed best-effort.
+
+        We resolve the disk folder from the SAME row we're about to delete,
+        so the lookup uses the exact same name/collision resolution that
+        wrote the folder.
+        """
         db = _db_fn()
         proj = db.execute(
             "SELECT id, user_id, name FROM projects WHERE id = ?", (pid,),
         ).fetchone()
         if proj is None:
             return jsonify({"error": "not found"}), 404
+        # Resolve the disk path BEFORE the DELETE — collision-rank is computed
+        # against earlier rows, so deleting first would shift later siblings.
+        try:
+            from app import PROJECTS_DIR
+            from accounts import user_folder_label, project_folder_label
+            user_row = db.execute(
+                "SELECT id, email, display_name FROM users WHERE id = ?",
+                (proj["user_id"],),
+            ).fetchone()
+            disk = None
+            if user_row is not None:
+                u_label = user_folder_label(db, user_row)
+                p_label = project_folder_label(db, proj)
+                disk = os.path.join(PROJECTS_DIR, u_label, p_label)
+        except Exception:
+            disk = None
+
         db.execute("DELETE FROM projects WHERE id = ?", (pid,))
         db.commit()
         try:
-            from app import PROJECTS_DIR, cleanup_project_scratch
+            from app import cleanup_project_scratch
             import shutil
-            disk = os.path.join(PROJECTS_DIR, str(proj["user_id"]), str(pid))
-            if os.path.isdir(disk):
+            if disk and os.path.isdir(disk):
                 shutil.rmtree(disk)
             # Also clear the per-project /solve-frame scratch.
             cleanup_project_scratch(pid)
@@ -232,9 +253,20 @@ def _register_routes(app, _db_fn):
         has_frame = bool(db.execute(
             "SELECT 1 FROM project_frames WHERE project_id = ?", (pid,),
         ).fetchone())
-        # On-disk path keyed by user_id/project_id (immutable).
+        # On-disk path resolves by current display_name + project name
+        # (same rules the mirror writes use).
         from app import PROJECTS_DIR
-        disk_path = os.path.join(PROJECTS_DIR, str(row["user_id"]), str(row["id"]))
+        from accounts import user_folder_label, project_folder_label
+        user_row = db.execute(
+            "SELECT id, email, display_name FROM users WHERE id = ?",
+            (row["user_id"],),
+        ).fetchone()
+        if user_row is not None:
+            u_label = user_folder_label(db, user_row)
+            p_label = project_folder_label(db, row)
+            disk_path = os.path.join(PROJECTS_DIR, u_label, p_label)
+        else:
+            disk_path = os.path.join(PROJECTS_DIR, "?", row["name"])
         return jsonify({
             "project": {
                 "id": row["id"],

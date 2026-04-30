@@ -113,12 +113,274 @@ def _pin_version(db, project_id, label, actor_user_id):
         pass
 
 
-def _mirror_project_to_disk(db, uid, pid, project_name, design_data, quote_data=None):
-    """Best-effort mirror of a saved project into projects/<user_id>/<project_id>/.
+def _user_folder_base(user_row):
+    """Sanitized base folder name for a user. Display name first; if empty,
+    fall back to the email's local-part. Always returns something."""
+    from app import _safe_dirname
+    name = (user_row["display_name"] or "").strip()
+    if not name:
+        email = user_row["email"] or ""
+        name = email.split("@", 1)[0]
+    return _safe_dirname(name) or "user"
 
-    Writes meta.json + design.json + quote.json + user.json + .3dm files
-    (the .3dm files are copied from the per-project scratch folder under
-    OUTPUT_DIR). Failure never blocks the SQLite save.
+
+def _project_folder_base(project_row):
+    """Sanitized base folder name for a project (the address/title)."""
+    from app import _safe_dirname
+    return _safe_dirname(project_row["name"] or "") or "untitled"
+
+
+def user_folder_label(db, user_row):
+    """Human-readable folder name for projects/<this>/. Suffixes _2/_3/...
+    when other earlier-created users would resolve to the same base name.
+    Order is by user_id ascending so the earliest user gets the bare name."""
+    target = _user_folder_base(user_row)
+    rank = 0
+    for r in db.execute(
+        "SELECT id, display_name, email FROM users WHERE id < ? ORDER BY id ASC",
+        (user_row["id"],),
+    ):
+        if _user_folder_base(r) == target:
+            rank += 1
+    return target if rank == 0 else f"{target}_{rank + 1}"
+
+
+def project_folder_label(db, project_row):
+    """Human-readable folder name for projects/<user>/<this>/. Suffixed when
+    the same owner has earlier projects that resolve to the same base name."""
+    target = _project_folder_base(project_row)
+    rank = 0
+    for r in db.execute(
+        "SELECT id, name FROM projects WHERE user_id = ? AND id < ? ORDER BY id ASC",
+        (project_row["user_id"], project_row["id"]),
+    ):
+        # Build a tiny pseudo-row so _project_folder_base can read .name
+        if _project_folder_base({"name": r["name"]}) == target:
+            rank += 1
+    return target if rank == 0 else f"{target}_{rank + 1}"
+
+
+def _sweep_orphan_project_folders(db_path):
+    """Walk projects/, reconcile each folder against the current DB state.
+
+    Idempotent. Best-effort — never raises (a corrupt meta.json or a
+    permission error on one folder doesn't stop the rest of the sweep).
+
+    Pass 1 — every project subfolder identifies itself via its meta.json's
+             `id`. If the project is in the DB, move it to its canonical
+             location (renames after display_name / project name changes).
+             Stale rows or collisions go into projects/_archive/<ts>/.
+    Pass 2 — every top-level folder identifies itself via its user.json's
+             `id`. Rename to canonical, or archive if the user is gone or
+             the target folder is already taken (we don't merge user.json
+             across users — risk of clobbering).
+    Pass 3 — remove empty top-level folders left over after the moves.
+    """
+    import shutil
+    import time as _time
+
+    try:
+        from app import PROJECTS_DIR
+    except Exception:
+        return
+    if not os.path.isdir(PROJECTS_DIR):
+        return
+
+    # Snapshot the DB into in-memory maps so all canonical-name resolution
+    # uses the same stable view. Sweep runs at startup so there's no
+    # concurrent writer.
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        users_by_id = {r["id"]: dict(r) for r in conn.execute(
+            "SELECT id, email, display_name FROM users"
+        )}
+        projects_by_id = {r["id"]: dict(r) for r in conn.execute(
+            "SELECT id, user_id, name FROM projects"
+        )}
+    except Exception:
+        conn.close()
+        return
+    conn.close()
+
+    # Canonical user folder per user_id.
+    canonical_uf = {}
+    ordered_users = sorted(users_by_id.values(), key=lambda u: u["id"])
+    for i, u in enumerate(ordered_users):
+        base = _user_folder_base(u)
+        rank = sum(1 for prev in ordered_users[:i] if _user_folder_base(prev) == base)
+        canonical_uf[u["id"]] = base if rank == 0 else f"{base}_{rank + 1}"
+
+    # Canonical project folder per project_id (collision per owning user).
+    canonical_pf = {}
+    by_owner = {}
+    for p in projects_by_id.values():
+        by_owner.setdefault(p["user_id"], []).append(p)
+    for uid, plist in by_owner.items():
+        plist.sort(key=lambda p: p["id"])
+        for i, p in enumerate(plist):
+            base = _project_folder_base(p)
+            rank = sum(1 for prev in plist[:i] if _project_folder_base(prev) == base)
+            canonical_pf[p["id"]] = base if rank == 0 else f"{base}_{rank + 1}"
+
+    archive_root = os.path.join(PROJECTS_DIR, "_archive")
+    archive_session = [None]  # late-init on first use, single shared timestamp
+
+    def _archive(path):
+        try:
+            if archive_session[0] is None:
+                archive_session[0] = os.path.join(
+                    archive_root, _time.strftime("%Y%m%d-%H%M%S"))
+                os.makedirs(archive_session[0], exist_ok=True)
+            rel = os.path.relpath(path, PROJECTS_DIR)
+            dst = os.path.join(archive_session[0], rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            # If dst already exists (e.g. several sweeps in same second), suffix.
+            if os.path.exists(dst):
+                base, n = dst, 2
+                while os.path.exists(f"{base}__{n}"):
+                    n += 1
+                dst = f"{base}__{n}"
+            shutil.move(path, dst)
+        except Exception:
+            pass
+
+    def _move(src, dst):
+        try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.move(src, dst)
+        except Exception:
+            pass
+
+    def _same_path(a, b):
+        return (os.path.normcase(os.path.normpath(a))
+                == os.path.normcase(os.path.normpath(b)))
+
+    def _is_skipped(name):
+        # Reserved housekeeping folders + per-output stuff.
+        return name.startswith("_") or name.startswith(".")
+
+    # ── Pass 1: project sub-folders ───────────────────────────────
+    for top in list(os.listdir(PROJECTS_DIR)):
+        if _is_skipped(top):
+            continue
+        top_path = os.path.join(PROJECTS_DIR, top)
+        if not os.path.isdir(top_path):
+            continue
+        for sub in list(os.listdir(top_path)):
+            sub_path = os.path.join(top_path, sub)
+            if not os.path.isdir(sub_path):
+                continue
+            meta_path = os.path.join(sub_path, "meta.json")
+            if not os.path.isfile(meta_path):
+                continue
+            try:
+                with open(meta_path, encoding="utf-8") as f:
+                    meta = json.load(f)
+            except Exception:
+                continue
+            pid = meta.get("id")
+            project = projects_by_id.get(pid)
+            if project is None:
+                _archive(sub_path)
+                continue
+            target_uf = canonical_uf.get(project["user_id"])
+            target_pf = canonical_pf.get(pid)
+            if not target_uf or not target_pf:
+                continue
+            target_path = os.path.join(PROJECTS_DIR, target_uf, target_pf)
+            if _same_path(sub_path, target_path):
+                continue
+            if os.path.exists(target_path):
+                _archive(sub_path)
+            else:
+                _move(sub_path, target_path)
+
+    # ── Pass 2: top-level (user) folders ──────────────────────────
+    for top in list(os.listdir(PROJECTS_DIR)):
+        if _is_skipped(top):
+            continue
+        top_path = os.path.join(PROJECTS_DIR, top)
+        if not os.path.isdir(top_path):
+            continue
+        user_json = os.path.join(top_path, "user.json")
+        if not os.path.isfile(user_json):
+            continue
+        try:
+            with open(user_json, encoding="utf-8") as f:
+                u_meta = json.load(f)
+        except Exception:
+            continue
+        uid = u_meta.get("id")
+        if uid not in users_by_id:
+            _archive(top_path)
+            continue
+        target_uf = canonical_uf.get(uid)
+        if not target_uf:
+            continue
+        target_top = os.path.join(PROJECTS_DIR, target_uf)
+        if _same_path(top_path, target_top):
+            continue
+        if os.path.isdir(target_top):
+            # The target may exist purely because Pass 1 just moved a project
+            # subfolder there — in that case it has no user.json yet and we
+            # should fill it in. Only archive when there's a foreign user.json
+            # already at the target (i.e., a real clobber risk).
+            target_uj = os.path.join(target_top, "user.json")
+            target_uid = None
+            target_has_uj = os.path.isfile(target_uj)
+            if target_has_uj:
+                try:
+                    with open(target_uj, encoding="utf-8") as f:
+                        target_uid = json.load(f).get("id")
+                except Exception:
+                    target_uid = -1  # unreadable → treat as foreign
+            if not target_has_uj or target_uid == uid:
+                # Move our user.json into the target (overwrites only when
+                # it's the same user — same-id is just a refresh).
+                try:
+                    if target_has_uj:
+                        os.remove(target_uj)
+                    shutil.move(user_json, target_uj)
+                except Exception:
+                    pass
+                # Old folder should now be empty.
+                try:
+                    if os.path.isdir(top_path) and not os.listdir(top_path):
+                        os.rmdir(top_path)
+                except Exception:
+                    pass
+            else:
+                _archive(top_path)
+        else:
+            try:
+                os.makedirs(os.path.dirname(target_top), exist_ok=True)
+                os.rename(top_path, target_top)
+            except Exception:
+                pass
+
+    # ── Pass 3: drop empty top-level folders ──────────────────────
+    for top in list(os.listdir(PROJECTS_DIR)):
+        if _is_skipped(top):
+            continue
+        top_path = os.path.join(PROJECTS_DIR, top)
+        if not os.path.isdir(top_path):
+            continue
+        try:
+            if not os.listdir(top_path):
+                os.rmdir(top_path)
+        except Exception:
+            pass
+
+
+def _mirror_project_to_disk(db, uid, pid, project_name, design_data, quote_data=None):
+    """Best-effort mirror of a saved project into
+    projects/<client_name>/<address>/.
+
+    Writes meta.json + design.json + quote.json + user.json + .3dm files.
+    Folder names are derived from display_name and project name (with
+    `_2`/`_3` collision suffixes). The .3dm files are copied from the
+    per-project scratch under OUTPUT_DIR. Failure never blocks the SQLite save.
     """
     try:
         user_row = db.execute(
@@ -127,12 +389,14 @@ def _mirror_project_to_disk(db, uid, pid, project_name, design_data, quote_data=
         if not user_row:
             return
         proj_row = db.execute(
-            "SELECT id, name, status, created_at, updated_at FROM projects WHERE id = ?", (pid,),
+            "SELECT id, user_id, name, status, created_at, updated_at FROM projects WHERE id = ?", (pid,),
         ).fetchone()
         if not proj_row:
             return
         from app import _resolve_project_dir, write_project_mirror, project_scratch_dir
-        project_dir = _resolve_project_dir(uid, pid)
+        u_label = user_folder_label(db, user_row)
+        p_label = project_folder_label(db, proj_row)
+        project_dir = _resolve_project_dir(u_label, p_label)
         if not project_dir:
             return
         meta = {
@@ -218,6 +482,15 @@ def init_app(app):
         conn.commit()
     finally:
         conn.close()
+
+    # Reconcile the projects/ folder layout with the DB. Renames stale
+    # folders into their canonical (display_name + project name) home and
+    # archives anything that no longer corresponds to a live row. Runs
+    # once at startup; never raises.
+    try:
+        _sweep_orphan_project_folders(DB_PATH)
+    except Exception:
+        pass
 
     @app.teardown_appcontext
     def _close(_exc):
@@ -812,8 +1085,20 @@ def _register_routes(app):
         message = (body.get("message") or "").strip()
         data = body.get("data")
 
-        if not full_name or not email or not pw or not address:
-            return jsonify({"error": "full_name, email, password, and address are required"}), 400
+        # Already-signed-in users bypass the password requirement entirely;
+        # the session itself is the auth proof. The form's email/name still
+        # land in the quote record (so we know what they typed), but the
+        # project attaches to the session's user.
+        session_uid = session.get("uid")
+
+        # Loose validation: full_name, email and address are the only things
+        # we hard-require. Password is only needed to mint a new account.
+        missing = []
+        if not full_name: missing.append("full_name")
+        if not email:     missing.append("email")
+        if not address:   missing.append("address")
+        if missing:
+            return jsonify({"error": "missing: " + ", ".join(missing)}), 400
         if "@" not in email or "." not in email.split("@", 1)[-1]:
             return jsonify({"error": "invalid email"}), 400
         if data is None:
@@ -822,36 +1107,51 @@ def _register_routes(app):
             return jsonify({"error": "byggetilladelse must be yes/no/waiting"}), 400
 
         db = _db()
-        existing = db.execute(
-            "SELECT id, password_hash, display_name FROM users WHERE email = ?",
-            (email,),
-        ).fetchone()
-        if existing is not None:
-            if not check_password_hash(existing["password_hash"], pw):
-                return jsonify({"error": "this email already has an account — wrong password"}), 401
-            uid = existing["id"]
-            # Adopt the form's full name as the canonical display_name (the
-            # user is telling us who they are right now).
-            if full_name and full_name != (existing["display_name"] or ""):
+        if session_uid is not None:
+            # Trust the session: project attaches to the signed-in user.
+            uid = session_uid
+            row = db.execute(
+                "SELECT display_name FROM users WHERE id = ?", (uid,),
+            ).fetchone()
+            if full_name and row and full_name != (row["display_name"] or ""):
                 db.execute(
                     "UPDATE users SET display_name = ? WHERE id = ?",
                     (full_name, uid),
                 )
                 db.commit()
         else:
-            cur = db.execute(
-                "INSERT INTO users (email, password_hash, display_name, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (email, generate_password_hash(pw), full_name, time.time()),
-            )
-            db.commit()
-            uid = cur.lastrowid
-            _notify(
-                f"[FrameAI] New signup: {email}",
-                f"A new user just created an account via the quote form.\n\n"
-                f"Email: {email}\n"
-                f"Display name: {full_name}\n",
-            )
+            existing = db.execute(
+                "SELECT id, password_hash, display_name FROM users WHERE email = ?",
+                (email,),
+            ).fetchone()
+            if existing is not None:
+                if not pw:
+                    return jsonify({"error": "this email already has an account — sign in or enter the password"}), 401
+                if not check_password_hash(existing["password_hash"], pw):
+                    return jsonify({"error": "this email already has an account — wrong password"}), 401
+                uid = existing["id"]
+                if full_name and full_name != (existing["display_name"] or ""):
+                    db.execute(
+                        "UPDATE users SET display_name = ? WHERE id = ?",
+                        (full_name, uid),
+                    )
+                    db.commit()
+            else:
+                if not pw:
+                    return jsonify({"error": "choose a password to create your account"}), 400
+                cur = db.execute(
+                    "INSERT INTO users (email, password_hash, display_name, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (email, generate_password_hash(pw), full_name, time.time()),
+                )
+                db.commit()
+                uid = cur.lastrowid
+                _notify(
+                    f"[FrameAI] New signup: {email}",
+                    f"A new user just created an account via the quote form.\n\n"
+                    f"Email: {email}\n"
+                    f"Display name: {full_name}\n",
+                )
 
         # Resolve a unique project name = address (suffix _2/_3/... on collision).
         base_name = address[:120]

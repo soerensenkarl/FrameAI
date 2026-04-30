@@ -136,21 +136,19 @@ def _safe_dirname(name):
     return s or "untitled"
 
 
-def _resolve_project_dir(user_id, project_id):
-    """Return absolute path to projects/<user_id>/<project_id>/, creating it.
+def _resolve_project_dir(user_folder, project_folder):
+    """Return absolute path to projects/<user_folder>/<project_folder>/.
 
-    IDs are ints (or values that stringify to digits). Returns None when
-    either is missing/invalid. The folder is named by id so user/project
-    renames don't break the disk mirror.
+    Inputs are already-resolved folder name strings (sanitized + collision-
+    suffixed). Both must be non-empty for a valid path. Creates the folder.
     """
-    try:
-        uid = int(user_id)
-        pid = int(project_id)
-    except (TypeError, ValueError):
+    user = _safe_dirname(user_folder)
+    name = _safe_dirname(project_folder)
+    if not user or user == "untitled" and not user_folder:
         return None
-    if uid <= 0 or pid <= 0:
+    if not name or name == "untitled" and not project_folder:
         return None
-    path = os.path.join(PROJECTS_DIR, str(uid), str(pid))
+    path = os.path.join(PROJECTS_DIR, user, name)
     os.makedirs(path, exist_ok=True)
     return os.path.abspath(path)
 
