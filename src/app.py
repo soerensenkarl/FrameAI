@@ -539,7 +539,9 @@ def _write_3dm(model, filename, out_dir=None):
     path = os.path.join(out_dir or OUTPUT_DIR, filename)
     opts = rio.File3dmWriteOptions()
     opts.Version = 7
-    model.Write(path, opts)
+    ok = model.Write(path, opts)
+    if ok is False or not os.path.isfile(path):
+        raise IOError(f"Rhino failed to write {path}")
     return os.path.abspath(path)
 
 
@@ -1002,8 +1004,16 @@ def _solve_and_respond(specs):
         try:
             debug_dir = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
             os.makedirs(debug_dir, exist_ok=True)
-            saved = _save_geometries_3dm(window_pane, "WindowPane.3dm", out_dir=debug_dir)
-            _dbg(f"[solve] WindowPane debug export: {saved or 'no supported geometry'}")
+            import datetime as _dt
+            stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+            saved = _save_geometries_3dm(window_pane, f"WindowPane_{stamp}.3dm", out_dir=debug_dir)
+            try:
+                latest = _save_geometries_3dm(window_pane, "WindowPane.3dm", out_dir=debug_dir)
+            except Exception as e:
+                latest = None
+                _dbg(f"[solve] WindowPane latest export failed: {e}")
+            _dbg(f"[solve] WindowPane debug export: {saved or 'no supported geometry'}"
+                 f"{f' latest={latest}' if latest else ''}")
         except Exception as e:
             _dbg(f"[solve] WindowPane debug export failed: {e}")
 

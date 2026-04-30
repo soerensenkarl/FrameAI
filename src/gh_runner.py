@@ -188,17 +188,17 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
     # reach them via reflection — same pattern as Context Bake above.
     if data_nicknames:
         wanted = set(data_nicknames)
-        for obj in doc.Objects:
-            nick = getattr(obj, "NickName", None) or ""
-            if nick not in wanted:
-                continue
-            ot = obj.GetType()
-            vd_prop = ot.GetProperty("VolatileData")
+
+        def _values_from_param(param):
+            if param is None:
+                return []
+            pt = param.GetType()
+            vd_prop = pt.GetProperty("VolatileData")
             if not vd_prop:
-                continue
-            tree = vd_prop.GetValue(obj)
+                return []
+            tree = vd_prop.GetValue(param)
             if tree is None:
-                continue
+                return []
             vals = []
             try:
                 path_count = tree.PathCount
@@ -214,7 +214,34 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
                         if v is not None:
                             vals.append(v)
             except Exception:
+                return []
+            return vals
+
+        for obj in doc.Objects:
+            nick = getattr(obj, "NickName", None) or ""
+
+            # Standalone params, e.g. a loose Text/Panel param named "Tx".
+            if nick in wanted:
+                vals = _values_from_param(obj)
+                if vals:
+                    outputs[nick] = vals
+
+            # Component outputs, e.g. a Context Print component nicknamed
+            # "print" or with an output param named "print".
+            try:
+                params = obj.GetType().GetProperty("Params").GetValue(obj)
+                out_params = params.GetType().GetProperty("Output").GetValue(params)
+                count = out_params.GetType().GetProperty("Count").GetValue(out_params)
+            except Exception:
                 continue
-            outputs[nick] = vals
+            for i in range(count):
+                param = out_params[i]
+                param_nick = getattr(param, "NickName", None) or ""
+                key = nick if nick in wanted else param_nick
+                if key not in wanted:
+                    continue
+                vals = _values_from_param(param)
+                if vals:
+                    outputs[key] = vals
 
     return outputs
