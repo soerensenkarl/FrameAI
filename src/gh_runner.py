@@ -98,32 +98,51 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
              f"{len(params)} matching input(s)")
         for param in params:
             it = param.GetType()
-            # [DEBUG] Probe persistent / volatile state BEFORE we touch the
-            # param. Any nonzero count here means GH has data baked into the
-            # .gh file that will get merged with our contextual feed.
-            for _attr in ("PersistentDataCount", "VolatileDataCount",
-                          "DataCount", "SourceCount"):
-                try:
-                    _val = getattr(param, _attr)
-                    _dbg(f"          [pre-clear] {name}.{_attr} = {_val}")
-                except Exception:
-                    pass
-            try:
-                _pd = getattr(param, "PersistentData", None)
-                if _pd is not None:
-                    _dbg(f"          [pre-clear] {name}.PersistentData "
-                         f"DataCount={_pd.DataCount} "
-                         f"PathCount={_pd.PathCount}")
-            except Exception as _e:
-                _dbg(f"          [pre-clear] PersistentData probe failed: {_e}")
 
+            # [DEBUG] Reflection-based probe — pythonnet doesn't surface
+            # IGH_Param's inherited members through getattr, so we walk the
+            # type explicitly and read the integer counts that matter.
+            def _probe(label):
+                for prop_name in ("PersistentDataCount", "VolatileDataCount",
+                                  "DataCount", "SourceCount"):
+                    p = it.GetProperty(prop_name)
+                    if p is not None:
+                        try:
+                            v = p.GetValue(param)
+                            _dbg(f"          [{label}] {name}.{prop_name} = {v}")
+                        except Exception as e:
+                            _dbg(f"          [{label}] {name}.{prop_name} read failed: {e}")
+                pd_prop = it.GetProperty("PersistentData")
+                if pd_prop is not None:
+                    try:
+                        pd = pd_prop.GetValue(param)
+                        if pd is not None:
+                            pdt = pd.GetType()
+                            dc = pdt.GetProperty("DataCount").GetValue(pd)
+                            pc = pdt.GetProperty("PathCount").GetValue(pd)
+                            _dbg(f"          [{label}] {name}.PersistentData "
+                                 f"DataCount={dc} PathCount={pc}")
+                    except Exception as e:
+                        _dbg(f"          [{label}] PersistentData read failed: {e}")
+                src_prop = it.GetProperty("Sources")
+                if src_prop is not None:
+                    try:
+                        srcs = src_prop.GetValue(param)
+                        cnt = srcs.GetType().GetProperty("Count").GetValue(srcs)
+                        _dbg(f"          [{label}] {name}.Sources count = {cnt}")
+                    except Exception as e:
+                        _dbg(f"          [{label}] Sources read failed: {e}")
+
+            _probe("pre-clear")
             brep_list = System.Collections.ArrayList()
             for b in breps:
                 brep_list.Add(GH_Brep(b))
             it.GetMethod("ClearContextualData").Invoke(param, None)
+            _probe("post-clear")
             it.GetMethod("AssignContextualData").Invoke(
                 param, System.Array[System.Object]([brep_list])
             )
+            _probe("post-assign")
 
     # -- Solve --
     doc.NewSolution(True)
