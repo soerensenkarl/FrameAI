@@ -8,20 +8,6 @@ import clr
 import System
 clr.AddReference("Grasshopper")
 
-# [DEBUG] Append-only log for diagnosing window-frame duplication.
-_DEBUG_LOG = os.path.join(
-    os.path.dirname(__file__), os.pardir, "output", "_debug_solve.log"
-)
-
-
-def _dbg(msg):
-    try:
-        os.makedirs(os.path.dirname(_DEBUG_LOG), exist_ok=True)
-        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
-            f.write(msg + "\n")
-    except Exception:
-        pass
-
 import Rhino
 import Rhino.Geometry as rg
 from Grasshopper.Kernel import GH_DocumentIO
@@ -85,64 +71,18 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
     if not bake_components:
         raise RuntimeError("No Context Bake component found in the GH definition")
 
-    # [DEBUG] Inventory: count Get-Geometry inputs per NickName + bake count.
-    _dbg(f"[gh_runner] Bake components: {len(bake_components)}")
-    for nm, plist in input_params.items():
-        _dbg(f"[gh_runner] Get Geometry '{nm}': {len(plist)} component(s)")
-
     # -- Set each named input via contextual API --
     for name, breps in inputs.items():
         params = input_params.get(name, [])
-        # [DEBUG] How many breps are we feeding into each named input?
-        _dbg(f"[gh_runner] Feeding '{name}': {len(breps)} brep(s) into "
-             f"{len(params)} matching input(s)")
         for param in params:
             it = param.GetType()
-
-            # [DEBUG] Reflection-based probe — pythonnet doesn't surface
-            # IGH_Param's inherited members through getattr, so we walk the
-            # type explicitly and read the integer counts that matter.
-            def _probe(label):
-                for prop_name in ("PersistentDataCount", "VolatileDataCount",
-                                  "DataCount", "SourceCount"):
-                    p = it.GetProperty(prop_name)
-                    if p is not None:
-                        try:
-                            v = p.GetValue(param)
-                            _dbg(f"          [{label}] {name}.{prop_name} = {v}")
-                        except Exception as e:
-                            _dbg(f"          [{label}] {name}.{prop_name} read failed: {e}")
-                pd_prop = it.GetProperty("PersistentData")
-                if pd_prop is not None:
-                    try:
-                        pd = pd_prop.GetValue(param)
-                        if pd is not None:
-                            pdt = pd.GetType()
-                            dc = pdt.GetProperty("DataCount").GetValue(pd)
-                            pc = pdt.GetProperty("PathCount").GetValue(pd)
-                            _dbg(f"          [{label}] {name}.PersistentData "
-                                 f"DataCount={dc} PathCount={pc}")
-                    except Exception as e:
-                        _dbg(f"          [{label}] PersistentData read failed: {e}")
-                src_prop = it.GetProperty("Sources")
-                if src_prop is not None:
-                    try:
-                        srcs = src_prop.GetValue(param)
-                        cnt = srcs.GetType().GetProperty("Count").GetValue(srcs)
-                        _dbg(f"          [{label}] {name}.Sources count = {cnt}")
-                    except Exception as e:
-                        _dbg(f"          [{label}] Sources read failed: {e}")
-
-            _probe("pre-clear")
             brep_list = System.Collections.ArrayList()
             for b in breps:
                 brep_list.Add(GH_Brep(b))
             it.GetMethod("ClearContextualData").Invoke(param, None)
-            _probe("post-clear")
             it.GetMethod("AssignContextualData").Invoke(
                 param, System.Array[System.Object]([brep_list])
             )
-            _probe("post-assign")
 
     # -- Solve --
     doc.NewSolution(True)
@@ -174,11 +114,6 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
             val = val_prop.GetValue(item) if val_prop else item
             if val is not None:
                 geom_list.append(val)
-        # [DEBUG] How many items did this C-Bake hand back, and how many
-        # are duplicate object references vs distinct instances?
-        unique_ids = {id(g) for g in geom_list}
-        _dbg(f"[gh_runner] C-Bake (key='{key}'): "
-             f"{len(geom_list)} item(s), {len(unique_ids)} unique by id()")
         if geom_list:
             outputs.setdefault(key, []).extend(geom_list)
 
@@ -188,17 +123,17 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
     # reach them via reflection — same pattern as Context Bake above.
     if data_nicknames:
         wanted = set(data_nicknames)
-
-        def _values_from_param(param):
-            if param is None:
-                return []
-            pt = param.GetType()
-            vd_prop = pt.GetProperty("VolatileData")
+        for obj in doc.Objects:
+            nick = getattr(obj, "NickName", None) or ""
+            if nick not in wanted:
+                continue
+            ot = obj.GetType()
+            vd_prop = ot.GetProperty("VolatileData")
             if not vd_prop:
-                return []
-            tree = vd_prop.GetValue(param)
+                continue
+            tree = vd_prop.GetValue(obj)
             if tree is None:
-                return []
+                continue
             vals = []
             try:
                 path_count = tree.PathCount
@@ -208,49 +143,13 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
                         continue
                     for goo in branch:
                         if goo is None:
-                            vals.append("<null>")
                             continue
                         gp = goo.GetType().GetProperty("Value")
                         v = gp.GetValue(goo) if gp else goo
-                        vals.append("<null>" if v is None else v)
-            except Exception:
-                return []
-            return vals
-
-        def _read_matching_params(params, collection_name, obj_nick):
-            try:
-                param_list = params.GetType().GetProperty(collection_name).GetValue(params)
-                count = param_list.GetType().GetProperty("Count").GetValue(param_list)
-            except Exception:
-                return
-            for i in range(count):
-                param = param_list[i]
-                param_nick = getattr(param, "NickName", None) or ""
-                key = obj_nick if obj_nick in wanted else param_nick
-                if key not in wanted:
-                    continue
-                vals = _values_from_param(param)
-                outputs[key] = vals
-                _dbg(f"[gh_runner] data '{key}' from {collection_name} param "
-                     f"'{param_nick}': {len(vals)} item(s)")
-
-        for obj in doc.Objects:
-            nick = getattr(obj, "NickName", None) or ""
-
-            # Standalone params, e.g. a loose Text/Panel param named "Tx".
-            if nick in wanted:
-                vals = _values_from_param(obj)
-                outputs[nick] = vals
-                _dbg(f"[gh_runner] data '{nick}' from standalone param: "
-                     f"{len(vals)} item(s)")
-
-            # Component inputs/outputs, e.g. a Context Print input named
-            # "print" or a component/output param nicknamed "print".
-            try:
-                params = obj.GetType().GetProperty("Params").GetValue(obj)
+                        if v is not None:
+                            vals.append(v)
             except Exception:
                 continue
-            _read_matching_params(params, "Input", nick)
-            _read_matching_params(params, "Output", nick)
+            outputs[nick] = vals
 
     return outputs

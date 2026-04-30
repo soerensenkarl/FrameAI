@@ -1,15 +1,14 @@
 """Flask app – wall framing via rhinoinside."""
 import math
 import os
+import threading
 from functools import wraps
 
-# Ensure Rhino's native DLLs are findable
 RHINO_SYSTEM = r"C:\Program Files\Rhino 8\System"
 os.environ["PATH"] = RHINO_SYSTEM + os.pathsep + os.environ.get("PATH", "")
 
 from flask import Flask, request, send_file, jsonify
 
-# Dev/prod coexistence mode. Only one process can hold the Rhino license,
 # so the dev process loads without rhinoinside and forwards geometry
 # requests to prod via RHINO_PROXY_URL. UI-only iteration then works
 # concurrently with prod serving testers on port 5000.
@@ -123,19 +122,6 @@ PROJECTS_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "projects")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-# [DEBUG] Append-only diagnostic log shared with gh_runner — used to trace
-# the window-frame duplication issue.
-_DEBUG_LOG = os.path.join(OUTPUT_DIR, "_debug_solve.log")
-
-
-def _dbg(msg):
-    try:
-        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
-            f.write(msg + "\n")
-    except Exception:
-        pass
-
-
 def _safe_dirname(name):
     """Sanitize a user-supplied string for use as a single path segment.
 
@@ -168,6 +154,8 @@ def _resolve_project_dir(user_folder, project_folder):
 
 _DRAFT_SCRATCH_NAME = "_draft"
 _SCRATCH_FILES = ("design.3dm", "frame.3dm", "frame_mesh.3dm")
+_ARTIFACT_SAVE_THREADS = {}
+_ARTIFACT_SAVE_LOCK = threading.Lock()
 
 
 def project_scratch_dir(project_id):
@@ -187,6 +175,24 @@ def project_scratch_dir(project_id):
     d = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
     os.makedirs(d, exist_ok=True)
     return d
+
+
+def _pending_artifact_key(scratch_dir):
+    return os.path.abspath(scratch_dir or OUTPUT_DIR)
+
+
+def wait_for_pending_artifact_saves(scratch_dir=None, timeout=20.0):
+    """Wait for a background /solve-frame artifact save targeting scratch_dir.
+
+    Generate returns before .3dm files are written. Save/quote mirroring may
+    immediately need those files, so those slower flows wait here instead of
+    making the Generate click wait.
+    """
+    key = _pending_artifact_key(scratch_dir)
+    with _ARTIFACT_SAVE_LOCK:
+        thread = _ARTIFACT_SAVE_THREADS.get(key)
+    if thread and thread.is_alive():
+        thread.join(timeout)
 
 
 def promote_draft_to_project(project_id):
@@ -211,6 +217,7 @@ def promote_draft_to_project(project_id):
     except (TypeError, ValueError):
         return
     draft = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
+    wait_for_pending_artifact_saves(draft)
     if not os.path.isdir(draft):
         return
     target = os.path.join(OUTPUT_DIR, str(pid))
@@ -327,6 +334,7 @@ def write_project_mirror(project_dir, design_data, quote_data=None,
                   _add_iso(user_info, "created_at"))
 
     src_dir = scratch_dir or OUTPUT_DIR
+    wait_for_pending_artifact_saves(src_dir)
     for fname in ("design.3dm", "frame.3dm", "frame_mesh.3dm"):
         src = os.path.join(src_dir, fname)
         if os.path.isfile(src):
@@ -539,10 +547,7 @@ def _write_3dm(model, filename, out_dir=None):
     path = os.path.join(out_dir or OUTPUT_DIR, filename)
     opts = rio.File3dmWriteOptions()
     opts.Version = 7
-    ok = model.Write(path, opts)
-    if ok is False or not os.path.isfile(path):
-        _dbg(f"[solve] Rhino failed to write {path}")
-        return None
+    model.Write(path, opts)
     return os.path.abspath(path)
 
 
@@ -551,66 +556,6 @@ def _save_breps_3dm(breps, filename, out_dir=None):
     model = rio.File3dm()
     for b in breps:
         model.Objects.AddBrep(b)
-    return _write_3dm(model, filename, out_dir=out_dir)
-
-
-def _add_geometry_to_model(model, geom):
-    """Best-effort add of common Rhino geometry types to a File3dm model."""
-    if geom is None:
-        return False
-    if isinstance(geom, rg.Brep):
-        model.Objects.AddBrep(geom)
-        return True
-    if isinstance(geom, rg.Extrusion):
-        model.Objects.AddBrep(geom.ToBrep())
-        return True
-    if isinstance(geom, rg.Mesh):
-        model.Objects.AddMesh(geom)
-        return True
-    if isinstance(geom, rg.Curve):
-        model.Objects.AddCurve(geom)
-        return True
-    if isinstance(geom, rg.Point):
-        model.Objects.AddPoint(geom.Location)
-        return True
-    if isinstance(geom, rg.Point3d):
-        model.Objects.AddPoint(geom)
-        return True
-
-    # Grasshopper/pythonnet sometimes hands back valid Rhino objects where
-    # isinstance is unreliable. Fall back to the .NET type name.
-    get_type = getattr(geom, "GetType", None)
-    name = get_type().Name if get_type else ""
-    if name == "Brep":
-        model.Objects.AddBrep(geom)
-        return True
-    if name == "Extrusion":
-        model.Objects.AddBrep(geom.ToBrep())
-        return True
-    if name == "Mesh":
-        model.Objects.AddMesh(geom)
-        return True
-    if "Curve" in name:
-        model.Objects.AddCurve(geom)
-        return True
-    if name == "Point":
-        model.Objects.AddPoint(geom.Location)
-        return True
-    if name == "Point3d":
-        model.Objects.AddPoint(geom)
-        return True
-    return False
-
-
-def _save_geometries_3dm(geometries, filename, out_dir=None):
-    """Save mixed Rhino geometry to a Rhino 7 .3dm file."""
-    model = rio.File3dm()
-    count = 0
-    for geom in geometries or []:
-        if _add_geometry_to_model(model, geom):
-            count += 1
-    if count == 0:
-        return None
     return _write_3dm(model, filename, out_dir=out_dir)
 
 
@@ -764,7 +709,7 @@ def timber_prices():
 @requires_rhino
 def solve_frame():
     """Geometry entry point. Receives a JS-built spec bundle, builds Breps,
-    runs Grasshopper, returns mesh + part list + saved files."""
+    runs Grasshopper, returns mesh + part list, then saves .3dm files in the background."""
     try:
         specs = request.get_json()
         return _solve_and_respond(specs)
@@ -783,54 +728,12 @@ def _solve_inputs(specs):
     door_breps   = _breps_from_specs(specs["doors"])
     window_breps = _breps_from_specs(specs["windows"])
     roof_breps   = _breps_from_specs(specs["roof"])
-    # [DEBUG] Per-run header + counts of what we're handing to GH.
-    import datetime as _dt
-    _dbg("")
-    _dbg(f"=== /solve-frame run @ {_dt.datetime.now().isoformat(timespec='seconds')} ===")
-    _dbg(f"[solve] inputs: walls={len(wall_breps)} doors={len(door_breps)} "
-         f"windows={len(window_breps)} roof={len(roof_breps)}")
-    try:
-        _save_breps_3dm(window_breps, "_debug_windows_in.3dm", out_dir=OUTPUT_DIR)
-        _dbg(f"[solve] wrote _debug_windows_in.3dm "
-             f"({len(window_breps)} brep(s)) to {OUTPUT_DIR}")
-    except Exception as e:
-        _dbg(f"[solve] _debug_windows_in.3dm save failed: {e}")
     outputs = solve_definition("generator_3.0.gh", {
         "WallBreps":   wall_breps,
         "DoorBreps":   door_breps,
         "WindowBreps": window_breps,
         "RoofBreps":   roof_breps,
-    }, data_nicknames=["cross_sec_out", "count_out", "total_length_out", "Tx", "print"])
-    for _debug_name in ("Tx", "print"):
-        _debug_values = outputs.get(_debug_name)
-        if _debug_values is not None:
-            try:
-                debug_dir = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
-                os.makedirs(debug_dir, exist_ok=True)
-                debug_path = os.path.join(debug_dir, f"{_debug_name}.txt")
-                with open(debug_path, "w", encoding="utf-8") as f:
-                    for item in _debug_values:
-                        f.write(str(item))
-                        f.write("\n")
-                _dbg(f"[solve] {_debug_name} debug export: {len(_debug_values)} line(s) to {debug_path}")
-            except Exception as e:
-                _dbg(f"[solve] {_debug_name} debug export failed: {e}")
-    _dbg(f"[solve] outputs: BrepOut={len(outputs.get('BrepOut', []))} "
-         f"MeshOut={len(outputs.get('MeshOut', []))}")
-    # [DEBUG] GH-reported per-section counts. Sum should equal the bake count
-    # if every framed member is counted once; a mismatch reveals which side
-    # is duplicating.
-    _cs = outputs.get("cross_sec_out") or []
-    _ct = outputs.get("count_out") or []
-    _tl = outputs.get("total_length_out") or []
-    try:
-        _ct_total = sum(int(c) for c in _ct)
-    except Exception:
-        _ct_total = -1
-    _dbg(f"[solve] data: cross_sec_out={len(_cs)} count_out={len(_ct)} "
-         f"total_length_out={len(_tl)}  Σcount_out={_ct_total}")
-    for _s, _c, _l in zip(_cs, _ct, _tl):
-        _dbg(f"          {_s!s:>10}  count={_c}  total_len_m={_l}")
+    }, data_nicknames=["cross_sec_out", "count_out", "total_length_out"])
     return outputs, wall_breps, door_breps, window_breps, roof_breps
 
 
@@ -860,6 +763,39 @@ def _save_design_artifacts(wall_breps, door_breps, window_breps, roof_breps,
         frame_mesh_path = _write_3dm(model, "frame_mesh.3dm", out_dir=out)
 
     return design_path, frame_brep_path, frame_mesh_path
+
+
+def _save_design_artifacts_background(wall_breps, door_breps, window_breps,
+                                      roof_breps, breps_out, joined_mesh,
+                                      scratch_dir=None):
+    """Start the relatively slow .3dm artifact writes outside the response path."""
+    key = _pending_artifact_key(scratch_dir)
+
+    def _run():
+        try:
+            if previous and previous.is_alive():
+                previous.join()
+            _save_design_artifacts(
+                wall_breps, door_breps, window_breps, roof_breps,
+                breps_out, joined_mesh, scratch_dir=scratch_dir,
+            )
+        except Exception:
+            pass
+        finally:
+            with _ARTIFACT_SAVE_LOCK:
+                if _ARTIFACT_SAVE_THREADS.get(key) is thread:
+                    _ARTIFACT_SAVE_THREADS.pop(key, None)
+
+    thread = threading.Thread(
+        target=_run,
+        name=f"frameai-artifacts-{os.path.basename(key) or 'root'}",
+        daemon=True,
+    )
+    with _ARTIFACT_SAVE_LOCK:
+        previous = _ARTIFACT_SAVE_THREADS.get(key)
+        _ARTIFACT_SAVE_THREADS[key] = thread
+    thread.start()
+    return thread
 
 
 def _build_part_list(outputs, breps_out):
@@ -974,57 +910,12 @@ def _solve_and_respond(specs):
 
     breps_out = [b for b in (_to_brep(g) for g in brep_geoms) if b is not None]
 
-    # [DEBUG] Bucket frame breps by quantized bounding box. Any bucket with
-    # >1 brep is a positional duplicate (two members occupying the same
-    # space). Quantization 1mm absorbs floating-point noise.
-    from collections import defaultdict as _dd
-    _buckets = _dd(list)
-    for _i, _b in enumerate(breps_out):
-        _bb = _b.GetBoundingBox(True)
-        _key = (round(_bb.Min.X), round(_bb.Min.Y), round(_bb.Min.Z),
-                round(_bb.Max.X), round(_bb.Max.Y), round(_bb.Max.Z))
-        _buckets[_key].append(_i)
-    _dups = {k: idxs for k, idxs in _buckets.items() if len(idxs) > 1}
-    _dbg(f"[solve] breps_out: {len(breps_out)} total, "
-         f"{len(_buckets)} unique bbox(es), {len(_dups)} bbox(es) with duplicates")
-    for _key, _idxs in list(_dups.items())[:20]:
-        _dbg(f"          dup bbox {_key} -> indices {_idxs}")
-
     # Per-project scratch under OUTPUT_DIR/<project_id>/ — falls back to
     # OUTPUT_DIR/_draft/ when the design isn't tied to a saved project yet.
     # The save endpoint later copies from this directory into the disk mirror.
-    # Debug export requested for inspecting the GH Context Bake named
-    # "WindowPane". Always writes to output/_draft/ so it is easy to find,
-    # independent of whether this solve is attached to a saved project.
-    window_pane = None
-    for key, value in outputs.items():
-        if str(key).replace(" ", "").lower() == "windowpane":
-            window_pane = value
-            break
-    if window_pane:
-        try:
-            debug_dir = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
-            os.makedirs(debug_dir, exist_ok=True)
-            import datetime as _dt
-            stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-            saved = _save_geometries_3dm(window_pane, f"WindowPane_{stamp}.3dm", out_dir=debug_dir)
-            try:
-                latest = _save_geometries_3dm(window_pane, "WindowPane.3dm", out_dir=debug_dir)
-            except Exception as e:
-                latest = None
-                _dbg(f"[solve] WindowPane latest export failed: {e}")
-            _dbg(f"[solve] WindowPane debug export: {saved or 'no supported geometry'}"
-                 f"{f' latest={latest}' if latest else ''}")
-        except Exception as e:
-            _dbg(f"[solve] WindowPane debug export failed: {e}")
-
     project_spec = specs.get("project") if isinstance(specs.get("project"), dict) else None
     spec_pid = (project_spec or {}).get("id") if project_spec else None
     scratch = project_scratch_dir(spec_pid)
-    design_saved, frame_brep_saved, frame_mesh_saved = _save_design_artifacts(
-        wall_breps, door_breps, window_breps, roof_breps, breps_out, joined,
-        scratch_dir=scratch,
-    )
 
     verts, normals, tangents, tris = _members_to_triangles(mesh_geoms, breps_out)
     # Crease edges from the clean Brep topology — renders true member edges
@@ -1043,16 +934,17 @@ def _solve_and_respond(specs):
     build_minutes = member_count * 5  # ~5 min per member
     build_h, build_m = build_minutes // 60, build_minutes % 60
 
-    return jsonify({
+    response = jsonify({
         "vertices": verts,
         "normals": normals,
         "tangents": tangents,
         "faces": tris,
         "crease_edges": crease_edges,
         "result_count": len(mesh_geoms),
-        "design_saved": design_saved,
-        "frame_brep_saved": frame_brep_saved,
-        "frame_mesh_saved": frame_mesh_saved,
+        "artifacts_pending": True,
+        "design_saved": None,
+        "frame_brep_saved": None,
+        "frame_mesh_saved": None,
         "stats": {
             "member_count": member_count,
             "waste_pct": 0,
@@ -1062,6 +954,11 @@ def _solve_and_respond(specs):
             "part_list": part_list,
         },
     })
+    response.call_on_close(lambda: _save_design_artifacts_background(
+        wall_breps, door_breps, window_breps, roof_breps, breps_out, joined,
+        scratch_dir=scratch,
+    ))
+    return response
 
 
 @app.route("/api/feedback", methods=["POST"])
