@@ -1175,85 +1175,6 @@ function setDesignOpacity(opacity) {
   });
 }
 
-// ── Scan-plane generation animation ──────────────────────────────────────────
-const _scanU = { u_scanZ: { value: 0 }, u_scanActive: { value: 0 } };
-
-function _patchScanGlow(mat) {
-  if (!mat || mat._scanPatched) return;
-  if (!(mat.isMeshStandardMaterial || mat.isMeshPhongMaterial)) return;
-  mat._scanPatched = true;
-  const prev = mat.onBeforeCompile || null;
-  mat.onBeforeCompile = (shader) => {
-    if (prev) prev(shader);
-    shader.uniforms.u_scanZ      = _scanU.u_scanZ;
-    shader.uniforms.u_scanActive = _scanU.u_scanActive;
-    shader.vertexShader = 'varying float vScanWorldZ;\n' +
-      shader.vertexShader.replace(
-        '#include <worldpos_vertex>',
-        '#include <worldpos_vertex>\nvScanWorldZ = (modelMatrix * vec4(position,1.0)).z;'
-      );
-    shader.fragmentShader =
-      'varying float vScanWorldZ;\nuniform float u_scanZ;\nuniform float u_scanActive;\n' +
-      shader.fragmentShader.replace(
-        '#include <dithering_fragment>',
-        `#include <dithering_fragment>
-if (u_scanActive > 0.5) {
-  float _dist = abs(vScanWorldZ - u_scanZ);
-  float _core = smoothstep(30.0, 0.0, _dist);
-  float _halo = smoothstep(80.0, 0.0, _dist) * 0.35;
-  float _shimmer = 1.0 + 0.4 * sin(u_scanZ * 0.08 + vScanWorldZ * 0.05);
-  float _g = (_core + _halo) * _shimmer;
-  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.976,0.737,0.024), min(_g, 1.0));
-  gl_FragColor.a   = max(gl_FragColor.a, _g * 0.8);
-}`
-      );
-  };
-  mat.needsUpdate = true;
-}
-
-let _scanMesh = null, _scanRaf = null;
-
-function startScanAnim() {
-  [roomGroup, openingsGroup, iwGroup, roofGroup].forEach(g => {
-    if (!g) return;
-    g.traverse(o => {
-      if (!o.isMesh) return;
-      (Array.isArray(o.material) ? o.material : [o.material]).forEach(_patchScanGlow);
-    });
-  });
-
-  const box = new THREE.Box3();
-  [roomGroup, openingsGroup, iwGroup, roofGroup].forEach(g => { if (g) box.expandByObject(g); });
-  const topZ = box.isEmpty() ? 6000 : box.max.z + 300;
-
-  const geo = new THREE.PlaneGeometry(80000, 80000);
-  geo.rotateX(-Math.PI / 2);
-  _scanMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-    color: 0xF9BC06, transparent: true, opacity: 0.04,
-    depthWrite: false, blending: THREE.AdditiveBlending,
-  }));
-  _scanMesh.renderOrder = 10;
-  scene.add(_scanMesh);
-
-  _scanU.u_scanActive.value = 1;
-  const t0 = performance.now();
-  const PERIOD = 3000;
-
-  function tick(now) {
-    const t = ((now - t0) % PERIOD) / PERIOD;
-    const z = topZ * (1 - t);
-    _scanU.u_scanZ.value = z;
-    _scanMesh.position.z = z;
-    _scanRaf = requestAnimationFrame(tick);
-  }
-  _scanRaf = requestAnimationFrame(tick);
-}
-
-function stopScanAnim() {
-  if (_scanRaf) { cancelAnimationFrame(_scanRaf); _scanRaf = null; }
-  if (_scanMesh) { scene.remove(_scanMesh); _scanMesh.geometry.dispose(); _scanMesh.material.dispose(); _scanMesh = null; }
-  _scanU.u_scanActive.value = 0;
-}
 
 // Single source of truth for design/frame group visibility. The base rule is
 // "design groups live in steps 0–3, frame lives in 4–5"; dev overlay ORs the
@@ -4367,7 +4288,7 @@ function goToStep(n) {
         roofMat.depthWrite  = false;
         roofMat.needsUpdate = true;
         setDesignOpacity(0.5);
-        startScanAnim();
+        GenAnimation.start({ scene, groups: [roomGroup, openingsGroup, iwGroup, roofGroup], wallInfo, inH, houseMode, footprintWalls, interiorWalls, FF_WALL_OFFSET });
 
         if (firstVisit) {
           hint.classList.remove("small");
@@ -5031,7 +4952,7 @@ async function generateFrame() {
   roofMat.depthWrite  = false;
   roofMat.needsUpdate = true;
   setDesignOpacity(0.5);
-  if (!_scanRaf) startScanAnim();
+  if (!GenAnimation.active()) GenAnimation.start({ scene, groups: [roomGroup, openingsGroup, iwGroup, roofGroup], wallInfo, inH, houseMode, footprintWalls, interiorWalls, FF_WALL_OFFSET });
 
   const overlay = $("loadingOverlay");
   overlay.classList.add("active");
@@ -5060,7 +4981,7 @@ async function generateFrame() {
   } catch (err) {
     alert("Request failed: " + err.message);
   } finally {
-    stopScanAnim();
+    GenAnimation.stop();
     overlay.classList.remove("active");
     hint.style.display = "";
     hint.classList.add("small");

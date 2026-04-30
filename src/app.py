@@ -123,6 +123,19 @@ PROJECTS_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "projects")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
+# [DEBUG] Append-only diagnostic log shared with gh_runner — used to trace
+# the window-frame duplication issue.
+_DEBUG_LOG = os.path.join(OUTPUT_DIR, "_debug_solve.log")
+
+
+def _dbg(msg):
+    try:
+        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
+
 def _safe_dirname(name):
     """Sanitize a user-supplied string for use as a single path segment.
 
@@ -707,12 +720,26 @@ def _solve_inputs(specs):
     door_breps   = _breps_from_specs(specs["doors"])
     window_breps = _breps_from_specs(specs["windows"])
     roof_breps   = _breps_from_specs(specs["roof"])
+    # [DEBUG] Per-run header + counts of what we're handing to GH.
+    import datetime as _dt
+    _dbg("")
+    _dbg(f"=== /solve-frame run @ {_dt.datetime.now().isoformat(timespec='seconds')} ===")
+    _dbg(f"[solve] inputs: walls={len(wall_breps)} doors={len(door_breps)} "
+         f"windows={len(window_breps)} roof={len(roof_breps)}")
+    try:
+        _save_breps_3dm(window_breps, "_debug_windows_in.3dm", out_dir=OUTPUT_DIR)
+        _dbg(f"[solve] wrote _debug_windows_in.3dm "
+             f"({len(window_breps)} brep(s)) to {OUTPUT_DIR}")
+    except Exception as e:
+        _dbg(f"[solve] _debug_windows_in.3dm save failed: {e}")
     outputs = solve_definition("generator_3.0.gh", {
         "WallBreps":   wall_breps,
         "DoorBreps":   door_breps,
         "WindowBreps": window_breps,
         "RoofBreps":   roof_breps,
     }, data_nicknames=["cross_sec_out", "count_out", "total_length_out"])
+    _dbg(f"[solve] outputs: BrepOut={len(outputs.get('BrepOut', []))} "
+         f"MeshOut={len(outputs.get('MeshOut', []))}")
     return outputs, wall_breps, door_breps, window_breps, roof_breps
 
 
