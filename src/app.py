@@ -797,20 +797,21 @@ def _solve_inputs(specs):
         "DoorBreps":   door_breps,
         "WindowBreps": window_breps,
         "RoofBreps":   roof_breps,
-    }, data_nicknames=["cross_sec_out", "count_out", "total_length_out", "Tx"])
-    _tx = outputs.get("Tx")
-    if _tx is not None:
-        try:
-            debug_dir = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
-            os.makedirs(debug_dir, exist_ok=True)
-            tx_path = os.path.join(debug_dir, "Tx.txt")
-            with open(tx_path, "w", encoding="utf-8") as f:
-                for item in _tx:
-                    f.write(str(item))
-                    f.write("\n")
-            _dbg(f"[solve] Tx debug export: {len(_tx)} line(s) to {tx_path}")
-        except Exception as e:
-            _dbg(f"[solve] Tx debug export failed: {e}")
+    }, data_nicknames=["cross_sec_out", "count_out", "total_length_out", "Tx", "print"])
+    for _debug_name in ("Tx", "print"):
+        _debug_values = outputs.get(_debug_name)
+        if _debug_values is not None:
+            try:
+                debug_dir = os.path.join(OUTPUT_DIR, _DRAFT_SCRATCH_NAME)
+                os.makedirs(debug_dir, exist_ok=True)
+                debug_path = os.path.join(debug_dir, f"{_debug_name}.txt")
+                with open(debug_path, "w", encoding="utf-8") as f:
+                    for item in _debug_values:
+                        f.write(str(item))
+                        f.write("\n")
+                _dbg(f"[solve] {_debug_name} debug export: {len(_debug_values)} line(s) to {debug_path}")
+            except Exception as e:
+                _dbg(f"[solve] {_debug_name} debug export failed: {e}")
     _dbg(f"[solve] outputs: BrepOut={len(outputs.get('BrepOut', []))} "
          f"MeshOut={len(outputs.get('MeshOut', []))}")
     # [DEBUG] GH-reported per-section counts. Sum should equal the bake count
