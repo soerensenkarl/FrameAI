@@ -740,6 +740,20 @@ def _solve_inputs(specs):
     }, data_nicknames=["cross_sec_out", "count_out", "total_length_out"])
     _dbg(f"[solve] outputs: BrepOut={len(outputs.get('BrepOut', []))} "
          f"MeshOut={len(outputs.get('MeshOut', []))}")
+    # [DEBUG] GH-reported per-section counts. Sum should equal the bake count
+    # if every framed member is counted once; a mismatch reveals which side
+    # is duplicating.
+    _cs = outputs.get("cross_sec_out") or []
+    _ct = outputs.get("count_out") or []
+    _tl = outputs.get("total_length_out") or []
+    try:
+        _ct_total = sum(int(c) for c in _ct)
+    except Exception:
+        _ct_total = -1
+    _dbg(f"[solve] data: cross_sec_out={len(_cs)} count_out={len(_ct)} "
+         f"total_length_out={len(_tl)}  Σcount_out={_ct_total}")
+    for _s, _c, _l in zip(_cs, _ct, _tl):
+        _dbg(f"          {_s!s:>10}  count={_c}  total_len_m={_l}")
     return outputs, wall_breps, door_breps, window_breps, roof_breps
 
 
@@ -882,6 +896,22 @@ def _solve_and_respond(specs):
     joined.Normals.ComputeNormals()
 
     breps_out = [b for b in (_to_brep(g) for g in brep_geoms) if b is not None]
+
+    # [DEBUG] Bucket frame breps by quantized bounding box. Any bucket with
+    # >1 brep is a positional duplicate (two members occupying the same
+    # space). Quantization 1mm absorbs floating-point noise.
+    from collections import defaultdict as _dd
+    _buckets = _dd(list)
+    for _i, _b in enumerate(breps_out):
+        _bb = _b.GetBoundingBox(True)
+        _key = (round(_bb.Min.X), round(_bb.Min.Y), round(_bb.Min.Z),
+                round(_bb.Max.X), round(_bb.Max.Y), round(_bb.Max.Z))
+        _buckets[_key].append(_i)
+    _dups = {k: idxs for k, idxs in _buckets.items() if len(idxs) > 1}
+    _dbg(f"[solve] breps_out: {len(breps_out)} total, "
+         f"{len(_buckets)} unique bbox(es), {len(_dups)} bbox(es) with duplicates")
+    for _key, _idxs in list(_dups.items())[:20]:
+        _dbg(f"          dup bbox {_key} -> indices {_idxs}")
 
     # Per-project scratch under OUTPUT_DIR/<project_id>/ — falls back to
     # OUTPUT_DIR/_draft/ when the design isn't tied to a saved project yet.

@@ -98,6 +98,25 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
              f"{len(params)} matching input(s)")
         for param in params:
             it = param.GetType()
+            # [DEBUG] Probe persistent / volatile state BEFORE we touch the
+            # param. Any nonzero count here means GH has data baked into the
+            # .gh file that will get merged with our contextual feed.
+            for _attr in ("PersistentDataCount", "VolatileDataCount",
+                          "DataCount", "SourceCount"):
+                try:
+                    _val = getattr(param, _attr)
+                    _dbg(f"          [pre-clear] {name}.{_attr} = {_val}")
+                except Exception:
+                    pass
+            try:
+                _pd = getattr(param, "PersistentData", None)
+                if _pd is not None:
+                    _dbg(f"          [pre-clear] {name}.PersistentData "
+                         f"DataCount={_pd.DataCount} "
+                         f"PathCount={_pd.PathCount}")
+            except Exception as _e:
+                _dbg(f"          [pre-clear] PersistentData probe failed: {_e}")
+
             brep_list = System.Collections.ArrayList()
             for b in breps:
                 brep_list.Add(GH_Brep(b))
