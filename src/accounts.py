@@ -687,6 +687,13 @@ def _register_routes(app):
             return jsonify({"error": "you already have a project with that name"}), 409
         pid = cur.lastrowid
         _store_project_frame(db, pid, frame)
+        # First-save promotion: anonymous generates land in output/_draft/;
+        # move them into the new project's scratch before the mirror runs.
+        try:
+            from app import promote_draft_to_project
+            promote_draft_to_project(pid)
+        except Exception:
+            pass
         _log_event(db, pid, uid, "created", {"status": "draft", "name": name})
         _mirror_project_to_disk(db, uid, pid, name, design, quote)
         u = db.execute("SELECT email, display_name FROM users WHERE id = ?", (uid,)).fetchone()
@@ -885,6 +892,14 @@ def _register_routes(app):
         db.commit()
         pid = cur.lastrowid
         _store_project_frame(db, pid, frame)
+        # First-save promotion (see projects_create for context): pull
+        # anonymous-generate .3dm files from output/_draft/ into this
+        # project's scratch so the mirror can copy them on this very save.
+        try:
+            from app import promote_draft_to_project
+            promote_draft_to_project(pid)
+        except Exception:
+            pass
         _log_event(db, pid, uid, "created", {"status": "requested", "name": project_name})
         _log_event(db, pid, uid, "quote_submitted", {
             "address": address, "byggetilladelse": byggetilladelse,

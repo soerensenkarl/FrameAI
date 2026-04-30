@@ -195,11 +195,13 @@ def _register_routes(app, _db_fn):
         db.execute("DELETE FROM projects WHERE id = ?", (pid,))
         db.commit()
         try:
-            from app import PROJECTS_DIR
+            from app import PROJECTS_DIR, cleanup_project_scratch
             import shutil
             disk = os.path.join(PROJECTS_DIR, str(proj["user_id"]), str(pid))
             if os.path.isdir(disk):
                 shutil.rmtree(disk)
+            # Also clear the per-project /solve-frame scratch.
+            cleanup_project_scratch(pid)
         except Exception:
             pass  # disk cleanup is best-effort; DB row is gone either way.
         return jsonify({"ok": True})
