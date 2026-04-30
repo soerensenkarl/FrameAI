@@ -11,6 +11,8 @@ window.GenAnimation = (() => {
 
   let _scene = null, _mesh = null, _raf = null;
   let _studGroups = [];
+  let _studMat = null;
+  let _animId = 0;
 
   // ── Material patching ────────────────────────────────────────────────────
   function _patch(mat) {
@@ -64,16 +66,39 @@ if (u_scanActive > 0.5) {
     });
   }
 
-  // ── Stud-line sequence ───────────────────────────────────────────────────
+  // ── Box geometry helpers ─────────────────────────────────────────────────
+  function _getMat() {
+    if (!_studMat) {
+      _studMat = new THREE.MeshBasicMaterial({
+        color: 0xFF8010, transparent: true, opacity: 0.85,
+        depthTest: false, blending: THREE.AdditiveBlending,
+      });
+    }
+    return _studMat;
+  }
+
+  // Creates a box with `w` along wall.along, `d` along wall.outward, `h` along Z.
+  // `angle` = atan2(along.y, along.x) pre-computed per wall.
+  function _addBox(w, d, h, px, py, pz, angle) {
+    const geo = new THREE.BoxGeometry(w, d, h);
+    const mesh = new THREE.Mesh(geo, _getMat());
+    mesh.rotation.z = angle;
+    mesh.position.set(px, py, pz);
+    mesh.renderOrder = 11;
+    _scene.add(mesh);
+    _studGroups.push(mesh);
+  }
+
   function _clearStuds() {
     _studGroups.forEach(g => {
       _scene.remove(g);
       g.geometry.dispose();
-      g.material.dispose();
     });
     _studGroups = [];
+    if (_studMat) { _studMat.dispose(); _studMat = null; }
   }
 
+  // ── Raycasting ───────────────────────────────────────────────────────────
   function _shootRoof(rx, ry, wallH, roofGroup) {
     if (!roofGroup) return wallH;
     const rc = new THREE.Raycaster(
@@ -86,10 +111,10 @@ if (u_scanActive > 0.5) {
     return hits.length > 0 ? hits[0].point.z : wallH;
   }
 
+  // ── Stud-box sequence ────────────────────────────────────────────────────
   function _runStudSequence(walls, wallH, roofGroup) {
-    // Determine ridge axis from the roof's bounding box.
-    // For an X-ridge gable: roof spans full X at any Y, height varies with Y.
-    // → walls perpendicular to X (running along Y) are gable walls.
+    const myId = ++_animId;
+
     const roofBox = new THREE.Box3();
     if (roofGroup) roofBox.setFromObject(roofGroup);
     const hasGable    = !roofBox.isEmpty() && (roofBox.max.z - wallH) > 100;
@@ -97,11 +122,13 @@ if (u_scanActive > 0.5) {
     const cx = (roofBox.min.x + roofBox.max.x) / 2;
     const cy = (roofBox.min.y + roofBox.max.y) / 2;
 
-    // Pre-compute all stud positions + heights before animating
-    const wallStuds = walls.map(wall => {
+    const SW = 90, SD = 140, PH = 45; // stud width, outward depth, plate height (mm)
+
+    // Pre-compute stud positions + heights for every wall
+    const wallData = walls.map(wall => {
       const wallAlongX = Math.abs(wall.along.x) > 0.5;
-      // A gable wall runs perpendicular to the ridge.
       const isGable = hasGable && (ridgeAlongX ? !wallAlongX : wallAlongX);
+      const angle = Math.atan2(wall.along.y, wall.along.x);
 
       const studs = [];
       for (let u = 0; u <= wall.length + 1; u += 600) {
@@ -113,8 +140,7 @@ if (u_scanActive > 0.5) {
         if (wall.isInterior) {
           topZ = wallH;
         } else if (isGable) {
-          // Shift ray to the house centre along the ridge axis so the upward
-          // ray hits the actual sloping roof surface (not the eave edge).
+          // Shift ray to house centre along the ridge so it hits the slope interior.
           const rx = ridgeAlongX ? cx : x;
           const ry = ridgeAlongX ? y  : cy;
           topZ = _shootRoof(rx, ry, wallH, roofGroup);
@@ -123,33 +149,47 @@ if (u_scanActive > 0.5) {
         }
         studs.push({ x, y, topZ });
       }
-      return studs;
+      return { wall, angle, studs };
     });
 
-    const maxStuds = Math.max(0, ...wallStuds.map(s => s.length));
-    let step = 0;
+    // Phase 1: bottom plates (all walls simultaneously)
+    wallData.forEach(({ wall, angle }) => {
+      if (wall.length < 1) return;
+      const mx = wall.origin.x + wall.along.x * wall.length / 2;
+      const my = wall.origin.y + wall.along.y * wall.length / 2;
+      _addBox(wall.length, SD, PH, mx, my, PH / 2, angle);
+    });
 
-    function tick() {
-      if (step >= maxStuds) return;
-      wallStuds.forEach(studs => {
-        if (step >= studs.length) return;
-        const s = studs[step];
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(
-          [s.x, s.y, 0,  s.x, s.y, s.topZ], 3
-        ));
-        const ls = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
-          color: 0xFF8010, transparent: true, opacity: 0.8,
-          depthTest: false, blending: THREE.AdditiveBlending,
-        }));
-        ls.renderOrder = 11;
-        _scene.add(ls);
-        _studGroups.push(ls);
+    // Phase 2: top plates
+    setTimeout(() => {
+      if (_animId !== myId) return;
+      wallData.forEach(({ wall, angle }) => {
+        if (wall.length < 1) return;
+        const mx = wall.origin.x + wall.along.x * wall.length / 2;
+        const my = wall.origin.y + wall.along.y * wall.length / 2;
+        _addBox(wall.length, SD, PH, mx, my, wallH - PH / 2, angle);
       });
-      step++;
-      setTimeout(tick, 60);
-    }
-    tick();
+
+      // Phase 3: studs, one column per tick across all walls in parallel
+      setTimeout(() => {
+        if (_animId !== myId) return;
+        const maxStuds = Math.max(0, ...wallData.map(d => d.studs.length));
+        let step = 0;
+
+        function tick() {
+          if (_animId !== myId || step >= maxStuds) return;
+          wallData.forEach(({ studs, angle }) => {
+            if (step >= studs.length) return;
+            const s = studs[step];
+            const h = Math.max(s.topZ - PH, 1);
+            _addBox(SW, SD, h, s.x, s.y, PH + h / 2, angle);
+          });
+          step++;
+          setTimeout(tick, 30);
+        }
+        tick();
+      }, 150);
+    }, 150);
   }
 
   // ── Public API ───────────────────────────────────────────────────────────
@@ -190,7 +230,7 @@ if (u_scanActive > 0.5) {
           return;
         }
 
-        // Sweep done — remove plane, start stud sequence
+        // Sweep done — remove plane, start box sequence
         _raf = null;
         scene.remove(_mesh); _mesh.geometry.dispose(); _mesh.material.dispose(); _mesh = null;
         _u.u_scanActive.value = 0;
@@ -214,6 +254,7 @@ if (u_scanActive > 0.5) {
     },
 
     stop() {
+      _animId++; // cancel any pending stud timeouts
       if (_raf) { cancelAnimationFrame(_raf); _raf = null; }
       if (_mesh && _scene) { _scene.remove(_mesh); _mesh.geometry.dispose(); _mesh.material.dispose(); _mesh = null; }
       _u.u_scanActive.value = 0;
