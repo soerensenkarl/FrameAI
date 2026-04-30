@@ -74,28 +74,54 @@ if (u_scanActive > 0.5) {
     _studGroups = [];
   }
 
-  function _studTopZ(x, y, wallH, roofGroup) {
+  function _shootRoof(rx, ry, wallH, roofGroup) {
     if (!roofGroup) return wallH;
     const rc = new THREE.Raycaster(
-      new THREE.Vector3(x, y, 0),
+      new THREE.Vector3(rx, ry, 0),
       new THREE.Vector3(0, 0, 1),
-      wallH * 0.5,   // start checking above mid-wall
-      wallH * 3
+      wallH * 0.3,
+      wallH * 4
     );
     const hits = rc.intersectObject(roofGroup, true);
-    if (hits.length > 0) return hits[0].point.z;
-    return wallH;
+    return hits.length > 0 ? hits[0].point.z : wallH;
   }
 
   function _runStudSequence(walls, wallH, roofGroup) {
+    // Determine ridge axis from the roof's bounding box.
+    // For an X-ridge gable: roof spans full X at any Y, height varies with Y.
+    // → walls perpendicular to X (running along Y) are gable walls.
+    const roofBox = new THREE.Box3();
+    if (roofGroup) roofBox.setFromObject(roofGroup);
+    const hasGable    = !roofBox.isEmpty() && (roofBox.max.z - wallH) > 100;
+    const ridgeAlongX = (roofBox.max.x - roofBox.min.x) >= (roofBox.max.y - roofBox.min.y);
+    const cx = (roofBox.min.x + roofBox.max.x) / 2;
+    const cy = (roofBox.min.y + roofBox.max.y) / 2;
+
     // Pre-compute all stud positions + heights before animating
     const wallStuds = walls.map(wall => {
+      const wallAlongX = Math.abs(wall.along.x) > 0.5;
+      // A gable wall runs perpendicular to the ridge.
+      const isGable = hasGable && (ridgeAlongX ? !wallAlongX : wallAlongX);
+
       const studs = [];
       for (let u = 0; u <= wall.length + 1; u += 600) {
         const uc = Math.min(u, wall.length);
         const x = wall.origin.x + wall.along.x * uc;
         const y = wall.origin.y + wall.along.y * uc;
-        studs.push({ x, y, topZ: _studTopZ(x, y, wallH, roofGroup) });
+
+        let topZ;
+        if (wall.isInterior) {
+          topZ = wallH;
+        } else if (isGable) {
+          // Shift ray to the house centre along the ridge axis so the upward
+          // ray hits the actual sloping roof surface (not the eave edge).
+          const rx = ridgeAlongX ? cx : x;
+          const ry = ridgeAlongX ? y  : cy;
+          topZ = _shootRoof(rx, ry, wallH, roofGroup);
+        } else {
+          topZ = _shootRoof(x, y, wallH, roofGroup);
+        }
+        studs.push({ x, y, topZ });
       }
       return studs;
     });
