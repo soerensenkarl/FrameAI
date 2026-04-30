@@ -1229,7 +1229,7 @@ function startScanAnim() {
   const geo = new THREE.PlaneGeometry(80000, 80000);
   geo.rotateX(-Math.PI / 2);
   _scanMesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-    color: 0xF9BC06, transparent: true, opacity: 0.07,
+    color: 0xF9BC06, transparent: true, opacity: 0.04,
     depthWrite: false, blending: THREE.AdditiveBlending,
   }));
   _scanMesh.renderOrder = 10;
@@ -1237,7 +1237,7 @@ function startScanAnim() {
 
   _scanU.u_scanActive.value = 1;
   const t0 = performance.now();
-  const PERIOD = 1800;
+  const PERIOD = 3000;
 
   function tick(now) {
     const t = ((now - t0) % PERIOD) / PERIOD;
