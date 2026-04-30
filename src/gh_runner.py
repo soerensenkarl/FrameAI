@@ -208,14 +208,31 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
                         continue
                     for goo in branch:
                         if goo is None:
+                            vals.append("<null>")
                             continue
                         gp = goo.GetType().GetProperty("Value")
                         v = gp.GetValue(goo) if gp else goo
-                        if v is not None:
-                            vals.append(v)
+                        vals.append("<null>" if v is None else v)
             except Exception:
                 return []
             return vals
+
+        def _read_matching_params(params, collection_name, obj_nick):
+            try:
+                param_list = params.GetType().GetProperty(collection_name).GetValue(params)
+                count = param_list.GetType().GetProperty("Count").GetValue(param_list)
+            except Exception:
+                return
+            for i in range(count):
+                param = param_list[i]
+                param_nick = getattr(param, "NickName", None) or ""
+                key = obj_nick if obj_nick in wanted else param_nick
+                if key not in wanted:
+                    continue
+                vals = _values_from_param(param)
+                outputs[key] = vals
+                _dbg(f"[gh_runner] data '{key}' from {collection_name} param "
+                     f"'{param_nick}': {len(vals)} item(s)")
 
         for obj in doc.Objects:
             nick = getattr(obj, "NickName", None) or ""
@@ -223,25 +240,17 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
             # Standalone params, e.g. a loose Text/Panel param named "Tx".
             if nick in wanted:
                 vals = _values_from_param(obj)
-                if vals:
-                    outputs[nick] = vals
+                outputs[nick] = vals
+                _dbg(f"[gh_runner] data '{nick}' from standalone param: "
+                     f"{len(vals)} item(s)")
 
-            # Component outputs, e.g. a Context Print component nicknamed
-            # "print" or with an output param named "print".
+            # Component inputs/outputs, e.g. a Context Print input named
+            # "print" or a component/output param nicknamed "print".
             try:
                 params = obj.GetType().GetProperty("Params").GetValue(obj)
-                out_params = params.GetType().GetProperty("Output").GetValue(params)
-                count = out_params.GetType().GetProperty("Count").GetValue(out_params)
             except Exception:
                 continue
-            for i in range(count):
-                param = out_params[i]
-                param_nick = getattr(param, "NickName", None) or ""
-                key = nick if nick in wanted else param_nick
-                if key not in wanted:
-                    continue
-                vals = _values_from_param(param)
-                if vals:
-                    outputs[key] = vals
+            _read_matching_params(params, "Input", nick)
+            _read_matching_params(params, "Output", nick)
 
     return outputs
