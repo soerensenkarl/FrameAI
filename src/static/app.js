@@ -1163,6 +1163,18 @@ function applyPriceFactor(stats) {
   $("infoCostFab").textContent    = formatDKK(fab);
   $("infoPriceTotal").textContent = formatDKK(total);
 }
+function setDesignOpacity(opacity) {
+  const transparent = opacity < 1;
+  [roomGroup, openingsGroup, iwGroup].forEach(g => {
+    if (!g) return;
+    g.traverse(obj => {
+      if (!obj.isMesh) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach(m => { if (m) { m.transparent = transparent; m.opacity = opacity; m.needsUpdate = true; } });
+    });
+  });
+}
+
 // Single source of truth for design/frame group visibility. The base rule is
 // "design groups live in steps 0–3, frame lives in 4–5"; dev overlay ORs the
 // design groups back on in frame steps so the user can see both at once.
@@ -1170,6 +1182,7 @@ function syncOverlay() {
   const n = currentStep;
   const overlay = !!window._devOverlay;
   const inFrame = (n >= 4);
+  if (n <= 3) setDesignOpacity(1);   // restore when returning to design steps
   if (roomGroup)     roomGroup.visible     = (n <= 3)              || (overlay && inFrame);
   if (frameGroup)    frameGroup.visible    = inFrame;
   openingsGroup.visible                     = (n >= 2 && n <= 3)    || (overlay && inFrame);
@@ -4262,12 +4275,26 @@ function goToStep(n) {
         btnNext.style.display = "";
         hint.classList.add("small");
         hint.innerHTML = "Frame generated";
-      } else if (firstVisit) {
-        hint.classList.remove("small");
-        hint.innerHTML = stepIntroHints[4];
-        setTimeout(() => { generateFrame(); }, 1500);
       } else {
-        generateFrame();
+        // Keep house visible while Grasshopper runs (syncOverlay already hid it).
+        if (roomGroup)   roomGroup.visible   = true;
+        if (roofGroup)   roofGroup.visible   = true;
+        openingsGroup.visible = true;
+        iwGroup.visible       = true;
+        if (frameGroup)  frameGroup.visible  = false;
+        roofMat.transparent = true;
+        roofMat.opacity     = 0.2;
+        roofMat.depthWrite  = false;
+        roofMat.needsUpdate = true;
+        setDesignOpacity(0.5);
+
+        if (firstVisit) {
+          hint.classList.remove("small");
+          hint.innerHTML = stepIntroHints[4];
+          setTimeout(() => { generateFrame(); }, 1500);
+        } else {
+          generateFrame();
+        }
       }
       break;
 
@@ -4913,19 +4940,22 @@ async function generateFrame() {
   $("iwPanel").classList.remove("open");
   hint.style.display = "none";
 
-  // Design groups already hidden by setStep(4) → syncOverlay (or kept visible
-  // when the dev-mode overlay is on — we respect that).
+  // Keep the house visible (faded) while Grasshopper runs; swap to frame on success.
+  if (roomGroup)    roomGroup.visible    = true;
+  if (roofGroup)    roofGroup.visible    = true;
+  openingsGroup.visible = true;
+  iwGroup.visible       = true;
+  if (frameGroup)   frameGroup.visible   = false;
+  roofMat.transparent = true;
+  roofMat.opacity     = 0.2;
+  roofMat.depthWrite  = false;
+  roofMat.needsUpdate = true;
+  setDesignOpacity(0.5);
 
-  // Show loading overlay
   const overlay = $("loadingOverlay");
   overlay.classList.add("active");
 
-  // Spec is the source of truth: build it in JS and POST directly to
-  // /solve-frame, which turns it into Breps and runs Grasshopper.
   const specs = computeGeometrySpecs(reqBody);
-  // Tell the backend which saved project this generate belongs to so its
-  // .3dm scratch lands in OUTPUT_DIR/<project_id>/. Anonymous / unsaved
-  // sessions still generate fine — they just hit OUTPUT_DIR/_draft/.
   const auth = window.getAuthState?.();
   if (auth?.user && auth.projectId) {
     specs.project = { id: auth.projectId };
@@ -4941,6 +4971,7 @@ async function generateFrame() {
     if (json.error) { alert("Error: " + json.error); return; }
 
     applyFrameJson(json);
+    syncOverlay();
     infoPanel.classList.add("open");
     btnNext.textContent = NEXT_LABELS[4];
     btnNext.style.display = "";
@@ -7322,7 +7353,16 @@ onResize();
   $("menuSignOut").addEventListener("click", async () => {
     userMenu.classList.remove("open");
     await api("/api/auth/sign-out", { method: "POST" });
-    location.reload();
+    // Don't reload — the user's canvas (design + cached frame) stays put so
+    // they can keep working anonymously. We just drop the auth + project
+    // link so future saves don't try to write into the now-signed-out
+    // user's project. The project list panel auto-refreshes via refreshPill.
+    currentUser = null;
+    setCurrentProject(null, null);
+    projectDirty = false;
+    refreshPill();
+    projPanel.classList.remove("open");
+    userMenu.classList.remove("open");
   });
 
   // ── Account modal ──

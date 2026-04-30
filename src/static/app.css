@@ -772,31 +772,9 @@
     inset: 0;
     z-index: 50;
     display: none;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    gap: 18px;
-    background: rgba(10, 10, 10, 0.5);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    pointer-events: none;
   }
-  .loading-overlay.active { display: flex; }
-
-  .spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.1);
-    border-top-color: #F9BC06;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .loading-overlay .loading-text {
-    font-size: 14px;
-    font-weight: 500;
-    color: rgba(255, 255, 255, 0.6);
-  }
+  .loading-overlay.active { display: block; }
 
   /* ── Inline dim editor ── */
   .dim-edit {
@@ -1581,3 +1559,4 @@
     font-size: 12px; color: rgba(255,255,255,0.4);
     text-align: center; padding: 12px 0;
   }
+
