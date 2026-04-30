@@ -541,7 +541,8 @@ def _write_3dm(model, filename, out_dir=None):
     opts.Version = 7
     ok = model.Write(path, opts)
     if ok is False or not os.path.isfile(path):
-        raise IOError(f"Rhino failed to write {path}")
+        _dbg(f"[solve] Rhino failed to write {path}")
+        return None
     return os.path.abspath(path)
 
 
