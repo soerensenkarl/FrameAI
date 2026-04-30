@@ -8,6 +8,20 @@ import clr
 import System
 clr.AddReference("Grasshopper")
 
+# [DEBUG] Append-only log for diagnosing window-frame duplication.
+_DEBUG_LOG = os.path.join(
+    os.path.dirname(__file__), os.pardir, "output", "_debug_solve.log"
+)
+
+
+def _dbg(msg):
+    try:
+        os.makedirs(os.path.dirname(_DEBUG_LOG), exist_ok=True)
+        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+    except Exception:
+        pass
+
 import Rhino
 import Rhino.Geometry as rg
 from Grasshopper.Kernel import GH_DocumentIO
@@ -71,9 +85,17 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
     if not bake_components:
         raise RuntimeError("No Context Bake component found in the GH definition")
 
+    # [DEBUG] Inventory: count Get-Geometry inputs per NickName + bake count.
+    _dbg(f"[gh_runner] Bake components: {len(bake_components)}")
+    for nm, plist in input_params.items():
+        _dbg(f"[gh_runner] Get Geometry '{nm}': {len(plist)} component(s)")
+
     # -- Set each named input via contextual API --
     for name, breps in inputs.items():
         params = input_params.get(name, [])
+        # [DEBUG] How many breps are we feeding into each named input?
+        _dbg(f"[gh_runner] Feeding '{name}': {len(breps)} brep(s) into "
+             f"{len(params)} matching input(s)")
         for param in params:
             it = param.GetType()
             brep_list = System.Collections.ArrayList()
@@ -114,6 +136,11 @@ def solve_definition(gh_filename, inputs, data_nicknames=None):
             val = val_prop.GetValue(item) if val_prop else item
             if val is not None:
                 geom_list.append(val)
+        # [DEBUG] How many items did this C-Bake hand back, and how many
+        # are duplicate object references vs distinct instances?
+        unique_ids = {id(g) for g in geom_list}
+        _dbg(f"[gh_runner] C-Bake (key='{key}'): "
+             f"{len(geom_list)} item(s), {len(unique_ids)} unique by id()")
         if geom_list:
             outputs.setdefault(key, []).extend(geom_list)
 
